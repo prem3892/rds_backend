@@ -14,7 +14,7 @@ import { REDIS_CLIENT } from './redis.constants';
           host: configService.get<string>('redis.host'),
           port: configService.get<number>('redis.port'),
           password: configService.get<string | undefined>('redis.password'),
-          tls: {}, // Enable TLS for Upstash Redis
+          tls: configService.get<boolean>('redis.tls') ? {} : undefined,
           enableReadyCheck: true,
           maxRetriesPerRequest: 3,
           lazyConnect: false,

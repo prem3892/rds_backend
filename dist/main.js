@@ -78,9 +78,7 @@ async function bootstrap() {
     const redisService = app.get(redis_service_1.RedisService);
     const logger = new common_1.Logger('Bootstrap');
     app.enableCors({
-        origin: true,
-        methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-        credentials: true,
+        origin: ['*'],
     });
     app.useGlobalPipes(new common_1.ValidationPipe({
         whitelist: true,

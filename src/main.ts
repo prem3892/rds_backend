@@ -98,10 +98,28 @@ async function bootstrap() {
   const redisService = app.get(RedisService);
   const logger = new Logger('Bootstrap');
 
+  // app.enableCors({
+  //   origin: '*', // Configure for specific origins in production
+  //   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+  //   credentials: true,
+  // });
+  // app.enableCors({
+  //   // wrong!  in my case, anyway
+  //   origin: 'http://localhost:3000',
+  //   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  //   allowedHeaders: 'Content-Type, Accept',
+  //   credentials: true,
+  // });
+
+  // app.enableCors({
+  //   origin: 'http://localhost:3000',
+  //   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'], // 👈 OPTIONS is important
+  //   allowedHeaders: ['Content-Type', 'Authorization', 'Accept'], // 👈 Add Authorization if you're using bearer tokens
+  //   credentials: true,
+  // });
+
   app.enableCors({
-    origin: true, // Configure for specific origins in production
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true,
+    origin: ['*'],
   });
 
   app.useGlobalPipes(

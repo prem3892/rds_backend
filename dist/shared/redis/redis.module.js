@@ -26,7 +26,7 @@ exports.AppRedisModule = AppRedisModule = __decorate([
                         host: configService.get('redis.host'),
                         port: configService.get('redis.port'),
                         password: configService.get('redis.password'),
-                        tls: {},
+                        tls: configService.get('redis.tls') ? {} : undefined,
                         enableReadyCheck: true,
                         maxRetriesPerRequest: 3,
                         lazyConnect: false,

@@ -17,6 +17,10 @@ import { AppointmentsModule } from './appointments/appointments.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
+      envFilePath: (() => {
+        const NODE_ENV = process.env.NODE_ENV;
+        return NODE_ENV ? `.env.${NODE_ENV}` : '.env.local'; // Default to .env.local if no NODE_ENV specified
+      })(),
       load: [configuration],
       isGlobal: true, // Ensure ConfigService is globally available before AppRedisModule needs it
     }),

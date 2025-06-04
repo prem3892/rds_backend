@@ -29,6 +29,10 @@ exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
         imports: [
             config_1.ConfigModule.forRoot({
+                envFilePath: (() => {
+                    const NODE_ENV = process.env.NODE_ENV;
+                    return NODE_ENV ? `.env.${NODE_ENV}` : '.env.local';
+                })(),
                 load: [configuration_1.default],
                 isGlobal: true,
             }),

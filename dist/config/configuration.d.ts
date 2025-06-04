@@ -11,6 +11,7 @@ declare const _default: () => {
         host: string;
         port: number;
         password: string | undefined;
+        tls: boolean;
     };
     appDomain: string;
     chatTimers: {
