@@ -1,1 +1,0 @@
-{"version":3,"file":"get-messages.dto.js","sourceRoot":"","sources":["../../../src/chat/dto/get-messages.dto.ts"],"names":[],"mappings":";;;;;;;;;;;;AAAA,qDAA6D;AAE7D,MAAa,mBAAmB;IAG9B,KAAK,CAAU;IAIf,IAAI,CAAU;CACf;AARD,kDAQC;AALC;IAFC,IAAA,4BAAU,GAAE;IACZ,IAAA,gCAAc,GAAE;;kDACF;AAIf;IAFC,IAAA,4BAAU,GAAE;IACZ,IAAA,gCAAc,GAAE;;iDACH"}
