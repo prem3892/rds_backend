@@ -32,7 +32,7 @@ let WidgetsService = class WidgetsService {
             this.configService.get('appDomain') || 'http://localhost:8081';
     }
     generateInjectableScriptUrl(widgetId) {
-        return `https://${this.appDomain}/widgets/${widgetId.toString()}/script.js`;
+        return `https://localhost:5000/widgets/${widgetId.toString()}/script.js`;
     }
     async create(createWidgetDto, adminId) {
         if (createWidgetDto.departmentIds &&

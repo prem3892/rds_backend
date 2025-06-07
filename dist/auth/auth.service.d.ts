@@ -6,6 +6,7 @@ import { AdminRegisterDto } from './dto/admin-register.dto';
 import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { UserDocument } from 'src/schemas/user.schema';
 import { AgentsService } from 'src/agents/agents.service';
+import { Types } from 'mongoose';
 export declare class AuthService {
     private readonly usersService;
     private readonly agentsService;
@@ -16,7 +17,7 @@ export declare class AuthService {
         accessToken: string;
         user: any;
     }>;
-    register(registerDto: RegisterDto): Promise<UserDocument>;
+    register(registerDto: RegisterDto, adminId?: Types.ObjectId): Promise<UserDocument>;
     registerAdmin(adminRegisterDto: AdminRegisterDto): Promise<UserDocument>;
     validateSocketToken(token: string): Promise<JwtPayload | null>;
 }

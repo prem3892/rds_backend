@@ -119,7 +119,7 @@ async function bootstrap() {
   // });
 
   app.enableCors({
-    origin: ['*'],
+    origin: ['http://localhost:3000', 'http://127.0.0.1:8888'],
   });
 
   app.useGlobalPipes(
@@ -158,7 +158,7 @@ async function bootstrap() {
     process.exit(0);
   });
 
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   logger.log(`Application is running on: ${await app.getUrl()}`);
   logger.log(`WebSocket server is running on namespace /chat`);
 }

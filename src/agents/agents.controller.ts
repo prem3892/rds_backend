@@ -36,9 +36,9 @@ export class AgentsController {
     return this.agentsService.getAllAgentProfilesWithUserDetails();
   }
 
-  // Agent: Get their own profile
+  // Agent/Admin: Get their own profile
   @Get('me/profile')
-  @Roles(UserRole.AGENT)
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
   async getMyProfile(@AuthenticatedUser() user: JwtPayload) {
     const agentProfile = await this.agentsService.findAgentProfileByUserId(
       user.sub,
@@ -59,9 +59,9 @@ export class AgentsController {
     };
   }
 
-  // Agent: Update their own profile (limited fields + password via usersService)
+  // Agent/Admin: Update their own profile (limited fields + password via usersService)
   @Put('me/profile')
-  @Roles(UserRole.AGENT)
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
   async updateMyProfile(
     @AuthenticatedUser() user: JwtPayload,
     @Body() updateDto: UpdateAgentProfileDto & { password?: string }, // Allow password here
@@ -116,8 +116,11 @@ export class AgentsController {
       throw new BadRequestException('Invalid agent ID format');
     }
     const userToUpdate = await this.usersService.findByIdOrFail(agentId);
-    if (userToUpdate.role !== UserRole.AGENT) {
-      throw new BadRequestException('This user is not an agent.');
+    if (
+      userToUpdate.role !== UserRole.AGENT &&
+      userToUpdate.role !== UserRole.ADMIN
+    ) {
+      throw new BadRequestException('This user is not an agent or admin.');
     }
 
     // Update user-specific fields (firstName, lastName, email, password)
@@ -158,7 +161,7 @@ export class AgentsController {
 
   // For REST-based status updates (though primary is WebSocket)
   @Patch('status') // Or use /me/status for agent's own
-  @Roles(UserRole.AGENT) // Or ADMIN if admin can set status
+  @Roles(UserRole.AGENT, UserRole.ADMIN) // Both agents and admins can set status
   async setOnlineStatus(
     @AuthenticatedUser() user: JwtPayload,
     @Body() body: { isOnline: boolean },

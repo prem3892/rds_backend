@@ -7,6 +7,7 @@ import {
   ValidationPipe,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { ChatMessageService } from './services/chat-message/chat-message.service';
 import { ChatSessionService } from './services/chat-session/chat-session.service';
@@ -40,8 +41,9 @@ export class ChatController {
 
   // Agent: List agent's active chats (Not paginated, could be if list grows large)
   @Get('sessions/my-active')
-  @Roles(UserRole.AGENT)
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
   async getMyActiveSessions(@AuthenticatedUser() user: JwtPayload) {
+    Logger.log('my sessions');
     return this.chatSessionService.getActiveSessionsForAgent(user.sub);
   }
 

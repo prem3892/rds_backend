@@ -10,7 +10,7 @@ export declare class AgentsService {
     private readonly departmentsService;
     private readonly chatSessionService;
     constructor(agentProfileModel: Model<AgentProfileDocument>, usersService: UsersService, departmentsService: DepartmentsService, chatSessionService: ChatSessionService);
-    createAgentProfile(userId: Types.ObjectId, initialProfileData?: Partial<AgentProfile>): Promise<AgentProfileDocument>;
+    createAgentProfile(userId: Types.ObjectId, adminId?: Types.ObjectId, initialProfileData?: Partial<AgentProfile>): Promise<AgentProfileDocument>;
     deleteAgentProfile(userId: Types.ObjectId): Promise<AgentProfileDocument | null>;
     findAgentProfileByUserId(userId: string | Types.ObjectId): Promise<AgentProfileDocument | null>;
     findAgentProfileByUserIdOrFail(userId: string | Types.ObjectId): Promise<AgentProfileDocument>;

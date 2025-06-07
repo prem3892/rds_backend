@@ -16,6 +16,9 @@ import { RolesGuard } from '../shared/guards/roles.guard';
 import { Roles } from '../shared/decorators/roles.decorator';
 import { UserRole } from '../shared/constants/enums';
 import { UserDocument } from 'src/schemas/user.schema';
+import { AuthenticatedUser } from '../shared/decorators/user.decorator';
+import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
+import { Types } from 'mongoose';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('users')
@@ -25,9 +28,13 @@ export class UsersController {
   @Post()
   @Roles(UserRole.ADMIN)
   async create(
+    @AuthenticatedUser() admin: JwtPayload,
     @Body() createUserDto: CreateUserDto,
   ): Promise<Omit<UserDocument, 'password'>> {
-    const user = await this.usersService.create(createUserDto);
+    const user = await this.usersService.create(
+      createUserDto,
+      new Types.ObjectId(admin.sub),
+    );
     const { password, ...result } = user.toObject();
     return result;
   }
@@ -55,12 +62,17 @@ export class UsersController {
   @Put(':userId')
   @Roles(UserRole.ADMIN) // Or allow user to update their own profile
   async update(
+    @AuthenticatedUser() admin: JwtPayload,
     @Param('userId') userId: string,
     @Body() updateUserDto: UpdateUserDto,
   ): Promise<Omit<UserDocument, 'password'>> {
     // Ensure ADMIN cannot accidentally demote the last ADMIN or change their own role if not allowed
     // Add more specific logic if needed for role changes.
-    const user = await this.usersService.update(userId, updateUserDto);
+    const user = await this.usersService.update(
+      userId,
+      updateUserDto,
+      new Types.ObjectId(admin.sub),
+    );
     const { password, ...result } = user.toObject();
     return result;
   }

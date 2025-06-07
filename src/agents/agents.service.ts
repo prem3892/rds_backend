@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Inject,
   forwardRef,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -31,12 +32,21 @@ export class AgentsService {
 
   async createAgentProfile(
     userId: Types.ObjectId,
+    adminId?: Types.ObjectId, // should be optional ?
     initialProfileData: Partial<AgentProfile> = {},
   ): Promise<AgentProfileDocument> {
     const user = await this.usersService.findById(userId);
-    if (!user || user.role !== UserRole.AGENT) {
-      throw new BadRequestException('User is not an Agent or does not exist.');
+    if (
+      !user ||
+      (user.role !== UserRole.AGENT && user.role !== UserRole.ADMIN)
+    ) {
+      throw new BadRequestException(
+        'User is not an Agent/Admin or does not exist.',
+      );
     }
+
+    // If adminId is not provided, use the userId itself (for self-registration or admin creating their own profile)
+    const effectiveAdminId = adminId || userId;
 
     const existingProfile = await this.agentProfileModel
       .findById(userId)
@@ -44,14 +54,17 @@ export class AgentsService {
     if (existingProfile) {
       // Potentially update if called again, or throw ConflictException
       // For now, let's assume it can be updated if called again with new data
-      Object.assign(existingProfile, initialProfileData, { userId }); // Ensure userId is set
+      Object.assign(existingProfile, initialProfileData, {
+        userId,
+        adminId: effectiveAdminId,
+      }); // Ensure userId and adminId are set
       return existingProfile.save();
     }
 
     const agentProfile = new this.agentProfileModel({
       ...initialProfileData,
       userId: userId, // Explicitly set userId
-      _id: userId, // Ensure _id is the same as userId
+      adminId: effectiveAdminId, // Set adminId
     });
     return agentProfile.save();
   }
@@ -154,8 +167,13 @@ export class AgentsService {
     isOnline: boolean,
   ): Promise<AgentProfileDocument> {
     const agentProfile = await this.agentProfileModel
-      .findById(agentUserId)
+      .findOne({ userId: new Types.ObjectId(agentUserId) })
+      .populate('departmentIds')
       .exec();
+
+    Logger.log(
+      `Setting online status for agent ${agentProfile?.userId}: ${isOnline}`,
+    );
     if (!agentProfile) {
       throw new NotFoundException(
         `Agent profile for user ID ${agentUserId} not found.`,

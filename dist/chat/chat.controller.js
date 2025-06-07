@@ -35,6 +35,7 @@ let ChatController = class ChatController {
         return this.chatSessionService.findAllPaginated(queryDto);
     }
     async getMyActiveSessions(user) {
+        common_1.Logger.log('my sessions');
         return this.chatSessionService.getActiveSessionsForAgent(user.sub);
     }
     async getMessagesForSession(sessionId, queryDto, user) {
@@ -63,7 +64,7 @@ __decorate([
 ], ChatController.prototype, "getAllChatSessions", null);
 __decorate([
     (0, common_1.Get)('sessions/my-active'),
-    (0, roles_decorator_1.Roles)(enums_1.UserRole.AGENT),
+    (0, roles_decorator_1.Roles)(enums_1.UserRole.AGENT, enums_1.UserRole.ADMIN),
     __param(0, (0, user_decorator_1.AuthenticatedUser)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),

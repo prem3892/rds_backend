@@ -261,17 +261,33 @@ let ChatGateway = ChatGateway_1 = class ChatGateway {
     async broadcastAgentPoolStatusUpdateForAgent(agentProfile) {
         if (!agentProfile ||
             !agentProfile.departmentIds ||
-            !agentProfile.domainAccess)
+            !Array.isArray(agentProfile.departmentIds) ||
+            !agentProfile.domainAccess ||
+            !Array.isArray(agentProfile.domainAccess)) {
+            this.logger.warn(`Cannot broadcast agent pool status update: invalid agent profile data`, {
+                hasProfile: !!agentProfile,
+                hasDepartmentIds: !!agentProfile?.departmentIds,
+                isDepartmentIdsArray: Array.isArray(agentProfile?.departmentIds),
+                hasDomainAccess: !!agentProfile?.domainAccess,
+                isDomainAccessArray: Array.isArray(agentProfile?.domainAccess),
+            });
             return;
+        }
         for (const deptId of agentProfile.departmentIds) {
             for (const domain of agentProfile.domainAccess) {
-                const onlineAgents = await this.agentsService.getEligibleOnlineAgents(new mongoose_1.Types.ObjectId(deptId), domain);
-                this.server.to('/chat').emit('server:agent_pool_status_update', {
-                    departmentId: deptId.toString(),
-                    domain: domain,
-                    onlineAgentsCount: onlineAgents.length,
-                    isAvailable: onlineAgents.length > 0,
-                });
+                try {
+                    const onlineAgents = await this.agentsService.getEligibleOnlineAgents(new mongoose_1.Types.ObjectId(deptId), domain);
+                    this.server.to('/chat').emit('server:agent_pool_status_update', {
+                        departmentId: deptId.toString(),
+                        domain: domain,
+                        onlineAgentsCount: onlineAgents.length,
+                        isAvailable: onlineAgents.length > 0,
+                    });
+                    this.logger.log(`Broadcasted agent pool status update for dept ${deptId} domain ${domain}: ${onlineAgents.length} agents available`);
+                }
+                catch (error) {
+                    this.logger.error(`Failed to broadcast agent pool status update for dept ${deptId} domain ${domain}`, error);
+                }
             }
         }
     }

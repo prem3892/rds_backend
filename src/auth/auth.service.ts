@@ -14,6 +14,7 @@ import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { UserRole } from '../shared/constants/enums';
 import { UserDocument } from 'src/schemas/user.schema';
 import { AgentsService } from 'src/agents/agents.service';
+import { Types } from 'mongoose';
 
 @Injectable()
 export class AuthService {
@@ -60,7 +61,10 @@ export class AuthService {
     };
   }
 
-  async register(registerDto: RegisterDto): Promise<UserDocument> {
+  async register(
+    registerDto: RegisterDto,
+    adminId?: Types.ObjectId,
+  ): Promise<UserDocument> {
     // This registration should ideally be restricted or done by a super-admin
     // For simplicity, allowing direct registration now.
     // Check if user already exists
@@ -69,13 +73,12 @@ export class AuthService {
       throw new ConflictException('User with this email already exists.');
     }
 
-    const user = await this.usersService.create({
-      ...registerDto,
-    });
-
-    if (user.role === UserRole.AGENT) {
-      await this.agentsService.createAgentProfile(user._id);
-    }
+    const user = await this.usersService.create(
+      {
+        ...registerDto,
+      },
+      adminId,
+    );
 
     return user;
   }
@@ -95,9 +98,8 @@ export class AuthService {
       role: UserRole.ADMIN, // Explicitly set role to ADMIN
     });
 
-    // Admin users might not need an "agent profile",
-    // but if there's any generic profile setup, it could be done here.
-    // For now, we assume admins don't have agent profiles.
+    // Create agent profile for admin since admin is also an agent with super abilities
+    await this.agentsService.createAgentProfile(user._id);
 
     return user;
   }

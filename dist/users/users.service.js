@@ -26,7 +26,7 @@ let UsersService = class UsersService {
         this.userModel = userModel;
         this.agentsService = agentsService;
     }
-    async create(createUserDto) {
+    async create(createUserDto, adminId) {
         const existingUser = await this.userModel
             .findOne({ email: createUserDto.email.toLowerCase() })
             .exec();
@@ -35,8 +35,9 @@ let UsersService = class UsersService {
         }
         const createdUser = new this.userModel(createUserDto);
         const savedUser = await createdUser.save();
-        if (savedUser.role === enums_1.UserRole.AGENT) {
-            await this.agentsService.createAgentProfile(savedUser._id);
+        if (savedUser.role === enums_1.UserRole.AGENT ||
+            savedUser.role === enums_1.UserRole.ADMIN) {
+            await this.agentsService.createAgentProfile(savedUser._id, adminId);
         }
         return savedUser;
     }
@@ -70,7 +71,7 @@ let UsersService = class UsersService {
             .lean()
             .exec();
     }
-    async update(id, updateUserDto) {
+    async update(id, updateUserDto, adminId) {
         const user = await this.userModel.findById(id).exec();
         if (!user) {
             throw new common_1.NotFoundException(`User with ID ${id} not found`);
@@ -94,11 +95,12 @@ let UsersService = class UsersService {
         if (updateUserDto.role)
             user.role = updateUserDto.role;
         const updatedUser = await user.save();
-        if (oldRole !== enums_1.UserRole.AGENT && updatedUser.role === enums_1.UserRole.AGENT) {
-            await this.agentsService.createAgentProfile(updatedUser._id);
+        const needsAgentProfile = (role) => role === enums_1.UserRole.AGENT || role === enums_1.UserRole.ADMIN;
+        if (!needsAgentProfile(oldRole) && needsAgentProfile(updatedUser.role)) {
+            await this.agentsService.createAgentProfile(updatedUser._id, adminId);
         }
-        else if (oldRole === enums_1.UserRole.AGENT &&
-            updatedUser.role !== enums_1.UserRole.AGENT) {
+        else if (needsAgentProfile(oldRole) &&
+            !needsAgentProfile(updatedUser.role)) {
             await this.agentsService.deleteAgentProfile(updatedUser._id);
         }
         const { password, ...result } = updatedUser.toObject();
@@ -109,7 +111,7 @@ let UsersService = class UsersService {
         if (!user) {
             throw new common_1.NotFoundException(`User with ID ${id} not found`);
         }
-        if (user.role === enums_1.UserRole.AGENT) {
+        if (user.role === enums_1.UserRole.AGENT || user.role === enums_1.UserRole.ADMIN) {
             await this.agentsService.deleteAgentProfile(user._id);
         }
         const { password, ...result } = user.toObject();

@@ -14,6 +14,7 @@ const mongoose_1 = require("@nestjs/mongoose");
 const mongoose_2 = require("mongoose");
 let AgentProfile = class AgentProfile {
     userId;
+    adminId;
     departmentIds;
     domainAccess;
     isOnline;
@@ -31,6 +32,15 @@ __decorate([
     }),
     __metadata("design:type", mongoose_2.Types.ObjectId)
 ], AgentProfile.prototype, "userId", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({
+        type: mongoose_2.Types.ObjectId,
+        ref: 'User',
+        index: true,
+        required: true,
+    }),
+    __metadata("design:type", mongoose_2.Types.ObjectId)
+], AgentProfile.prototype, "adminId", void 0);
 __decorate([
     (0, mongoose_1.Prop)({
         type: [{ type: mongoose_2.Types.ObjectId, ref: 'Department' }],
@@ -56,13 +66,7 @@ __decorate([
     __metadata("design:type", Date)
 ], AgentProfile.prototype, "lastSeen", void 0);
 exports.AgentProfile = AgentProfile = __decorate([
-    (0, mongoose_1.Schema)({ timestamps: false, _id: false })
+    (0, mongoose_1.Schema)({ timestamps: false })
 ], AgentProfile);
 exports.AgentProfileSchema = mongoose_1.SchemaFactory.createForClass(AgentProfile);
-exports.AgentProfileSchema.pre('save', function (next) {
-    if (this.isNew && this.userId) {
-        this._id = this.userId;
-    }
-    next();
-});
 //# sourceMappingURL=agent-profile.schema.js.map

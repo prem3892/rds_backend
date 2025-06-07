@@ -21,13 +21,15 @@ const jwt_auth_guard_1 = require("../shared/guards/jwt-auth.guard");
 const roles_guard_1 = require("../shared/guards/roles.guard");
 const roles_decorator_1 = require("../shared/decorators/roles.decorator");
 const enums_1 = require("../shared/constants/enums");
+const user_decorator_1 = require("../shared/decorators/user.decorator");
+const mongoose_1 = require("mongoose");
 let UsersController = class UsersController {
     usersService;
     constructor(usersService) {
         this.usersService = usersService;
     }
-    async create(createUserDto) {
-        const user = await this.usersService.create(createUserDto);
+    async create(admin, createUserDto) {
+        const user = await this.usersService.create(createUserDto, new mongoose_1.Types.ObjectId(admin.sub));
         const { password, ...result } = user.toObject();
         return result;
     }
@@ -43,8 +45,8 @@ let UsersController = class UsersController {
         const { password, ...result } = user.toObject();
         return result;
     }
-    async update(userId, updateUserDto) {
-        const user = await this.usersService.update(userId, updateUserDto);
+    async update(admin, userId, updateUserDto) {
+        const user = await this.usersService.update(userId, updateUserDto, new mongoose_1.Types.ObjectId(admin.sub));
         const { password, ...result } = user.toObject();
         return result;
     }
@@ -58,9 +60,10 @@ exports.UsersController = UsersController;
 __decorate([
     (0, common_1.Post)(),
     (0, roles_decorator_1.Roles)(enums_1.UserRole.ADMIN),
-    __param(0, (0, common_1.Body)()),
+    __param(0, (0, user_decorator_1.AuthenticatedUser)()),
+    __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [create_user_dto_1.CreateUserDto]),
+    __metadata("design:paramtypes", [Object, create_user_dto_1.CreateUserDto]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "create", null);
 __decorate([
@@ -81,10 +84,11 @@ __decorate([
 __decorate([
     (0, common_1.Put)(':userId'),
     (0, roles_decorator_1.Roles)(enums_1.UserRole.ADMIN),
-    __param(0, (0, common_1.Param)('userId')),
-    __param(1, (0, common_1.Body)()),
+    __param(0, (0, user_decorator_1.AuthenticatedUser)()),
+    __param(1, (0, common_1.Param)('userId')),
+    __param(2, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, update_user_dto_1.UpdateUserDto]),
+    __metadata("design:paramtypes", [Object, String, update_user_dto_1.UpdateUserDto]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "update", null);
 __decorate([

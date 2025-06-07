@@ -76,8 +76,9 @@ let AgentsController = class AgentsController {
             throw new common_1.BadRequestException('Invalid agent ID format');
         }
         const userToUpdate = await this.usersService.findByIdOrFail(agentId);
-        if (userToUpdate.role !== enums_1.UserRole.AGENT) {
-            throw new common_1.BadRequestException('This user is not an agent.');
+        if (userToUpdate.role !== enums_1.UserRole.AGENT &&
+            userToUpdate.role !== enums_1.UserRole.ADMIN) {
+            throw new common_1.BadRequestException('This user is not an agent or admin.');
         }
         const userUpdatePayload = {};
         if (updateDto.password)
@@ -126,7 +127,7 @@ __decorate([
 ], AgentsController.prototype, "getAllAgentsWithProfiles", null);
 __decorate([
     (0, common_1.Get)('me/profile'),
-    (0, roles_decorator_1.Roles)(enums_1.UserRole.AGENT),
+    (0, roles_decorator_1.Roles)(enums_1.UserRole.AGENT, enums_1.UserRole.ADMIN),
     __param(0, (0, user_decorator_1.AuthenticatedUser)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
@@ -134,7 +135,7 @@ __decorate([
 ], AgentsController.prototype, "getMyProfile", null);
 __decorate([
     (0, common_1.Put)('me/profile'),
-    (0, roles_decorator_1.Roles)(enums_1.UserRole.AGENT),
+    (0, roles_decorator_1.Roles)(enums_1.UserRole.AGENT, enums_1.UserRole.ADMIN),
     __param(0, (0, user_decorator_1.AuthenticatedUser)()),
     __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
@@ -152,7 +153,7 @@ __decorate([
 ], AgentsController.prototype, "updateAgentProfileByAdmin", null);
 __decorate([
     (0, common_1.Patch)('status'),
-    (0, roles_decorator_1.Roles)(enums_1.UserRole.AGENT),
+    (0, roles_decorator_1.Roles)(enums_1.UserRole.AGENT, enums_1.UserRole.ADMIN),
     __param(0, (0, user_decorator_1.AuthenticatedUser)()),
     __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),

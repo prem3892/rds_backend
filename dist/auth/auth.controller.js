@@ -22,6 +22,8 @@ const jwt_auth_guard_1 = require("../shared/guards/jwt-auth.guard");
 const roles_decorator_1 = require("../shared/decorators/roles.decorator");
 const enums_1 = require("../shared/constants/enums");
 const roles_guard_1 = require("../shared/guards/roles.guard");
+const user_decorator_1 = require("../shared/decorators/user.decorator");
+const mongoose_1 = require("mongoose");
 let AuthController = class AuthController {
     authService;
     constructor(authService) {
@@ -30,8 +32,8 @@ let AuthController = class AuthController {
     async login(loginDto) {
         return this.authService.login(loginDto);
     }
-    async register(registerDto) {
-        const user = await this.authService.register(registerDto);
+    async register(admin, registerDto) {
+        const user = await this.authService.register(registerDto, new mongoose_1.Types.ObjectId(admin.sub));
         const { password, ...result } = user.toObject();
         return result;
     }
@@ -54,9 +56,10 @@ __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
     (0, roles_decorator_1.Roles)(enums_1.UserRole.ADMIN),
     (0, common_1.Post)('register'),
-    __param(0, (0, common_1.Body)()),
+    __param(0, (0, user_decorator_1.AuthenticatedUser)()),
+    __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [register_dto_1.RegisterDto]),
+    __metadata("design:paramtypes", [Object, register_dto_1.RegisterDto]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "register", null);
 __decorate([

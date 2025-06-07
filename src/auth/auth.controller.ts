@@ -16,6 +16,9 @@ import { Roles } from '../shared/decorators/roles.decorator';
 import { UserRole } from '../shared/constants/enums';
 import { RolesGuard } from '../shared/guards/roles.guard';
 import { UserDocument } from 'src/schemas/user.schema';
+import { AuthenticatedUser } from '../shared/decorators/user.decorator';
+import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
+import { Types } from 'mongoose';
 
 @Controller('auth')
 export class AuthController {
@@ -33,9 +36,13 @@ export class AuthController {
   @Roles(UserRole.ADMIN)
   @Post('register')
   async register(
+    @AuthenticatedUser() admin: JwtPayload,
     @Body() registerDto: RegisterDto,
   ): Promise<Omit<UserDocument, 'password'>> {
-    const user = await this.authService.register(registerDto);
+    const user = await this.authService.register(
+      registerDto,
+      new Types.ObjectId(admin.sub),
+    );
     const { password, ...result } = user.toObject();
     return result;
   }

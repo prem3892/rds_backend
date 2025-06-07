@@ -53,17 +53,14 @@ let AuthService = class AuthService {
             },
         };
     }
-    async register(registerDto) {
+    async register(registerDto, adminId) {
         const existingUser = await this.usersService.findByEmail(registerDto.email);
         if (existingUser) {
             throw new common_1.ConflictException('User with this email already exists.');
         }
         const user = await this.usersService.create({
             ...registerDto,
-        });
-        if (user.role === enums_1.UserRole.AGENT) {
-            await this.agentsService.createAgentProfile(user._id);
-        }
+        }, adminId);
         return user;
     }
     async registerAdmin(adminRegisterDto) {
@@ -75,6 +72,7 @@ let AuthService = class AuthService {
             ...adminRegisterDto,
             role: enums_1.UserRole.ADMIN,
         });
+        await this.agentsService.createAgentProfile(user._id);
         return user;
     }
     async validateSocketToken(token) {

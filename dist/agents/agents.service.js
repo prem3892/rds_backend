@@ -32,22 +32,27 @@ let AgentsService = class AgentsService {
         this.departmentsService = departmentsService;
         this.chatSessionService = chatSessionService;
     }
-    async createAgentProfile(userId, initialProfileData = {}) {
+    async createAgentProfile(userId, adminId, initialProfileData = {}) {
         const user = await this.usersService.findById(userId);
-        if (!user || user.role !== enums_1.UserRole.AGENT) {
-            throw new common_1.BadRequestException('User is not an Agent or does not exist.');
+        if (!user ||
+            (user.role !== enums_1.UserRole.AGENT && user.role !== enums_1.UserRole.ADMIN)) {
+            throw new common_1.BadRequestException('User is not an Agent/Admin or does not exist.');
         }
+        const effectiveAdminId = adminId || userId;
         const existingProfile = await this.agentProfileModel
             .findById(userId)
             .exec();
         if (existingProfile) {
-            Object.assign(existingProfile, initialProfileData, { userId });
+            Object.assign(existingProfile, initialProfileData, {
+                userId,
+                adminId: effectiveAdminId,
+            });
             return existingProfile.save();
         }
         const agentProfile = new this.agentProfileModel({
             ...initialProfileData,
             userId: userId,
-            _id: userId,
+            adminId: effectiveAdminId,
         });
         return agentProfile.save();
     }
@@ -114,8 +119,10 @@ let AgentsService = class AgentsService {
     }
     async setOnlineStatus(agentUserId, isOnline) {
         const agentProfile = await this.agentProfileModel
-            .findById(agentUserId)
+            .findOne({ userId: new mongoose_2.Types.ObjectId(agentUserId) })
+            .populate('departmentIds')
             .exec();
+        common_1.Logger.log(`Setting online status for agent ${agentProfile?.userId}: ${isOnline}`);
         if (!agentProfile) {
             throw new common_1.NotFoundException(`Agent profile for user ID ${agentUserId} not found.`);
         }

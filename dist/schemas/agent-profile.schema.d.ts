@@ -2,6 +2,7 @@ import { Document, Types } from 'mongoose';
 export type AgentProfileDocument = AgentProfile & Document;
 export declare class AgentProfile {
     userId: Types.ObjectId;
+    adminId: Types.ObjectId;
     departmentIds: Types.ObjectId[];
     domainAccess: string[];
     isOnline: boolean;

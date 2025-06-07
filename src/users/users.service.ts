@@ -22,7 +22,10 @@ export class UsersService {
     private readonly agentsService: AgentsService,
   ) {}
 
-  async create(createUserDto: CreateUserDto): Promise<UserDocument> {
+  async create(
+    createUserDto: CreateUserDto,
+    adminId?: Types.ObjectId,
+  ): Promise<UserDocument> {
     const existingUser = await this.userModel
       .findOne({ email: createUserDto.email.toLowerCase() })
       .exec();
@@ -33,8 +36,12 @@ export class UsersService {
     const createdUser = new this.userModel(createUserDto);
     const savedUser = await createdUser.save();
 
-    if (savedUser.role === UserRole.AGENT) {
-      await this.agentsService.createAgentProfile(savedUser._id);
+    // Create agent profile for both AGENT and ADMIN roles since admin is also an agent with super abilities
+    if (
+      savedUser.role === UserRole.AGENT ||
+      savedUser.role === UserRole.ADMIN
+    ) {
+      await this.agentsService.createAgentProfile(savedUser._id, adminId);
     }
     return savedUser;
   }
@@ -81,6 +88,7 @@ export class UsersService {
   async update(
     id: string,
     updateUserDto: UpdateUserDto,
+    adminId?: Types.ObjectId,
   ): Promise<UserDocument> {
     const user = await this.userModel.findById(id).exec();
     if (!user) {
@@ -110,12 +118,17 @@ export class UsersService {
     const updatedUser = await user.save();
 
     // Handle AgentProfile creation/deletion if role changes
-    if (oldRole !== UserRole.AGENT && updatedUser.role === UserRole.AGENT) {
-      await this.agentsService.createAgentProfile(updatedUser._id);
+    const needsAgentProfile = (role: UserRole) =>
+      role === UserRole.AGENT || role === UserRole.ADMIN;
+
+    if (!needsAgentProfile(oldRole) && needsAgentProfile(updatedUser.role)) {
+      // User changed from a non-agent role to agent/admin role
+      await this.agentsService.createAgentProfile(updatedUser._id, adminId);
     } else if (
-      oldRole === UserRole.AGENT &&
-      updatedUser.role !== UserRole.AGENT
+      needsAgentProfile(oldRole) &&
+      !needsAgentProfile(updatedUser.role)
     ) {
+      // User changed from agent/admin role to a non-agent role
       await this.agentsService.deleteAgentProfile(updatedUser._id);
     }
 
@@ -129,7 +142,8 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
-    if (user.role === UserRole.AGENT) {
+    // Delete agent profile for both AGENT and ADMIN roles
+    if (user.role === UserRole.AGENT || user.role === UserRole.ADMIN) {
       await this.agentsService.deleteAgentProfile(user._id);
     }
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
