@@ -3,6 +3,9 @@ export default () => ({
   database: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/nestjs_chat_app',
   },
+  internal: {
+    baseurl: process.env.INTERNAL_BASE_URL || 'http://localhost:8888',
+  },
   jwt: {
     secret: process.env.JWT_SECRET || 'yourSecretKey',
     expiresIn: process.env.JWT_EXPIRES_IN || '1d',

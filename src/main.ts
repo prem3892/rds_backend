@@ -119,7 +119,7 @@ async function bootstrap() {
   // });
 
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://127.0.0.1:8888'],
+    origin: ['http://localhost:3000', 'http://127.0.0.1:9000'],
   });
 
   app.useGlobalPipes(
@@ -140,23 +140,6 @@ async function bootstrap() {
 
   // Graceful shutdown
   app.enableShutdownHooks(); // For onModuleDestroy, etc.
-
-  // Handling SIGINT/SIGTERM for more control (optional, NestJS handles some of this)
-  process.on('SIGINT', async () => {
-    logger.log('SIGINT signal received. Closing HTTP server.');
-    await redisIoAdapter.close();
-    await app.close();
-    logger.log('HTTP server closed. Exiting.');
-    process.exit(0);
-  });
-
-  process.on('SIGTERM', async () => {
-    logger.log('SIGTERM signal received. Closing HTTP server.');
-    await redisIoAdapter.close();
-    await app.close();
-    logger.log('HTTP server closed. Exiting.');
-    process.exit(0);
-  });
 
   await app.listen(port, '0.0.0.0');
   logger.log(`Application is running on: ${await app.getUrl()}`);

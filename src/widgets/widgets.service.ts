@@ -62,6 +62,10 @@ export class WidgetsService {
     return this.widgetModel.find().populate('departmentIds').exec();
   }
 
+  /**
+   * @param id The ID of the widget to retrieve. Can be either a string or ObjectId.
+   * @returns Widget document with populated department details.
+   */
   async findById(id: string | Types.ObjectId): Promise<WidgetDocument> {
     const widget = await this.widgetModel
       .findById(id)
@@ -131,5 +135,28 @@ export class WidgetsService {
       throw new NotFoundException(`Widget with ID ${id} not found`);
     }
     return deletedWidget;
+  }
+
+  /**
+   * Find widgets by department ID and domain
+   * @param departmentId The department ID to search for
+   * @param domain The domain to search for (will match exact domain or wildcard *)
+   * @returns Array of widgets that match the criteria
+   */
+  async findByDepartmentAndDomain(
+    departmentId: Types.ObjectId,
+    domain: string,
+  ): Promise<WidgetDocument[]> {
+    return this.widgetModel
+      .find({
+        departmentIds: departmentId,
+        $or: [
+          { domains: domain },
+          { domains: '*' }, // Match wildcard domain
+        ],
+        isEnabled: true, // Only return enabled widgets
+      })
+      .populate('departmentIds')
+      .exec();
   }
 }

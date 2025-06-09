@@ -14,7 +14,11 @@ import { UpdateDepartmentDto } from './dto/update-department.dto';
 import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../shared/guards/roles.guard';
 import { Roles } from '../shared/decorators/roles.decorator';
+import { GetUser } from '../shared/decorators/get-user.decorator';
 import { UserRole } from '../shared/constants/enums';
+import { Types } from 'mongoose';
+import { AuthenticatedUser } from 'src/shared/decorators/user.decorator';
+import { JwtPayload } from 'src/shared/interfaces/jwt-payload.interface';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
@@ -23,8 +27,14 @@ export class DepartmentsController {
   constructor(private readonly departmentsService: DepartmentsService) {}
 
   @Post()
-  create(@Body() createDepartmentDto: CreateDepartmentDto) {
-    return this.departmentsService.create(createDepartmentDto);
+  create(
+    @Body() createDepartmentDto: CreateDepartmentDto,
+    @AuthenticatedUser() user: JwtPayload,
+  ) {
+    return this.departmentsService.create(
+      createDepartmentDto,
+      new Types.ObjectId(user.sub),
+    );
   }
 
   @Get()

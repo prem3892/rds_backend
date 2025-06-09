@@ -40,13 +40,21 @@ export class ChatSessionService {
   async findById(
     id: string | Types.ObjectId,
   ): Promise<ChatSessionDocument | null> {
-    return this.chatSessionModel
-      .findById(id)
-      .populate('widgetId')
-      .populate('customerId')
-      .populate({ path: 'agentId', select: 'firstName lastName email role' }) // Populate agent User details
-      .populate('departmentId')
-      .exec();
+    let _id: Types.ObjectId;
+
+    // convert the string to ObjectId if necessary
+    if (typeof id === 'string')
+      _id = new Types.ObjectId(id); // Convert string to ObjectId
+    else _id = id;
+    return (
+      this.chatSessionModel
+        .findById(id)
+        .populate('widgetId')
+        // .populate('customerId') // Not needed for now
+        //.populate({ path: 'agentId', select: 'firstName lastName email role' }) // Populate agent User details
+        .populate('departmentId')
+        .exec()
+    );
   }
 
   async findByIdOrFail(
@@ -99,16 +107,33 @@ export class ChatSessionService {
       // For now, allow if widget config allows any domain or matches
     }
 
-    const department = await this.departmentsService.findById(dto.departmentId);
-    if (!department) {
-      throw new BadRequestException('Department not found.');
-    }
-    if (
-      !widget.departmentIds
-        .map((id) => id.toString())
-        .includes(department._id.toString())
-    ) {
-      throw new BadRequestException('Department not valid for this widget.');
+    // Handle departmentId if provided, otherwise use the first department from the widget
+    let department;
+
+    if (dto.departmentId) {
+      department = await this.departmentsService.findById(dto.departmentId);
+      if (!department) {
+        throw new BadRequestException('Department not found.');
+      }
+      if (
+        !widget.departmentIds
+          .map((id) => id.toString())
+          .includes(department._id.toString())
+      ) {
+        throw new BadRequestException('Department not valid for this widget.');
+      }
+    } else {
+      // Use the first department from the widget if available
+      if (!widget.departmentIds || widget.departmentIds.length === 0) {
+        throw new BadRequestException('Widget has no departments configured.');
+      }
+
+      department = await this.departmentsService.findById(
+        widget.departmentIds[0],
+      );
+      if (!department) {
+        throw new BadRequestException('Default department not found.');
+      }
     }
 
     // Update customer name/email if provided

@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
+import { User } from './user.schema';
 
 export type DepartmentDocument = Department & Document;
 
@@ -12,6 +13,9 @@ export class Department {
 
   @Prop({ trim: true })
   description?: string;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  createdBy: Types.ObjectId | User;
 
   @Prop()
   createdAt: Date;

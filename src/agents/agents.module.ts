@@ -9,6 +9,7 @@ import { AgentsController } from './agents.controller';
 import { UsersModule } from '../users/users.module'; // For updating user part like password
 import { DepartmentsModule } from 'src/departments/departments.module';
 import { ChatModule } from 'src/chat/chat.module'; // For active chat counts
+import { WidgetsModule } from 'src/widgets/widgets.module'; // For widget details
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ChatModule } from 'src/chat/chat.module'; // For active chat counts
     forwardRef(() => UsersModule), // To update user details like password
     DepartmentsModule, // To validate departmentIds
     forwardRef(() => ChatModule), // To get active chat counts
+    WidgetsModule, // For widget access
   ],
   controllers: [AgentsController],
   providers: [AgentsService],

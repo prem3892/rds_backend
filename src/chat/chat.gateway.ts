@@ -46,6 +46,8 @@ import { AppointmentsService } from 'src/appointments/appointments.service';
 import { UsersService } from '../users/users.service';
 import { CreateAppointmentDto } from 'src/appointments/dto/create-appointment.dto';
 import { AppointmentDocument } from 'src/schemas/appointment.schema';
+import { AgentProfileDocument } from 'src/schemas/agent-profile.schema';
+import { agent } from 'supertest';
 
 interface AuthenticatedSocket extends Socket {
   user?: JwtPayload; // For agents
@@ -476,8 +478,17 @@ export class ChatGateway
       for (const domain of agentProfile.domainAccess) {
         try {
           // domain can be '*'
-          const onlineAgents = await this.agentsService.getEligibleOnlineAgents(
+          // We need to find widgets associated with this department and domain
+          const widgets = await this.widgetsService.findByDepartmentAndDomain(
             new Types.ObjectId(deptId),
+            domain,
+          );
+          // If no widgets found, no need to continue
+          if (widgets.length === 0) continue;
+
+          // Use the first widget found to get eligible agents
+          const onlineAgents = await this.agentsService.getEligibleOnlineAgents(
+            widgets[0]._id,
             domain,
           );
           // This event is broad. Client widgets filter by departmentId and domain.
@@ -506,21 +517,39 @@ export class ChatGateway
     @MessageBody() data: { chatSessionId: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    if (!client.user) throw new WsException('Agent not authenticated.');
+    this.logger.debug(
+      `agent:accept_chat emiited by agent with data ${JSON.stringify(data)}`,
+    );
+    if (!client.user) {
+      this.logger.error(
+        `[handleAgentAcceptChat] Agent not authenticated ${JSON.stringify(client)}`,
+      );
+      throw new WsException('Agent not authenticated.');
+    }
     if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId)) {
+      this.logger.error(`[handleAgentAcceptChat] Invalid chatSessionId`);
       throw new WsException('Invalid chatSessionId.');
     }
 
-    const agentId = client.user.sub;
+    const agentUserId = client.user.sub;
+
+    this.logger.debug(
+      `[handleAgentAcceptChat] Fetching agent profile using ${agentUserId}`,
+    );
     const agentProfile =
-      await this.agentsService.findAgentProfileByUserIdOrFail(agentId);
+      await this.agentsService.findAgentProfileByUserIdOrFail(agentUserId);
+
+    this.logger.debug(
+      `[handleAgentAcceptChat] Agent profile ${JSON.stringify(agentProfile)}`,
+    );
+    const agentId = (agentProfile._id as Types.ObjectId).toString();
     const activeChats = await this.chatSessionService.countActiveChatsForAgent(
-      new Types.ObjectId(agentId),
+      new Types.ObjectId(agentUserId),
     );
 
     if (activeChats >= agentProfile.maxConcurrentChats) {
       this.logger.warn(
-        `Agent ${agentId} attempted to accept chat ${data.chatSessionId} but reached max concurrent chats (${agentProfile.maxConcurrentChats}).`,
+        `Agent ${agentUserId} attempted to accept chat ${data.chatSessionId} but reached max concurrent chats (${agentProfile.maxConcurrentChats}).`,
       );
       client.emit('server:max_chats_reached', {
         chatSessionId: data.chatSessionId,
@@ -531,9 +560,15 @@ export class ChatGateway
       );
     }
 
+    this.logger.debug(
+      `[handleAgentAcceptChat] Accepting chat by updating db record`,
+    );
     const session = await this.chatSessionService.acceptChat(
       data.chatSessionId,
       agentId,
+    );
+    this.logger.debug(
+      `[handleAgentAcceptChat] Accepted chat by updating db record ${JSON.stringify(session)}`,
     );
 
     if (session) {
@@ -542,14 +577,23 @@ export class ChatGateway
         session.customerId.toString(),
       );
       if (customerSocketId) {
+        this.logger.debug(
+          `[handleAgentAcceptChat] customerSocketId ${customerSocketId}`,
+        );
         const customerClient =
           this.server.sockets.sockets.get(customerSocketId);
         if (customerClient) {
+          this.logger.debug(
+            `[handleAgentAcceptChat] Joining customer to session ${session._id.toString()}`,
+          );
           customerClient.join(`chatSession:${session._id.toString()}`);
         }
       }
 
-      const agentUser = await this.usersService.findById(agentId);
+      const agentUser = await this.usersService.findById(agentUserId);
+      this.logger.debug(
+        `[handleAgentAcceptChat] Agent user ${JSON.stringify(agentUser)}`,
+      );
 
       // server:chat_accepted_by_you (payload: ChatSession object, Customer details)
       client.emit('server:chat_accepted_by_you', session);
@@ -624,23 +668,42 @@ export class ChatGateway
     if (
       !payload.chatSessionId ||
       !Types.ObjectId.isValid(payload.chatSessionId)
-    )
+    ) {
+      this.logger.error(
+        `[handleAgentSendMessage] Invalid chatSessionId ${JSON.stringify(payload)}`,
+      );
       throw new WsException('Invalid chatSessionId');
+    }
     if (
       !payload.messageContent ||
       typeof payload.messageContent !== 'object' ||
       Object.keys(payload.messageContent).length === 0
     ) {
+      this.logger.error(`[handleAgentSendMessage] Invalid message content`);
       throw new WsException('Invalid message content.');
     }
 
     const session = await this.chatSessionService.findByIdOrFail(
       payload.chatSessionId,
     );
+
+    this.logger.debug(
+      `[handleAgentSendMessage] Fetched seesion ${JSON.stringify(session)}`,
+    );
+
+    // Get agent profile by user id
+    const agentProfile = await this.agentsService.findAgentProfileByUserId(
+      client.user.sub,
+    );
+    const _agentId = (agentProfile?._id as Types.ObjectId).toString();
+
     if (
-      session.agentId?.toString() !== client.user.sub ||
+      (_agentId && session.agentId?.toString() !== _agentId) ||
       session.status !== ChatSessionStatus.ACTIVE
     ) {
+      this.logger.error(
+        `[handleAgentSendMessage] Cannot send message to this session ${JSON.stringify(agentProfile)} and _id ${_agentId}`,
+      );
       throw new WsException('Cannot send message to this session.');
     }
 
@@ -794,9 +857,10 @@ export class ChatGateway
     @ConnectedSocket() client: AuthenticatedSocket,
   ): Promise<{ event: string; data: any }> {
     // Acknowledge with data
+    this.logger.debug('customer:connect_widget emitted');
     if (!payload.widgetId || !Types.ObjectId.isValid(payload.widgetId))
       throw new WsException('Invalid widgetId.');
-    if (!payload.fingerprint && !payload.customerId)
+    if (!payload.fingerprint)
       throw new WsException('Fingerprint or customerId required.');
 
     const widget = await this.widgetsService.findByIdPublic(payload.widgetId);
@@ -880,17 +944,13 @@ export class ChatGateway
     }
 
     // Calculate initial agent availability for all departments of the widget
-    const initialAgentAvailability = {};
+    let initialAgentAvailability: AgentProfileDocument[] = [];
     if (widget.departmentIds && Array.isArray(widget.departmentIds)) {
-      for (const dept of widget.departmentIds as any[]) {
-        // Assuming populated or storing deptId as string
-        const deptIdStr = dept._id ? dept._id.toString() : dept.toString();
-        const agents = await this.agentsService.getEligibleOnlineAgents(
-          new Types.ObjectId(deptIdStr),
-          payload.domain,
-        );
-        initialAgentAvailability[deptIdStr] = agents.length > 0;
-      }
+      const agents = await this.agentsService.getEligibleOnlineAgents(
+        widget._id!, // _id can't be undefined
+        payload.domain,
+      );
+      initialAgentAvailability = [...agents];
     }
 
     return {
@@ -931,6 +991,15 @@ export class ChatGateway
     @MessageBody() payload: InitiateChatDto, // ValidationPipe handles this
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    this.logger.debug(
+      'customer:initiate_chat received from client with payload:',
+      JSON.stringify(payload),
+    );
+    this.logger.debug('Client socket state:', {
+      id: client.id,
+      customerId: client.customerId,
+      rooms: [...client.rooms],
+    });
     if (!client.customerId)
       throw new WsException('Customer not identified. Connect widget first.');
     if (client.customerId !== payload.customerId)
@@ -956,8 +1025,51 @@ export class ChatGateway
       });
       // Ensure client joins the room if they weren't already in it
       client.join(`chatSession:${chatSession._id.toString()}`);
+
+      // Create and send message from customer even for existing session
+      const newMessage = await this.chatMessageService.createMessage({
+        chatSessionId: chatSession._id,
+        senderId: new Types.ObjectId(client.customerId),
+        senderType: ChatMessageSenderType.CUSTOMER,
+        messageType: ChatMessageType.TEXT,
+        content: { text: payload.initialMessage },
+      });
+
+      this.logger.debug(
+        '[handleCustomerInitiateChat]: sending message to existing session',
+        newMessage,
+      );
+      this.server
+        .to(`chatSession:${chatSession._id.toString()}`)
+        .emit('server:new_message', newMessage);
+
+      // If the session doesn't have an assigned agent or is in a pending state, notify eligible agents
+      if (
+        !chatSession.agentId ||
+        chatSession.status === ChatSessionStatus.PENDING_ASSIGNMENT ||
+        chatSession.status === ChatSessionStatus.PENDING_AGENT_RECONNECT
+      ) {
+        // Find eligible agents based on widget
+        const eligibleAgents = await this.agentsService.getEligibleOnlineAgents(
+          chatSession.widgetId,
+          chatSession.domain,
+        );
+
+        if (eligibleAgents.length > 0) {
+          this.logger.log(
+            `Notifying ${eligibleAgents.length} eligible agents for existing chat session ${chatSession._id} that needs attention.`,
+          );
+
+          for (const agent of eligibleAgents) {
+            this.server
+              .to(`agent:${agent.userId.toString()}`)
+              .emit('server:new_chat_request', chatSession); // Send full session
+          }
+        }
+      }
+
       this.logger.log(
-        `Customer ${client.customerId} attempted to initiate new chat, but existing session ${chatSession._id} found.`,
+        `Customer ${client.customerId} attempted to initiate new chat, but existing session ${chatSession._id} found. Message saved and broadcasted.`,
       );
       return {
         event: 'server:initiate_chat_ack',
@@ -976,13 +1088,18 @@ export class ChatGateway
       messageType: ChatMessageType.TEXT,
       content: { text: payload.initialMessage },
     });
+
+    this.logger.debug(
+      '[handleCustomerInitiateChat]: sending message to session room',
+      initialMessage,
+    );
     this.server
       .to(`chatSession:${chatSession._id.toString()}`)
       .emit('server:new_message', initialMessage);
 
-    // Find eligible agents
+    // Find eligible agents based on widget
     const eligibleAgents = await this.agentsService.getEligibleOnlineAgents(
-      (chatSession.departmentId as any)._id, // Assuming departmentId is populated
+      chatSession.widgetId, // Use the widget ID which contains departmentIds
       chatSession.domain,
     );
 
@@ -1019,29 +1136,44 @@ export class ChatGateway
     @MessageBody() payload: SendMessageDto,
     @ConnectedSocket() client: AuthenticatedSocket,
   ): Promise<{ event: string; data: any }> {
+    this.logger.debug(
+      'customer:send_message emitted by customer with',
+      payload,
+      client.customerId,
+    );
     // Ack
     if (!client.customerId) throw new WsException('Customer not identified.');
     if (
       !payload.chatSessionId ||
       !Types.ObjectId.isValid(payload.chatSessionId)
-    )
+    ) {
+      this.logger.debug('[handleCustomerSendMessage]: Invalid chatSessionId');
       throw new WsException('Invalid chatSessionId');
+    }
+
     if (
       !payload.messageContent ||
       typeof payload.messageContent !== 'object' ||
       Object.keys(payload.messageContent).length === 0
     ) {
+      this.logger.debug(
+        '[handleCustomerSendMessage]: Invalid message content.',
+      );
       throw new WsException('Invalid message content.');
     }
 
     const session = await this.chatSessionService.findByIdOrFail(
       payload.chatSessionId,
     );
-    if (
-      session.customerId.toString() !== client.customerId ||
-      (session.status !== ChatSessionStatus.ACTIVE &&
-        session.status !== ChatSessionStatus.PENDING_AGENT_RECONNECT)
-    ) {
+    if (session.customerId.toString() !== client.customerId) {
+      this.logger.debug(
+        '[handleCustomerSendMessage]: Cannot send message to this session or session not active.',
+      );
+      this.logger.debug(
+        '[handleCustomerSendMessage]: session.customerId.toString(), client.customerId',
+        session.customerId.toString(),
+        client.customerId,
+      );
       // Allow messages if agent is reconnecting
       throw new WsException(
         'Cannot send message to this session or session not active.',
@@ -1059,6 +1191,7 @@ export class ChatGateway
       messageType = ChatMessageType.FILE;
     }
 
+    this.logger.debug('Creating customer message');
     const message = await this.chatMessageService.createMessage({
       chatSessionId: session._id,
       senderId: new Types.ObjectId(client.customerId),
@@ -1088,11 +1221,16 @@ export class ChatGateway
     @MessageBody() data: { chatSessionId: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    this.logger.debug(
+      `[handleTypingStart] <customer|agent>:typing_start emiited by clients with payload`,
+    );
     if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
       throw new WsException('Invalid chatSessionId');
     const eventName = client.user
       ? 'server:agent_typing_start'
       : 'server:customer_typing_start';
+    this.logger.debug(`[handleTypingStart] final eventName: ${eventName}`);
+
     this.server
       .to(`chatSession:${data.chatSessionId}`)
       .except(client.id)

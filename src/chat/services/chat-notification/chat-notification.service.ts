@@ -6,6 +6,7 @@ import { ChatGateway } from 'src/chat/chat.gateway'; // To emit events
 import { ChatSessionStatus } from 'src/shared/constants/enums';
 import { ChatSessionService } from '../chat-session/chat-session.service';
 import { AgentsService } from 'src/agents/agents.service';
+import { WidgetsService } from 'src/widgets/widgets.service';
 
 @Injectable()
 export class ChatNotificationService {
@@ -44,8 +45,9 @@ export class ChatNotificationService {
       this.logger.debug(
         `Processing pending session: ${session._id}, count: ${session.priorityNotificationSentCount}`,
       );
+      // Use the widget ID from the session for finding eligible agents
       const eligibleAgents = await this.agentsService.getEligibleOnlineAgents(
-        (session.departmentId as any)._id, // Assuming departmentId is populated with at least _id
+        session.widgetId, // Use the widget ID which contains departmentIds
         session.domain,
       );
 

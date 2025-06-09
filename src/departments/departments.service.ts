@@ -18,6 +18,7 @@ export class DepartmentsService {
 
   async create(
     createDepartmentDto: CreateDepartmentDto,
+    userId: Types.ObjectId,
   ): Promise<DepartmentDocument> {
     const existingDepartment = await this.departmentModel
       .findOne({ name: createDepartmentDto.name })
@@ -27,16 +28,29 @@ export class DepartmentsService {
         `Department with name "${createDepartmentDto.name}" already exists.`,
       );
     }
-    const createdDepartment = new this.departmentModel(createDepartmentDto);
+
+    // Create department with user ID from the custom decorator
+    const departmentData = {
+      ...createDepartmentDto,
+      createdBy: userId,
+    };
+
+    const createdDepartment = new this.departmentModel(departmentData);
     return createdDepartment.save();
   }
 
   async findAll(): Promise<DepartmentDocument[]> {
-    return this.departmentModel.find().exec();
+    return this.departmentModel
+      .find()
+      .populate('createdBy', 'firstName lastName email')
+      .exec();
   }
 
   async findById(id: string | Types.ObjectId): Promise<DepartmentDocument> {
-    const department = await this.departmentModel.findById(id).exec();
+    const department = await this.departmentModel
+      .findById(id)
+      .populate('createdBy', 'firstName lastName email')
+      .exec();
     if (!department) {
       throw new NotFoundException(`Department with ID ${id} not found`);
     }
@@ -44,7 +58,10 @@ export class DepartmentsService {
   }
 
   async findByIds(ids: Types.ObjectId[]): Promise<DepartmentDocument[]> {
-    return this.departmentModel.find({ _id: { $in: ids } }).exec();
+    return this.departmentModel
+      .find({ _id: { $in: ids } })
+      .populate('createdBy', 'firstName lastName email')
+      .exec();
   }
 
   async update(

@@ -11,6 +11,7 @@ import {
   HttpStatus,
   NotFoundException,
   BadRequestException,
+  Inject,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { WidgetsService } from './widgets.service';
@@ -23,9 +24,13 @@ import { AuthenticatedUser } from '../shared/decorators/user.decorator';
 import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { Types } from 'mongoose';
 import { CreateWidgetDto } from 'src/departments/dto/create-widget.dto';
+import { ConfigService } from '@nestjs/config';
 
 @Controller('widgets')
 export class WidgetsController {
+  @Inject(ConfigService)
+  private readonly configService: ConfigService;
+
   constructor(private readonly widgetsService: WidgetsService) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -78,6 +83,8 @@ export class WidgetsController {
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'public, max-age=300'); // Cache for 5 minutes
 
+    const url = this.configService.get<string>('internal.baseurl');
+
     const widgetScript = `
 (function() {
   'use strict';
@@ -90,7 +97,7 @@ export class WidgetsController {
 
   // Widget configuration (injected from server)
   const WIDGET_ID = '${widgetId}';
-  const API_BASE = 'http://localhost:5000'
+  const API_BASE = '${url}';
   const SOCKET_URL = API_BASE;
   const SOCKET_NAMESPACE = '/chat';
   
@@ -143,6 +150,15 @@ export class WidgetsController {
         clearTimeout(timeout);
         timeout = setTimeout(later, wait);
       };
+    },
+    
+    // Added utility function to safely scroll to bottom
+    scrollToBottom(element) {
+      if (element) {
+        setTimeout(() => {
+          element.scrollTop = element.scrollHeight;
+        }, 0);
+      }
     }
   };
 
@@ -218,7 +234,7 @@ export class WidgetsController {
         <div class="w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white relative" 
              style="background-color: \${primaryColor}">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
                   d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
           </svg>
           <div id="unread-badge" class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center hidden">
@@ -236,59 +252,43 @@ export class WidgetsController {
       const headerText = this.config.widgetConfig?.headerText || 'Chat with us';
       
       this.chatWindow = document.createElement('div');
-      this.chatWindow.className = 'absolute bottom-16 right-0 w-80 h-96 bg-white rounded-lg shadow-2xl border hidden flex flex-col';
+      // Fixed height and width, added max-height to ensure it fits on smaller screens
+      this.chatWindow.className = 'absolute bottom-16 right-0 w-80 max-h-[80vh] bg-white rounded-lg shadow-2xl border hidden flex flex-col';
       
       this.chatWindow.innerHTML = \`
         <!-- Header -->
-        <div class="flex items-center justify-between p-4 rounded-t-lg text-white" style="background-color: \${primaryColor}">
+        <div class="flex items-center justify-between p-4 rounded-t-lg text-white flex-shrink-0" style="background-color: \${primaryColor}">
           <div class="flex items-center space-x-2">
             <div class="w-2 h-2 bg-green-400 rounded-full"></div>
             <span class="font-medium">\${utils.escapeHtml(headerText)}</span>
           </div>
           <button id="minimize-btn" class="text-white hover:text-gray-200">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/>
             </svg>
           </button>
         </div>
 
         <!-- Connection Status -->
-        <div id="connection-status" class="px-4 py-2 bg-yellow-50 border-b text-sm text-yellow-800 hidden">
+        <div id="connection-status" class="px-4 py-2 bg-yellow-50 border-b text-sm text-yellow-800 hidden flex-shrink-0">
           <div class="flex items-center space-x-2">
             <div class="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
             <span>Connecting...</span>
           </div>
         </div>
 
-        <!-- Department Selection -->
-        <div id="department-selection" class="flex-1 p-4 flex flex-col">
-          <div class="text-center mb-4">
-            <h3 class="text-lg font-medium text-gray-900">How can we help you?</h3>
-            <p class="text-sm text-gray-600 mt-1">\${utils.escapeHtml(this.config.widgetConfig?.welcomeMessage || 'Choose a department to start chatting')}</p>
-          </div>
-          <div id="departments-list" class="space-y-2 overflow-y-auto">
-            <!-- Departments will be populated here -->
-          </div>
-        </div>
-
         <!-- Chat Interface -->
-        <div id="chat-interface" class="flex-1 flex flex-col hidden">
+        <div id="chat-interface" class="flex-1 flex flex-col hidden overflow-hidden">
           <!-- Chat Header -->
           <div id="chat-header" class="px-4 py-2 border-b bg-gray-50 flex-shrink-0">
             <div class="flex items-center justify-between">
               <div>
-                <div class="font-medium text-sm" id="selected-department">Department</div>
                 <div class="text-xs text-gray-500" id="agent-status">Connecting...</div>
               </div>
-              <button id="back-to-departments" class="text-gray-400 hover:text-gray-600">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
-                </svg>
-              </button>
             </div>
           </div>
 
-          <!-- Messages Container -->
+          <!-- Messages Container - Fixed height issue with overflow -->
           <div id="messages-container" class="flex-1 overflow-y-auto p-4 space-y-3">
             <!-- Messages will be populated here -->
           </div>
@@ -305,7 +305,7 @@ export class WidgetsController {
             </div>
           </div>
 
-          <!-- Message Input -->
+          <!-- Message Input - Fixed to bottom -->
           <div class="border-t p-4 flex-shrink-0">
             <div class="flex space-x-2">
               <div class="flex-1 relative">
@@ -315,14 +315,14 @@ export class WidgetsController {
                 <input type="file" id="file-input" class="hidden" accept="image/*,.pdf,.doc,.docx,.txt">
                 <button id="attach-btn" class="absolute right-10 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
                   </svg>
                 </button>
               </div>
               <button id="send-btn" class="px-4 py-2 text-white rounded-lg hover:opacity-90 transition-opacity" 
                       style="background-color: \${primaryColor}">
                 <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"></path>
+                  <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a6 6 0 108.486 8.486L20.5 13"/>
                 </svg>
               </button>
             </div>
@@ -330,7 +330,7 @@ export class WidgetsController {
         </div>
 
         <!-- Customer Info Form -->
-        <div id="customer-info-form" class="flex-1 p-4 border-t hidden flex flex-col">
+        <div id="customer-info-form" class="flex-1 p-4 border-t hidden flex flex-col overflow-y-auto">
           <div class="space-y-3 flex flex-col flex-1">
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Name (optional)</label>
@@ -356,8 +356,10 @@ export class WidgetsController {
     }
 
     bindEvents() {
-      document.getElementById('minimize-btn').addEventListener('click', () => this.toggleChat());
-      document.getElementById('back-to-departments').addEventListener('click', () => this.showDepartmentSelection());
+      document.getElementById('minimize-btn').addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent event bubbling
+        this.toggleChat();
+      });
       
       const messageInput = document.getElementById('message-input');
       messageInput.addEventListener('keypress', (e) => {
@@ -372,6 +374,17 @@ export class WidgetsController {
       document.getElementById('attach-btn').addEventListener('click', () => document.getElementById('file-input').click());
       document.getElementById('file-input').addEventListener('change', (e) => this.handleFileUpload(e));
       document.getElementById('start-chat-btn').addEventListener('click', () => this.initiateChat());
+      
+      // Add resize observer to adjust scrolling when window size changes
+      if (window.ResizeObserver) {
+        const resizeObserver = new ResizeObserver(() => {
+          const messagesContainer = document.getElementById('messages-container');
+          if (messagesContainer) {
+            utils.scrollToBottom(messagesContainer);
+          }
+        });
+        resizeObserver.observe(this.chatWindow);
+      }
     }
 
     connectSocket() {
@@ -395,7 +408,7 @@ export class WidgetsController {
 
     establishSocketConnection() {
       // Connect to the specific namespace path
-      this.socket = io(SOCKET_URL);
+      this.socket = io(SOCKET_URL + "/chat");
       
       this.socket.on('connect', () => {
         console.log('Connected to chat server');
@@ -413,12 +426,12 @@ export class WidgetsController {
       this.socket.on('server:widget_initialized', (data) => {
         console.log('Widget initialized:', data);
         this.customerId = data.customerId;
-        this.populateDepartments(data.departments);
         
         if (data.activeSession) {
-          this.currentChatSession = data.activeSession;
-          this.showChatInterface(data.activeSession.departmentId);
-          this.loadChatHistory();
+          // Temporary disabling history feature
+          //this.currentChatSession = data.activeSession;
+          //this.showChatInterface();
+          //this.loadChatHistory();
         }
       });
 
@@ -429,9 +442,16 @@ export class WidgetsController {
       });
 
       this.socket.on('server:new_message', (message) => {
-        this.displayMessage(message);
-        if (this.isMinimized) {
-          this.incrementUnreadCount();
+        // Skip displaying customer messages as they're already displayed locally
+        if (message.senderType.toLowerCase() !== 'customer') {
+          this.displayMessage({
+            senderType: message.senderType.toLowerCase(),
+            messageContent: { text: message.content.text, type: message.messageType.toLowerCase() },
+            timestamp: message.timestamp   
+          });
+          if (this.isMinimized) {
+            this.incrementUnreadCount();
+          }
         }
       });
 
@@ -450,58 +470,34 @@ export class WidgetsController {
         currentPageUrl: window.location.href,
         browserInfo: utils.getBrowserInfo()
       };
+      console.log('Sending connection request:', connectData);
       this.socket.emit('customer:connect_widget', connectData);
     }
-
-    populateDepartments(departments) {
-      const departmentsList = document.getElementById('departments-list');
-      departmentsList.innerHTML = '';
-      if (!departments || departments.length === 0) {
-          departmentsList.innerHTML = '<p class="text-center text-gray-500 text-sm">No departments are available right now.</p>';
-          return;
-      }
-
-      departments.forEach(dept => {
-        const deptButton = document.createElement('button');
-        deptButton.className = 'w-full p-3 text-left border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors';
-        deptButton.innerHTML = \`<div class="font-medium text-gray-900">\${utils.escapeHtml(dept.name)}</div>\`;
-        deptButton.addEventListener('click', () => this.selectDepartment(dept));
-        departmentsList.appendChild(deptButton);
-      });
-    }
-
-    selectDepartment(department) {
-      this.selectedDepartment = department;
-      document.getElementById('selected-department').textContent = department.name;
-      this.showCustomerInfoForm();
-    }
-
+    
     showCustomerInfoForm() {
-      document.getElementById('department-selection').classList.add('hidden');
+      document.getElementById('chat-interface').classList.add('hidden');
       document.getElementById('customer-info-form').classList.remove('hidden');
       document.getElementById('customer-info-form').classList.add('flex');
     }
 
     showDepartmentSelection() {
       document.getElementById('chat-interface').classList.add('hidden');
-      document.getElementById('customer-info-form').classList.add('hidden');
-      document.getElementById('department-selection').classList.remove('hidden');
+      document.getElementById('customer-info-form').classList.remove('hidden');
+      document.getElementById('customer-info-form').classList.add('flex');
     }
 
     showChatInterface(departmentId = null) {
-      document.getElementById('department-selection').classList.add('hidden');
       document.getElementById('customer-info-form').classList.add('hidden');
       
       const chatInterface = document.getElementById('chat-interface');
       chatInterface.classList.remove('hidden');
       chatInterface.classList.add('flex');
       
-      if (departmentId && this.config.departments) {
-        const dept = this.config.departments.find(d => d.id === departmentId);
-        if (dept) {
-          document.getElementById('selected-department').textContent = dept.name;
-        }
-      }
+      // Focus the input field for better UX
+      setTimeout(() => {
+        const messageInput = document.getElementById('message-input');
+        if (messageInput) messageInput.focus();
+      }, 100);
     }
 
     initiateChat() {
@@ -517,15 +513,21 @@ export class WidgetsController {
       const chatData = {
         customerId: this.customerId,
         widgetId: WIDGET_ID,
-        departmentId: this.selectedDepartment.id,
         initialMessage: initialMessage,
         name: name || undefined,
         email: email || undefined
       };
-
+      console.log("customer:initiate_chat", chatData);
       this.socket.emit('customer:initiate_chat', chatData);
       this.showChatInterface();
       this.showAgentStatus('Starting chat...');
+      
+      // Display initial message locally to avoid waiting for server echo
+      this.displayMessage({
+        senderType: 'customer',
+        messageContent: { type: 'text', text: initialMessage },
+        timestamp: new Date()
+      });
     }
 
     sendMessage() {
@@ -548,6 +550,9 @@ export class WidgetsController {
       this.socket.emit('customer:send_message', messageData);
       messageInput.value = '';
       this.stopTyping();
+      
+      // Focus the input field after sending
+      setTimeout(() => messageInput.focus(), 0);
     }
 
     handleFileUpload(event) {
@@ -599,6 +604,7 @@ export class WidgetsController {
     }
 
     displayMessage(message) {
+      console.log('[displayMessage]: Received message:', message);
       const messagesContainer = document.getElementById('messages-container');
       const messageDiv = document.createElement('div');
       
@@ -617,7 +623,7 @@ export class WidgetsController {
             \${isImage ? \`<img src="\${message.messageContent.url}" alt="\${utils.escapeHtml(message.messageContent.filename)}" class="max-w-48 rounded">\` : ''}
             <div class="flex items-center space-x-2 mt-1">
               <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
               </svg>
               <a href="\${message.messageContent.url}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline text-sm truncate">
                 \${utils.escapeHtml(message.messageContent.filename)}
@@ -643,7 +649,9 @@ export class WidgetsController {
       \`;
       
       messagesContainer.appendChild(messageDiv);
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      
+      // Use the utility function to scroll to bottom
+      utils.scrollToBottom(messagesContainer);
     }
 
     handleTyping() {
@@ -661,7 +669,13 @@ export class WidgetsController {
       clearTimeout(this.typingTimeout);
     }
 
-    showTypingIndicator() { document.getElementById('typing-indicator').classList.remove('hidden'); }
+    showTypingIndicator() { 
+      document.getElementById('typing-indicator').classList.remove('hidden'); 
+      // Scroll to bottom when typing indicator appears
+      const messagesContainer = document.getElementById('messages-container');
+      utils.scrollToBottom(messagesContainer);
+    }
+    
     hideTypingIndicator() { document.getElementById('typing-indicator').classList.add('hidden'); }
     showAgentStatus(status) { document.getElementById('agent-status').textContent = status; }
 
@@ -669,7 +683,7 @@ export class WidgetsController {
       const statusEl = document.getElementById('connection-status');
       statusEl.classList.remove('hidden');
       statusEl.querySelector('span').textContent = message;
-      statusEl.className = \`px-4 py-2 border-b text-sm \${
+      statusEl.className = \`px-4 py-2 border-b text-sm flex-shrink-0 \${
         type === 'red' ? 'bg-red-50 text-red-800' : 'bg-yellow-50 text-yellow-800'
       }\`;
     }
@@ -681,8 +695,19 @@ export class WidgetsController {
       this.chatWindow.classList.toggle('hidden', this.isMinimized);
       if (!this.isMinimized) {
         this.resetUnreadCount();
-        if (!document.getElementById('chat-interface').classList.contains('hidden')) {
-          setTimeout(() => document.getElementById('message-input')?.focus(), 100);
+        
+        // If not in an active chat session, show customer info form directly
+        if (!this.currentChatSession) {
+          this.showCustomerInfoForm();
+        } else if (!document.getElementById('chat-interface').classList.contains('hidden')) {
+          setTimeout(() => {
+            const messageInput = document.getElementById('message-input');
+            if (messageInput) messageInput.focus();
+            
+            // Ensure messages are scrolled to bottom when opening chat
+            const messagesContainer = document.getElementById('messages-container');
+            utils.scrollToBottom(messagesContainer);
+          }, 100);
         }
       }
     }
@@ -707,6 +732,11 @@ export class WidgetsController {
           const response = await fetch(\`\${API_BASE}/chat/sessions/\${this.currentChatSession.chatSessionId}/messages\`);
           if (!response.ok) throw new Error('Failed to fetch history');
           const messages = await response.json();
+          
+          // Clear existing messages before loading history
+          const messagesContainer = document.getElementById('messages-container');
+          messagesContainer.innerHTML = '';
+          
           messages.forEach(message => this.displayMessage(message));
         } catch (error) {
           console.error('Failed to load chat history:', error);

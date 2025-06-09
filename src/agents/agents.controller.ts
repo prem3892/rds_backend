@@ -8,6 +8,7 @@ import {
   Patch,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto';
@@ -82,7 +83,7 @@ export class AgentsController {
     // if (updateDto.departmentIds) allowedProfileUpdates.departmentIds = updateDto.departmentIds;
     // if (updateDto.domainAccess) allowedProfileUpdates.domainAccess = updateDto.domainAccess;
 
-    const updatedProfile = await this.agentsService.updateAgentProfile(
+    const updatedProfile = await this.agentsService.updateAgentProfileById(
       user.sub,
       allowedProfileUpdates,
     );
@@ -104,6 +105,7 @@ export class AgentsController {
   @Roles(UserRole.ADMIN)
   async updateAgentProfileByAdmin(
     @Param('agentId') agentId: string,
+    @AuthenticatedUser() adminUser: JwtPayload,
     @Body()
     updateDto: UpdateAgentProfileDto & {
       password?: string;
@@ -115,7 +117,37 @@ export class AgentsController {
     if (!Types.ObjectId.isValid(agentId)) {
       throw new BadRequestException('Invalid agent ID format');
     }
-    const userToUpdate = await this.usersService.findByIdOrFail(agentId);
+
+    // First check if the agent profile exists using agentId (not userId)
+    const existingAgentProfile =
+      await this.agentsService.findAgentProfileById(agentId);
+    if (!existingAgentProfile) {
+      throw new NotFoundException(`Agent profile with ID ${agentId} not found`);
+    }
+
+    // Check if the current admin is the one who created this agent profile
+    if (
+      existingAgentProfile.adminId &&
+      existingAgentProfile.adminId.toString() !== adminUser.sub
+    ) {
+      Logger.warn(
+        `Admin ${adminUser.sub} attempted to update agent ${agentId} created by admin ${existingAgentProfile.adminId}`,
+      );
+      throw new BadRequestException(
+        'You can only update agent profiles that you created',
+      );
+    }
+
+    // Get the userId from the agent profile
+    const userId = existingAgentProfile.userId;
+    if (!userId) {
+      throw new BadRequestException(
+        'This agent profile is not associated with a user',
+      );
+    }
+
+    // Verify the user exists and is an agent or admin
+    const userToUpdate = await this.usersService.findByIdOrFail(userId);
     if (
       userToUpdate.role !== UserRole.AGENT &&
       userToUpdate.role !== UserRole.ADMIN
@@ -123,30 +155,34 @@ export class AgentsController {
       throw new BadRequestException('This user is not an agent or admin.');
     }
 
-    // Update user-specific fields (firstName, lastName, email, password)
+    // Handle USER schema fields (firstName, lastName, email, password)
     const userUpdatePayload: UpdateUserDto = {};
     if (updateDto.password) userUpdatePayload.password = updateDto.password;
     if (updateDto.firstName) userUpdatePayload.firstName = updateDto.firstName;
     if (updateDto.lastName) userUpdatePayload.lastName = updateDto.lastName;
     if (updateDto.email) userUpdatePayload.email = updateDto.email;
 
+    // Update user fields if any are provided
     if (Object.keys(userUpdatePayload).length > 0) {
-      await this.usersService.update(agentId, userUpdatePayload);
+      await this.usersService.update(userId.toString(), userUpdatePayload);
     }
 
-    // Update agent-profile specific fields
+    // Handle AGENT PROFILE schema fields (departmentIds, domainAccess, isOnline, maxConcurrentChats)
     const agentProfileUpdatePayload: UpdateAgentProfileDto = { ...updateDto };
-    delete agentProfileUpdatePayload['password']; // remove user fields
+    // Remove user-specific fields from agent profile payload
+    delete agentProfileUpdatePayload['password'];
     delete agentProfileUpdatePayload['firstName'];
     delete agentProfileUpdatePayload['lastName'];
     delete agentProfileUpdatePayload['email'];
 
-    const updatedProfile = await this.agentsService.updateAgentProfile(
+    // Update agent profile fields with agentId directly
+    const updatedProfile = await this.agentsService.updateAgentProfileById(
       agentId,
       agentProfileUpdatePayload,
-      true,
     );
-    const userDetails = await this.usersService.findById(agentId); // Get updated user details
+
+    // Get updated user details to return combined response
+    const userDetails = await this.usersService.findById(userId);
     return {
       ...updatedProfile.toObject(),
       user: userDetails

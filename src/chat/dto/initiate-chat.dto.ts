@@ -17,8 +17,8 @@ export class InitiateChatDto {
   widgetId: string;
 
   @IsMongoId()
-  @IsNotEmpty()
-  departmentId: string;
+  @IsOptional()
+  departmentId?: string;
 
   @IsString()
   @IsNotEmpty()
