@@ -459,6 +459,15 @@ export class WidgetsController {
       this.socket.on('server:agent_typing_stop', () => this.hideTypingIndicator());
       this.socket.on('server:no_agents_available_for_request', () => this.showAgentStatus('No agents available. We\\'ll respond soon.'));
       this.socket.on('server:chat_session_pending', () => this.showAgentStatus('Looking for an available agent...'));
+      
+      // Listen for agent details when chat is accepted
+      this.socket.on('server:agent_details_on_accept', (data) => {
+        console.log('Agent accepted chat:', data);
+        if (data && data.agent) {
+          this.showAgentStatus(\`Chatting with \${data.agent.name}\`);
+          // If we need to update other UI elements with agent info, add here
+        }
+      });
     }
 
     connectWidget() {

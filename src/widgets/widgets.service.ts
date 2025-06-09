@@ -27,7 +27,8 @@ export class WidgetsService {
   private generateInjectableScriptUrl(
     widgetId: string | Types.ObjectId,
   ): string {
-    return `https://localhost:5000/widgets/${widgetId.toString()}/script.js`;
+    const url = this.configService.get<string>('internal.baseurl');
+    return `${url}/widgets/${widgetId.toString()}/script.js`;
   }
 
   async create(

@@ -43,7 +43,6 @@ export class ChatController {
   @Get('sessions/my-active')
   @Roles(UserRole.AGENT, UserRole.ADMIN)
   async getMyActiveSessions(@AuthenticatedUser() user: JwtPayload) {
-    Logger.log('my sessions');
     return this.chatSessionService.getActiveSessionsForAgent(user.sub);
   }
 
