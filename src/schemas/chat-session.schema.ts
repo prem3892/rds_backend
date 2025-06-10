@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { ChatSessionStatus } from 'src/shared/constants/enums';
+import { CustomerDocument } from './customer.schema';
 
 export type ChatSessionDocument = ChatSession & Document;
 
@@ -12,7 +13,7 @@ export class ChatSession {
   widgetId: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'Customer', required: true, index: true })
-  customerId: Types.ObjectId;
+  customerId: Types.ObjectId | CustomerDocument;
 
   @Prop({ type: Types.ObjectId, ref: 'User', index: true, default: null })
   agentId?: Types.ObjectId; // Agent User ID

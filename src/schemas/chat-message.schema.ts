@@ -19,7 +19,11 @@ export class ChatMessage {
   })
   chatSessionId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, required: true, index: true }) // Refers to User._id or Customer._id
+  @Prop({
+    type: Types.ObjectId,
+    required: true,
+    index: true,
+  }) // Refers to User._id or Customer._id
   senderId: Types.ObjectId;
 
   @Prop({ type: String, enum: ChatMessageSenderType, required: true })

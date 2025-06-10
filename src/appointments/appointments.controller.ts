@@ -32,14 +32,14 @@ export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 
   // Agent or Admin books an appointment
-  @Post()
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
-  create(
-    @Body() createAppointmentDto: CreateAppointmentDto,
-    @AuthenticatedUser() user: JwtPayload,
-  ) {
-    return this.appointmentsService.create(createAppointmentDto, user);
-  }
+  // @Post()
+  // @Roles(UserRole.ADMIN, UserRole.AGENT)
+  // create(
+  //   @Body() createAppointmentDto: CreateAppointmentDto,
+  //   @AuthenticatedUser() user: JwtPayload,
+  // ) {
+  //   return this.appointmentsService.create(createAppointmentDto, user);
+  // }
 
   // Admin: View all appointments, filterable
   @Get()

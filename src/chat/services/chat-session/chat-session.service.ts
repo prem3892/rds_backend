@@ -37,8 +37,21 @@ export class ChatSessionService {
     private readonly departmentsService: DepartmentsService,
   ) {}
 
+  /**
+   * Find a chat session by ID
+   * @param id - The ID of the chat session to find
+   * @param options - Query options
+   * @param options.populateCustomer - Set to true to populate the customer details (default: false)
+   * @returns The chat session document or null if not found
+   * @example
+   * // Without customer population
+   * const session = await chatSessionService.findById(id);
+   * // With customer population
+   * const sessionWithCustomer = await chatSessionService.findById(id, { populateCustomer: true });
+   */
   async findById(
     id: string | Types.ObjectId,
+    options: { populateCustomer?: boolean } = {},
   ): Promise<ChatSessionDocument | null> {
     let _id: Types.ObjectId;
 
@@ -46,21 +59,38 @@ export class ChatSessionService {
     if (typeof id === 'string')
       _id = new Types.ObjectId(id); // Convert string to ObjectId
     else _id = id;
-    return (
-      this.chatSessionModel
-        .findById(id)
-        .populate('widgetId')
-        // .populate('customerId') // Not needed for now
-        //.populate({ path: 'agentId', select: 'firstName lastName email role' }) // Populate agent User details
-        .populate('departmentId')
-        .exec()
-    );
+
+    const query = this.chatSessionModel
+      .findById(id)
+      .populate('widgetId')
+      .populate('departmentId');
+
+    // Optionally populate customerId based on the parameter
+    if (options.populateCustomer) {
+      query.populate('customerId');
+    }
+
+    return query.exec();
   }
 
+  /**
+   * Find a chat session by ID or throw an exception if not found
+   * @param id - The ID of the chat session to find
+   * @param options - Query options
+   * @param options.populateCustomer - Set to true to populate the customer details (default: false)
+   * @returns The chat session document
+   * @throws NotFoundException if the chat session is not found
+   * @example
+   * // Without customer population
+   * const session = await chatSessionService.findByIdOrFail(id);
+   * // With customer population
+   * const sessionWithCustomer = await chatSessionService.findByIdOrFail(id, { populateCustomer: true });
+   */
   async findByIdOrFail(
     id: string | Types.ObjectId,
+    options: { populateCustomer?: boolean } = {},
   ): Promise<ChatSessionDocument> {
-    const session = await this.findById(id);
+    const session = await this.findById(id, options);
     if (!session) {
       throw new NotFoundException(`Chat session with ID ${id} not found.`);
     }
@@ -92,7 +122,9 @@ export class ChatSessionService {
         `Customer ${customer._id} already has an active/pending session ${existingSession._id}`,
       );
       return {
-        session: await this.findByIdOrFail(existingSession._id),
+        session: await this.findByIdOrFail(existingSession._id, {
+          populateCustomer: true,
+        }),
         wasNew: false,
       }; // Return full populated session
     }
@@ -160,10 +192,19 @@ export class ChatSessionService {
       `New chat session ${savedSession._id} initiated by customer ${customer._id}`,
     );
     return {
-      session: await this.findByIdOrFail(savedSession._id),
+      session: await this.findByIdOrFail(savedSession._id, {
+        populateCustomer: true,
+      }),
       wasNew: true,
     }; // Return full populated session
   }
+
+  /**
+   *
+   * @param chatSessionId
+   * @param agentId
+   * @returns ChatSessionDocument with customer details populated
+   */
 
   async acceptChat(
     chatSessionId: string,

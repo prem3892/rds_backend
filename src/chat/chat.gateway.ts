@@ -17,6 +17,7 @@ import {
   Inject,
   forwardRef,
   UseFilters,
+  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from '../auth/auth.service';
@@ -47,7 +48,7 @@ import { UsersService } from '../users/users.service';
 import { CreateAppointmentDto } from 'src/appointments/dto/create-appointment.dto';
 import { AppointmentDocument } from 'src/schemas/appointment.schema';
 import { AgentProfileDocument } from 'src/schemas/agent-profile.schema';
-import { agent } from 'supertest';
+import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
 
 interface AuthenticatedSocket extends Socket {
   user?: JwtPayload; // For agents
@@ -77,6 +78,7 @@ export class ChatGateway
   private readonly agentReconnectTimeoutMs: number;
   private readonly customerReconnectTimeoutMs: number;
   private readonly customerAbandonTimeoutMs: number;
+  private readonly visitorGracePeriodMs: number;
 
   constructor(
     private readonly authService: AuthService,
@@ -93,6 +95,8 @@ export class ChatGateway
     private readonly appointmentsService: AppointmentsService,
     @Inject(forwardRef(() => UsersService))
     private readonly usersService: UsersService,
+    @Inject(forwardRef(() => ChatNotificationService))
+    private readonly chatNotificationService: ChatNotificationService,
   ) {
     this.agentReconnectTimeoutMs =
       this.configService.get<number>('chatTimers.agentReconnectTimeoutMs') ||
@@ -103,11 +107,15 @@ export class ChatGateway
     this.customerAbandonTimeoutMs =
       this.configService.get<number>('chatTimers.customerAbandonTimeoutMs') ||
       600000;
+    this.visitorGracePeriodMs =
+      this.configService.get<number>('chatTimers.visitorGracePeriodMs') ||
+      30000; // 30 seconds grace period for visitor reconnection
   }
 
   afterInit(server: Server) {
     this.logger.log('ChatGateway Initialized');
-    // You can also set server instance here if needed by other services, though direct DI is preferred.
+    // Set the server instance in the notification service to avoid circular dependency
+    this.chatNotificationService.setServer(server);
   }
 
   async handleConnection(client: AuthenticatedSocket, ...args: any[]) {
@@ -242,6 +250,30 @@ export class ChatGateway
     await this.redisService.removeCustomerSocketMapping(client.id, customerId);
     client.leave(`customer:${customerId}`);
 
+    // Get customer details for visitor notification
+    const customer = await this.customersService.findById(customerId);
+
+    // Immediately notify agents about visitor disconnection
+    if (customer) {
+      const widget = await this.widgetsService.findById(customer.widgetId);
+      if (widget) {
+        const domain = customer.metadata?.initialDomain || 'unknown';
+        await this.chatNotificationService.notifyAgentsAboutVisitor(
+          customer,
+          widget,
+          domain,
+          'visitor_disconnected',
+        );
+
+        // Set grace period timer for potential visitor reconnection
+        await this.redisService.set(
+          `visitor_grace_period:${customerId}`,
+          JSON.stringify({ customerId, widgetId: widget._id, domain }),
+          this.visitorGracePeriodMs / 1000, // TTL in seconds
+        );
+      }
+    }
+
     // Find active/pending chats for this customer
     const sessions =
       await this.chatSessionService.getSessionsForCustomerReconnect(
@@ -251,7 +283,6 @@ export class ChatGateway
     for (const session of sessions) {
       await this.chatSessionService.updateCustomerLastSeen(session._id);
       if (session.agentId) {
-        const customer = await this.customersService.findById(customerId);
         this.server
           .to(`agent:${session.agentId.toString()}`)
           .emit('server:customer_disconnected_from_chat', {
@@ -395,8 +426,11 @@ export class ChatGateway
         session.customerId.toString(),
       );
       if (customerSocketId) {
-        const customerClient =
-          this.server.sockets.sockets.get(customerSocketId);
+        // Fix for "Cannot read properties of undefined (reading 'get')" error
+        let customerClient;
+        if (this.server.sockets && this.server.sockets.sockets) {
+          customerClient = this.server.sockets.sockets.get(customerSocketId);
+        }
         if (customerClient)
           customerClient.join(`chatSession:${session._id.toString()}`);
       }
@@ -574,14 +608,25 @@ export class ChatGateway
     if (session) {
       client.join(`chatSession:${session._id.toString()}`);
       const customerSocketId = await this.redisService.getSocketIdByCustomerId(
-        session.customerId.toString(),
+        session.customerId._id.toString(),
       );
       if (customerSocketId) {
         this.logger.debug(
           `[handleAgentAcceptChat] customerSocketId ${customerSocketId}`,
         );
-        const customerClient =
-          this.server.sockets.sockets.get(customerSocketId);
+        const sockets = await this.server.in(customerSocketId).fetchSockets();
+
+        // debug logs to print sockets metadata or details
+        sockets.forEach((socket) => {
+          this.logger.debug(
+            `[handleAgentAcceptChat] ${socket.id}: ${JSON.stringify(socket.data)}: ${JSON.stringify(socket.rooms)}}}`,
+          );
+        });
+
+        let customerClient;
+        if (sockets) {
+          customerClient = sockets[0];
+        }
         if (customerClient) {
           this.logger.debug(
             `[handleAgentAcceptChat] Joining customer to session ${session._id.toString()}`,
@@ -599,8 +644,11 @@ export class ChatGateway
       client.emit('server:chat_accepted_by_you', session);
 
       // server:agent_details_on_accept (payload: { chatSessionId: string, agent: { name: string, avatarUrl?: string } })
+      this.logger.debug(
+        `[handleAgentAcceptChat] sending acceptence knowledge to customer ${session.customerId._id.toString()}`,
+      );
       this.server
-        .to(`customer:${session.customerId.toString()}`)
+        .to(`customer:${session.customerId._id.toString()}`)
         .emit('server:agent_details_on_accept', {
           chatSessionId: session._id.toString(),
           agent: {
@@ -753,7 +801,15 @@ export class ChatGateway
     const session = await this.chatSessionService.findByIdOrFail(
       data.chatSessionId,
     );
-    if (session.agentId?.toString() !== client.user.sub) {
+
+    const agentProfile =
+      await this.agentsService.findAgentProfileByUserIdOrFail(client.user.sub);
+
+    this.logger.debug(
+      `[handleAgentEndChat] Agent profile ${JSON.stringify(agentProfile)}`,
+    );
+    const agentId = (agentProfile._id as Types.ObjectId).toString();
+    if (session.agentId?.toString() !== agentId) {
       throw new WsException('You are not the agent for this chat.');
     }
     if (
@@ -777,7 +833,7 @@ export class ChatGateway
     const systemMessageContent = `Chat ended by agent. ${data.reason ? 'Reason: ' + data.reason : ''}`;
     const systemMessage = await this.chatMessageService.createMessage({
       chatSessionId: session._id,
-      senderId: new Types.ObjectId(client.user.sub), // System action by agent
+      senderId: new Types.ObjectId(agentId), // System action by agent
       senderType: ChatMessageSenderType.SYSTEM,
       messageType: ChatMessageType.CHAT_ENDED_NOTICE,
       content: { text: systemMessageContent },
@@ -793,7 +849,7 @@ export class ChatGateway
       session.customerId.toString(),
     );
     this.logger.log(
-      `Agent ${client.user.sub} ended chat ${session._id}. Reason: ${data.reason || 'N/A'}`,
+      `Agent ${agentId} ended chat ${session._id}. Reason: ${data.reason || 'N/A'}`,
     );
     return {
       event: 'server:chat_ended_ack',
@@ -858,6 +914,18 @@ export class ChatGateway
   ): Promise<{ event: string; data: any }> {
     // Acknowledge with data
     this.logger.debug('customer:connect_widget emitted');
+
+    //this.logger.debug(`[handleAgentAcceptChat] sockets.sockets ${this.server.allSockets}`);
+
+    const sockets = await this.server.fetchSockets();
+
+    // debug logs to print sockets metadata or details
+    sockets.forEach((socket) => {
+      this.logger.debug(
+        `[handleCustomerConnectWidget] ${socket.id}: ${JSON.stringify(socket.data)}: ${JSON.stringify(socket.rooms)}}}`,
+      );
+    });
+
     if (!payload.widgetId || !Types.ObjectId.isValid(payload.widgetId))
       throw new WsException('Invalid widgetId.');
     if (!payload.fingerprint)
@@ -892,6 +960,26 @@ export class ChatGateway
     this.logger.log(
       `Customer ${customer._id} (fingerprint: ${payload.fingerprint}) connected for widget ${payload.widgetId} with socket ${client.id}`,
     );
+
+    // Check if this is a reconnection during grace period
+    const gracePeriodData = await this.redisService.get(
+      `visitor_grace_period:${customer._id.toString()}`,
+    );
+    if (gracePeriodData) {
+      // Customer reconnected during grace period - notify agents about restoration
+      await this.redisService.del(
+        `visitor_grace_period:${customer._id.toString()}`,
+      );
+      await this.chatNotificationService.notifyAgentsAboutVisitor(
+        customer,
+        widget,
+        payload.domain,
+        'visitor_reconnected',
+      );
+      this.logger.log(
+        `Customer ${customer._id} reconnected during grace period`,
+      );
+    }
 
     // Check for existing active/pending_reconnect sessions for this customer
     const reconnectSessions =
@@ -951,6 +1039,17 @@ export class ChatGateway
         payload.domain,
       );
       initialAgentAvailability = [...agents];
+    }
+
+    // Notify eligible agents about new visitor (regardless of new or existing session)
+    // Only notify if this is not a grace period reconnection (already handled above)
+    if (!gracePeriodData) {
+      await this.chatNotificationService.notifyAgentsAboutVisitor(
+        customer,
+        widget,
+        payload.domain,
+        'visitor_connected',
+      );
     }
 
     return {
@@ -1315,44 +1414,87 @@ export class ChatGateway
   // --- Appointment Booking via Socket by Agent ---
   @SubscribeMessage('agent:book_appointment')
   async handleAgentBookAppointment(
-    @MessageBody() payload: CreateAppointmentDto, // Re-use DTO, agentId will be from client.user
+    @MessageBody()
+    payload: { chatSessionId: string; date: string; notes?: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ): Promise<{ event: string; data: any }> {
-    if (!client.user || client.user.role !== UserRole.AGENT)
+    this.logger.debug(
+      `[handleAgentBookAppointment]: agent:book_appointment emitted by agent with payload ${JSON.stringify(payload)}`,
+    );
+    if (
+      !client.user ||
+      (client.user.role !== UserRole.AGENT &&
+        client.user.role !== UserRole.ADMIN)
+    )
       throw new WsException(
-        'Only agents can book appointments via this event.',
+        'Only admin/agents can book appointments via this event.',
       );
     if (
       !payload.chatSessionId ||
       !Types.ObjectId.isValid(payload.chatSessionId)
     )
       throw new WsException('Invalid chatSessionId');
-    if (!payload.customerId || !Types.ObjectId.isValid(payload.customerId))
-      throw new WsException('Invalid customerId');
+
+    const chatSession = await this.chatSessionService.findById(
+      payload.chatSessionId,
+    );
+    if (!chatSession) {
+      throw new NotFoundException(
+        `Chat session with ID ${payload.chatSessionId} not found.`,
+      );
+    }
+
+    const customer = await this.customersService.findById(
+      chatSession.customerId.toString(),
+    );
+    if (!customer) {
+      throw new NotFoundException(
+        `Customer with ID ${chatSession.customerId} not found.`,
+      );
+    }
+
+    //this.logger.debug("[handleAgentBookAppointment] Fetching the session using chatSessionId")
+
+    // if (!payload.customerId || !Types.ObjectId.isValid(payload.customerId))
+    //   throw new WsException('Invalid customerId');
+
+    // Get agent profile from client.user.sub
+    const agent = await this.agentsService.findAgentProfileByUserId(
+      client.user.sub,
+    );
+    if (!agent) throw new WsException('Agent not found.');
 
     const appointmentData: CreateAppointmentDto = {
       ...payload,
-      agentId: client.user.sub, // Agent booking for themselves
+      agentId: (agent._id as Types.ObjectId).toString(),
+      customerId: customer._id.toString(),
+      appointmentTime: new Date(payload.date),
+      notes: payload.notes ?? '',
     };
 
     const appointment = await this.appointmentsService.create(
       appointmentData,
+      chatSession,
       client.user,
+    );
+
+    this.logger.debug(
+      `[handleAgentBookAppointment]: appointment created ${JSON.stringify(appointment)}`,
     );
 
     // Notify customer
     this.server
-      .to(`customer:${payload.customerId}`)
+      .to(`customer:${chatSession.customerId.toString()}`)
       .emit('server:appointment_booked_notification', appointment);
 
     // Send a system message in chat
     const systemMessage = await this.chatMessageService.createMessage({
       chatSessionId: new Types.ObjectId(payload.chatSessionId),
-      senderId: new Types.ObjectId(client.user.sub), // System action by agent
+      senderId: agent._id as Types.ObjectId, // System action by agent
       senderType: ChatMessageSenderType.SYSTEM,
       messageType: ChatMessageType.APPOINTMENT_BOOKED_NOTICE,
       content: {
-        text: `An appointment has been scheduled for ${new Date(payload.appointmentTime).toLocaleString()}.`,
+        text: `An appointment has been scheduled for ${appointment.appointmentTime.toLocaleString()}.`,
         appointmentDetails: appointment.toObject(), // Send full appointment details
       },
     });
@@ -1361,7 +1503,7 @@ export class ChatGateway
       .emit('server:new_message', systemMessage);
 
     this.logger.log(
-      `Agent ${client.user.sub} booked appointment ${appointment._id} for customer ${payload.customerId}.`,
+      `Agent ${agent._id} booked appointment ${appointment._id} for customer ${chatSession.customerId.toString()} in session ${payload.chatSessionId}}.`,
     );
     return { event: 'server:appointment_booked_ack', data: appointment };
   }
@@ -1372,13 +1514,21 @@ export class ChatGateway
     agentSocketId: string,
     customerId: string,
   ) {
-    const agentClient = this.server.sockets.sockets.get(agentSocketId);
+    // Fix for "Cannot read properties of undefined (reading 'get')" error
+    let agentClient;
+    if (this.server.sockets && this.server.sockets.sockets) {
+      agentClient = this.server.sockets.sockets.get(agentSocketId);
+    }
     if (agentClient) agentClient.leave(`chatSession:${chatSessionId}`);
 
     const customerSocketId =
       await this.redisService.getSocketIdByCustomerId(customerId);
     if (customerSocketId) {
-      const customerClient = this.server.sockets.sockets.get(customerSocketId);
+      // Fix for "Cannot read properties of undefined (reading 'get')" error
+      let customerClient;
+      if (this.server.sockets && this.server.sockets.sockets) {
+        customerClient = this.server.sockets.sockets.get(customerSocketId);
+      }
       if (customerClient) customerClient.leave(`chatSession:${chatSessionId}`);
     }
   }
