@@ -43,4 +43,23 @@ export default () => ({
       10,
     ), // 15 mins
   },
+  visitorTracking: {
+    redisTtlSeconds: parseInt(
+      process.env.VISITOR_REDIS_TTL_SECONDS || '1800',
+      10,
+    ), // 30 minutes
+    cleanupIntervalMs: parseInt(
+      process.env.VISITOR_CLEANUP_INTERVAL_MS || '120000',
+      10,
+    ), // 2 minutes
+    gracePeriodMs: parseInt(
+      process.env.VISITOR_GRACE_PERIOD_MS || '300000',
+      10,
+    ), // 5 minutes
+    maxVisitorsPerAgent: parseInt(
+      process.env.MAX_VISITORS_PER_AGENT || '1000',
+      10,
+    ),
+    deltaUpdateEnabled: process.env.VISITOR_DELTA_UPDATES === 'true',
+  },
 });
