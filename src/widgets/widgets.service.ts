@@ -160,4 +160,23 @@ export class WidgetsService {
       .populate('departmentIds')
       .exec();
   }
+
+  /**
+   * Find widgets by department IDs
+   * @param departmentIds Array of department IDs to search for
+   * @returns Array of widgets that have at least one matching department
+   */
+  async findWidgetsByDepartments(
+    departmentIds: string[],
+  ): Promise<WidgetDocument[]> {
+    const objectIds = departmentIds.map((id) => new Types.ObjectId(id));
+
+    return this.widgetModel
+      .find({
+        departmentIds: { $in: objectIds },
+        isEnabled: true, // Only return enabled widgets
+      })
+      .populate('departmentIds')
+      .exec();
+  }
 }

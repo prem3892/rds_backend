@@ -327,4 +327,34 @@ export class AgentsService {
     );
     return eligibleAgents;
   }
+
+  /**
+   * Get all widgets accessible by an agent based on their department assignments
+   */
+  async getAgentAccessibleWidgets(agentId: string): Promise<any[]> {
+    try {
+      const agent = await this.findAgentProfileByUserId(agentId);
+      if (!agent) {
+        this.logger.warn(`Agent not found: ${agentId}`);
+        return [];
+      }
+
+      // Get all widgets that have at least one department matching the agent's departments
+      const widgets = await this.widgetsService.findWidgetsByDepartments(
+        agent.departmentIds.map((dept) => dept.toString()),
+      );
+
+      this.logger.debug(
+        `Found ${widgets.length} accessible widgets for agent ${agentId}`,
+      );
+
+      return widgets;
+    } catch (error) {
+      this.logger.error(
+        `Failed to get accessible widgets for agent ${agentId}: ${error.message}`,
+        error.stack,
+      );
+      return [];
+    }
+  }
 }
