@@ -52,7 +52,7 @@ export class AgentsService {
     const effectiveAdminId = adminId || userId;
 
     const existingProfile = await this.agentProfileModel
-      .findById(userId)
+      .findOne({ userId })
       .exec();
     if (existingProfile) {
       // Potentially update if called again, or throw ConflictException

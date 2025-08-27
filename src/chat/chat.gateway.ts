@@ -477,7 +477,7 @@ export class ChatGateway
     );
 
     if (data.isOnline) {
-      client.join('online_agents');
+      client.join('online_agents'); // TODO: make it unique as per business
     } else {
       client.leave('online_agents');
       // Additional logic for when agent goes offline during active chats is handled in handleDisconnect
