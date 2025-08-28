@@ -582,7 +582,7 @@ export class ChatGateway
     this.logger.debug(
       `[handleAgentAcceptChat] Agent profile ${JSON.stringify(agentProfile)}`,
     );
-    const agentId = (agentProfile._id as Types.ObjectId).toString();
+    const agentId = agentProfile.userId.toString();
     const activeChats = await this.chatSessionService.countActiveChatsForAgent(
       new Types.ObjectId(agentUserId),
     );
