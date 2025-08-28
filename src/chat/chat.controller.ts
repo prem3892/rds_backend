@@ -24,6 +24,8 @@ import { Types } from 'mongoose';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('chat')
 export class ChatController {
+  private readonly logger = new Logger(ChatController.name);
+
   constructor(
     private readonly chatMessageService: ChatMessageService,
     private readonly chatSessionService: ChatSessionService,
@@ -43,7 +45,12 @@ export class ChatController {
   @Get('sessions/my-active')
   @Roles(UserRole.AGENT, UserRole.ADMIN)
   async getMyActiveSessions(@AuthenticatedUser() user: JwtPayload) {
-    return this.chatSessionService.getActiveSessionsForAgent(user.sub);
+    this.logger.debug(`Getting my active sessions for ${user.email}`);
+    const result = await this.chatSessionService.getActiveSessionsForAgent(
+      user.sub,
+    );
+    this.logger.debug(`${result.length} active sessions found`);
+    return result;
   }
 
   // Admin/Agent: View messages for a specific historic/active chat, paginated
