@@ -4,6 +4,10 @@ import {
   AgentProfile,
   AgentProfileSchema,
 } from 'src/schemas/agent-profile.schema';
+import {
+  CannedMessage,
+  CannedMessageSchema,
+} from 'src/schemas/canned-message.schema';
 import { AgentsService } from './agents.service';
 import { AgentsController } from './agents.controller';
 import { UsersModule } from '../users/users.module'; // For updating user part like password
@@ -15,6 +19,7 @@ import { WidgetsModule } from 'src/widgets/widgets.module'; // For widget detail
   imports: [
     MongooseModule.forFeature([
       { name: AgentProfile.name, schema: AgentProfileSchema },
+      { name: CannedMessage.name, schema: CannedMessageSchema },
     ]),
     forwardRef(() => UsersModule), // To update user details like password
     DepartmentsModule, // To validate departmentIds

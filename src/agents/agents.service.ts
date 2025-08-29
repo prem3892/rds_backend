@@ -5,6 +5,7 @@ import {
   Inject,
   forwardRef,
   Logger,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -12,7 +13,14 @@ import {
   AgentProfile,
   AgentProfileDocument,
 } from 'src/schemas/agent-profile.schema';
+import {
+  CannedMessage,
+  CannedMessageDocument,
+} from 'src/schemas/canned-message.schema';
 import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto';
+import { CreateCannedMessageDto } from './dto/create-canned-message.dto';
+import { UpdateCannedMessageDto } from './dto/update-canned-message.dto';
+import { GetCannedMessagesDto } from './dto/get-canned-messages.dto';
 import { UsersService } from '../users/users.service';
 import { UserRole } from '../shared/constants/enums';
 import { DepartmentsService } from 'src/departments/departments.service';
@@ -25,6 +33,8 @@ export class AgentsService {
   constructor(
     @InjectModel(AgentProfile.name)
     private agentProfileModel: Model<AgentProfileDocument>,
+    @InjectModel(CannedMessage.name)
+    private cannedMessageModel: Model<CannedMessageDocument>,
     @Inject(forwardRef(() => UsersService))
     private readonly usersService: UsersService,
     private readonly departmentsService: DepartmentsService,
@@ -369,5 +379,274 @@ export class AgentsService {
       );
       return [];
     }
+  }
+
+  // ==================== CANNED MESSAGES METHODS ====================
+
+  /**
+   * Create a new canned message
+   */
+  async createCannedMessage(
+    agentUserId: string,
+    createDto: CreateCannedMessageDto,
+  ): Promise<CannedMessageDocument> {
+    const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
+
+    // Validate department IDs if provided
+    if (createDto.departmentIds && createDto.departmentIds.length > 0) {
+      const departments = await this.departmentsService.findByIds(
+        createDto.departmentIds.map((id) => new Types.ObjectId(id)),
+      );
+      if (departments.length !== createDto.departmentIds.length) {
+        throw new BadRequestException(
+          'One or more department IDs are invalid.',
+        );
+      }
+    }
+
+    const cannedMessage = new this.cannedMessageModel({
+      title: createDto.title,
+      content: createDto.content,
+      agentId: agentProfile.userId,
+      adminId: agentProfile.adminId,
+      isGlobal: createDto.isGlobal || false,
+      departmentIds:
+        createDto.departmentIds?.map((id) => new Types.ObjectId(id)) || [],
+      tags: createDto.tags || [],
+    });
+
+    const savedMessage = await cannedMessage.save();
+    this.logger.log(
+      `Created canned message ${savedMessage._id} by agent ${agentUserId}`,
+    );
+
+    return savedMessage;
+  }
+
+  /**
+   * Get canned messages with pagination and filtering
+   */
+  async getCannedMessages(
+    agentUserId: string,
+    queryDto: GetCannedMessagesDto,
+  ): Promise<{
+    data: CannedMessageDocument[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
+
+    const {
+      search,
+      tags,
+      departmentIds,
+      isGlobal,
+      myMessages,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+    } = queryDto;
+
+    // Build query
+    const query: any = {};
+
+    // Visibility logic: own messages + global messages from same admin
+    if (myMessages) {
+      // Only show user's own messages
+      query.agentId = agentProfile.userId;
+    } else {
+      // Show own messages + global messages from same admin
+      query.$or = [
+        { agentId: agentProfile.userId }, // Own messages
+        {
+          adminId: agentProfile.adminId,
+          isGlobal: true,
+        }, // Global messages from same admin
+      ];
+    }
+
+    // Apply filters
+    if (isGlobal !== undefined) {
+      query.isGlobal = isGlobal;
+    }
+
+    if (tags && tags.length > 0) {
+      query.tags = { $in: tags };
+    }
+
+    if (departmentIds && departmentIds.length > 0) {
+      query.departmentIds = {
+        $in: departmentIds.map((id) => new Types.ObjectId(id)),
+      };
+    }
+
+    if (search) {
+      query.$text = { $search: search };
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+
+    // Build sort object
+    const sort: any = {};
+    sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+    // Execute queries
+    const [data, total] = await Promise.all([
+      this.cannedMessageModel
+        .find(query)
+        .populate('agentId', 'name email')
+        .populate('departmentIds', 'name')
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.cannedMessageModel.countDocuments(query).exec(),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    this.logger.debug(
+      `Retrieved ${data.length} canned messages for agent ${agentUserId} (page ${page}/${totalPages})`,
+    );
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages,
+    };
+  }
+
+  /**
+   * Get a specific canned message by ID
+   */
+  async getCannedMessageById(
+    agentUserId: string,
+    messageId: string,
+  ): Promise<CannedMessageDocument> {
+    const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
+
+    const cannedMessage = await this.cannedMessageModel
+      .findById(messageId)
+      .populate('agentId', 'name email')
+      .populate('departmentIds', 'name')
+      .exec();
+
+    if (!cannedMessage) {
+      throw new NotFoundException(
+        `Canned message with ID ${messageId} not found.`,
+      );
+    }
+
+    // Check if agent has access to this message
+    const hasAccess =
+      cannedMessage.agentId.toString() === agentProfile.userId.toString() || // Own message
+      (cannedMessage.isGlobal &&
+        cannedMessage.adminId.toString() === agentProfile.adminId.toString()); // Global message from same admin
+
+    if (!hasAccess) {
+      throw new ForbiddenException(
+        'You do not have access to this canned message.',
+      );
+    }
+
+    return cannedMessage;
+  }
+
+  /**
+   * Update a canned message
+   */
+  async updateCannedMessage(
+    agentUserId: string,
+    messageId: string,
+    updateDto: UpdateCannedMessageDto,
+  ): Promise<CannedMessageDocument> {
+    const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
+
+    const cannedMessage = await this.cannedMessageModel
+      .findById(messageId)
+      .exec();
+
+    if (!cannedMessage) {
+      throw new NotFoundException(
+        `Canned message with ID ${messageId} not found.`,
+      );
+    }
+
+    // Only the creator can update the message
+    if (cannedMessage.agentId.toString() !== agentProfile.userId.toString()) {
+      throw new ForbiddenException(
+        'You can only update your own canned messages.',
+      );
+    }
+
+    // Validate department IDs if provided
+    if (updateDto.departmentIds && updateDto.departmentIds.length > 0) {
+      const departments = await this.departmentsService.findByIds(
+        updateDto.departmentIds.map((id) => new Types.ObjectId(id)),
+      );
+      if (departments.length !== updateDto.departmentIds.length) {
+        throw new BadRequestException(
+          'One or more department IDs are invalid.',
+        );
+      }
+    }
+
+    // Update fields
+    if (updateDto.title !== undefined) cannedMessage.title = updateDto.title;
+    if (updateDto.content !== undefined)
+      cannedMessage.content = updateDto.content;
+    if (updateDto.isGlobal !== undefined)
+      cannedMessage.isGlobal = updateDto.isGlobal;
+    if (updateDto.tags !== undefined) cannedMessage.tags = updateDto.tags;
+    if (updateDto.departmentIds !== undefined) {
+      cannedMessage.departmentIds = updateDto.departmentIds.map(
+        (id) => new Types.ObjectId(id),
+      );
+    }
+
+    const updatedMessage = await cannedMessage.save();
+    this.logger.log(
+      `Updated canned message ${messageId} by agent ${agentUserId}`,
+    );
+
+    return updatedMessage;
+  }
+
+  /**
+   * Delete a canned message
+   */
+  async deleteCannedMessage(
+    agentUserId: string,
+    messageId: string,
+  ): Promise<void> {
+    const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
+
+    const cannedMessage = await this.cannedMessageModel
+      .findById(messageId)
+      .exec();
+
+    if (!cannedMessage) {
+      throw new NotFoundException(
+        `Canned message with ID ${messageId} not found.`,
+      );
+    }
+
+    // Only the creator can delete the message
+    if (cannedMessage.agentId.toString() !== agentProfile.userId.toString()) {
+      throw new ForbiddenException(
+        'You can only delete your own canned messages.',
+      );
+    }
+
+    await this.cannedMessageModel.findByIdAndDelete(messageId).exec();
+    this.logger.log(
+      `Deleted canned message ${messageId} by agent ${agentUserId}`,
+    );
   }
 }

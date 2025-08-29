@@ -13,9 +13,22 @@ import {
   BadRequestException,
   Inject,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiBadRequestResponse,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiProduces,
+} from '@nestjs/swagger';
 import { Response } from 'express';
 import { WidgetsService } from './widgets.service';
 import { UpdateWidgetDto } from './dto/update-widget.dto';
+
 import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../shared/guards/roles.guard';
 import { Roles } from '../shared/decorators/roles.decorator';
@@ -26,7 +39,17 @@ import { Types } from 'mongoose';
 import { CreateWidgetDto } from 'src/departments/dto/create-widget.dto';
 import { ConfigService } from '@nestjs/config';
 import { generateWidgetScript } from './widget-script.template';
+import {
+  ErrorResponseDto,
+  UnauthorizedResponseDto,
+  ForbiddenResponseDto,
+  NotFoundResponseDto,
+  SuccessMessageResponseDto,
+} from '../shared/dto/common-responses.dto';
 
+import { WidgetResponseDto } from './dto/widget-responses.dto';
+
+@ApiTags('Widgets')
 @Controller('widgets')
 export class WidgetsController {
   @Inject(ConfigService)
@@ -37,6 +60,29 @@ export class WidgetsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @Post()
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Create a new chat widget (Admin only)',
+    description:
+      'Create a new embeddable chat widget with customizable settings and department routing',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Widget created successfully',
+    type: WidgetResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid input data',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required',
+    type: ForbiddenResponseDto,
+  })
   create(
     @Body() createWidgetDto: CreateWidgetDto,
     @AuthenticatedUser() user: JwtPayload,
@@ -71,8 +117,33 @@ export class WidgetsController {
     );
   }
 
-  // Public endpoint for widget script loader
   @Get(':widgetId/script.js')
+  @ApiOperation({
+    summary: 'Get widget JavaScript embed script (Public)',
+    description:
+      'Retrieve the JavaScript code to embed the chat widget on a website. This is a public endpoint that does not require authentication.',
+  })
+  @ApiParam({
+    name: 'widgetId',
+    description: 'Widget unique identifier',
+    example: '507f1f77bcf86cd799439011',
+  })
+  @ApiProduces('application/javascript')
+  @ApiResponse({
+    status: 200,
+    description: 'Widget script retrieved successfully',
+    content: {
+      'application/javascript': {
+        example: '(function(){/* Widget embed script */})();',
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid widget ID format',
+  })
+  @ApiNotFoundResponse({
+    description: 'Widget not found or not enabled',
+  })
   async getWidgetScript(
     @Param('widgetId') widgetId: string,
     @Res() res: Response,
