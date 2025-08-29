@@ -12,6 +12,7 @@ import {
   NotFoundException,
   BadRequestException,
   Inject,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -24,6 +25,7 @@ import {
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiProduces,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { Response } from 'express';
 import { WidgetsService } from './widgets.service';
@@ -45,9 +47,11 @@ import {
   ForbiddenResponseDto,
   NotFoundResponseDto,
   SuccessMessageResponseDto,
+  PaginatedResponseDto,
 } from '../shared/dto/common-responses.dto';
 
 import { WidgetResponseDto } from './dto/widget-responses.dto';
+import { GetWidgetsQueryDto } from './dto/get-widgets-query.dto';
 
 @ApiTags('Widgets')
 @Controller('widgets')
@@ -96,8 +100,37 @@ export class WidgetsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @Get()
-  findAll(@AuthenticatedUser() user: JwtPayload) {
-    return this.widgetsService.findAllByAdmin(new Types.ObjectId(user.sub));
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get widgets with pagination and filtering (Admin only)',
+    description:
+      'Retrieve widgets with pagination, search, and filtering options. Only returns widgets created by the authenticated admin.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Widgets retrieved successfully',
+    type: PaginatedResponseDto<WidgetResponseDto>,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid query parameters',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  findAll(
+    @Query() query: GetWidgetsQueryDto,
+    @AuthenticatedUser() user: JwtPayload,
+  ) {
+    return this.widgetsService.findAllByAdminPaginated(
+      new Types.ObjectId(user.sub),
+      query,
+    );
   }
 
   // Admin endpoint to get full config for a widget

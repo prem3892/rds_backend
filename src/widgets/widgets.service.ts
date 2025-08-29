@@ -10,6 +10,11 @@ import { UpdateWidgetDto } from './dto/update-widget.dto';
 import { DepartmentsService } from 'src/departments/departments.service';
 import { ConfigService } from '@nestjs/config';
 import { CreateWidgetDto } from 'src/departments/dto/create-widget.dto';
+import { GetWidgetsQueryDto } from './dto/get-widgets-query.dto';
+import {
+  PaginatedResponseDto,
+  PaginationMetaDto,
+} from '../shared/dto/common-responses.dto';
 
 @Injectable()
 export class WidgetsService {
@@ -76,6 +81,91 @@ export class WidgetsService {
       .find({ createdBy: adminId })
       .populate('departmentIds')
       .exec();
+  }
+
+  async findAllByAdminPaginated(
+    adminId: Types.ObjectId,
+    query: GetWidgetsQueryDto,
+  ): Promise<PaginatedResponseDto<WidgetDocument>> {
+    const {
+      search,
+      isEnabled,
+      departmentIds,
+      domain,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+    } = query;
+
+    // Build the filter object
+    const filter: any = { createdBy: adminId };
+
+    // Text search in name and domains
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { domains: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    // Filter by enabled status
+    if (typeof isEnabled === 'boolean') {
+      filter.isEnabled = isEnabled;
+    }
+
+    // Filter by department IDs
+    if (departmentIds) {
+      const departmentIdArray = departmentIds
+        .split(',')
+        .map((id) => id.trim())
+        .filter((id) => Types.ObjectId.isValid(id))
+        .map((id) => new Types.ObjectId(id));
+
+      if (departmentIdArray.length > 0) {
+        filter.departmentIds = { $in: departmentIdArray };
+      }
+    }
+
+    // Filter by domain
+    if (domain) {
+      filter.domains = { $regex: domain, $options: 'i' };
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+    const sortDirection = sortOrder === 'asc' ? 1 : -1;
+
+    // Execute queries
+    const [items, total] = await Promise.all([
+      this.widgetModel
+        .find(filter)
+        .populate('departmentIds')
+        .sort({ [sortBy]: sortDirection })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.widgetModel.countDocuments(filter).exec(),
+    ]);
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(total / limit);
+    const hasNext = page < totalPages;
+    const hasPrev = page > 1;
+
+    const meta: PaginationMetaDto = {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNext,
+      hasPrev,
+    };
+
+    return {
+      items,
+      meta,
+    };
   }
 
   /**

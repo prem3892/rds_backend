@@ -320,6 +320,28 @@ export class AgentsController {
    */
   @Get('canned-messages')
   @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get canned messages with pagination and filtering',
+    description:
+      'Retrieve canned messages with support for pagination, search, filtering by tags, departments, and sorting options',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Canned messages retrieved successfully',
+    type: PaginatedResponseDto<CannedMessageResponseDto>,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid query parameters',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent or Admin role required',
+    type: ForbiddenResponseDto,
+  })
   async getCannedMessages(
     @AuthenticatedUser() user: JwtPayload,
     @Query() queryDto: GetCannedMessagesDto,
