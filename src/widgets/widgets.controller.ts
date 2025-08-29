@@ -50,19 +50,25 @@ export class WidgetsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @Get()
-  findAll() {
-    return this.widgetsService.findAll();
+  findAll(@AuthenticatedUser() user: JwtPayload) {
+    return this.widgetsService.findAllByAdmin(new Types.ObjectId(user.sub));
   }
 
   // Admin endpoint to get full config for a widget
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @Get(':widgetId/config')
-  findOneForAdmin(@Param('widgetId') widgetId: string) {
+  findOneForAdmin(
+    @Param('widgetId') widgetId: string,
+    @AuthenticatedUser() user: JwtPayload,
+  ) {
     if (!Types.ObjectId.isValid(widgetId)) {
       throw new BadRequestException('Invalid widget ID format');
     }
-    return this.widgetsService.findById(widgetId);
+    return this.widgetsService.findByIdAndAdmin(
+      widgetId,
+      new Types.ObjectId(user.sub),
+    );
   }
 
   // Public endpoint for widget script loader
@@ -132,30 +138,41 @@ export class WidgetsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @Get(':id') // This can be the same as :widgetId/config if you prefer to have one endpoint for admin
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid widget ID format');
     }
-    return this.widgetsService.findById(id);
+    return this.widgetsService.findByIdAndAdmin(
+      id,
+      new Types.ObjectId(user.sub),
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @Put(':id')
-  update(@Param('id') id: string, @Body() updateWidgetDto: UpdateWidgetDto) {
+  update(
+    @Param('id') id: string,
+    @Body() updateWidgetDto: UpdateWidgetDto,
+    @AuthenticatedUser() user: JwtPayload,
+  ) {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid widget ID format');
     }
-    return this.widgetsService.update(id, updateWidgetDto);
+    return this.widgetsService.updateByAdmin(
+      id,
+      updateWidgetDto,
+      new Types.ObjectId(user.sub),
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @Delete(':id')
-  remove(@Param('id') id: string) {
+  remove(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid widget ID format');
     }
-    return this.widgetsService.remove(id);
+    return this.widgetsService.removeByAdmin(id, new Types.ObjectId(user.sub));
   }
 }

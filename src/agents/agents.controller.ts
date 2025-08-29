@@ -33,8 +33,8 @@ export class AgentsController {
   // Admin: List all agents with profiles
   @Get()
   @Roles(UserRole.ADMIN)
-  async getAllAgentsWithProfiles() {
-    return this.agentsService.getAllAgentProfilesWithUserDetails();
+  async getAllAgentsWithProfiles(@AuthenticatedUser() adminUser: JwtPayload) {
+    return this.agentsService.getAllAgentProfilesWithUserDetails(adminUser.sub);
   }
 
   // Agent/Admin: Get their own profile

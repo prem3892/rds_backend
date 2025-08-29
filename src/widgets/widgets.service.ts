@@ -39,12 +39,20 @@ export class WidgetsService {
       createWidgetDto.departmentIds &&
       createWidgetDto.departmentIds.length > 0
     ) {
-      const departments = await this.departmentsService.findByIds(
-        createWidgetDto.departmentIds,
+      // Only validate departments that belong to the same admin
+      const departments = await this.departmentsService.findAllByAdmin(adminId);
+      const adminDepartmentIds = departments.map((dept) => dept._id.toString());
+      const requestedDepartmentIds = createWidgetDto.departmentIds.map((id) =>
+        id.toString(),
       );
-      if (departments.length !== createWidgetDto.departmentIds.length) {
+
+      const invalidDepartments = requestedDepartmentIds.filter(
+        (id) => !adminDepartmentIds.includes(id),
+      );
+
+      if (invalidDepartments.length > 0) {
         throw new BadRequestException(
-          'One or more department IDs are invalid.',
+          'One or more department IDs are invalid or do not belong to you.',
         );
       }
     }
@@ -63,6 +71,13 @@ export class WidgetsService {
     return this.widgetModel.find().populate('departmentIds').exec();
   }
 
+  async findAllByAdmin(adminId: Types.ObjectId): Promise<WidgetDocument[]> {
+    return this.widgetModel
+      .find({ createdBy: adminId })
+      .populate('departmentIds')
+      .exec();
+  }
+
   /**
    * @param id The ID of the widget to retrieve. Can be either a string or ObjectId.
    * @returns Widget document with populated department details.
@@ -74,6 +89,22 @@ export class WidgetsService {
       .exec();
     if (!widget) {
       throw new NotFoundException(`Widget with ID ${id} not found`);
+    }
+    return widget;
+  }
+
+  async findByIdAndAdmin(
+    id: string | Types.ObjectId,
+    adminId: Types.ObjectId,
+  ): Promise<WidgetDocument> {
+    const widget = await this.widgetModel
+      .findOne({ _id: id, createdBy: adminId })
+      .populate('departmentIds')
+      .exec();
+    if (!widget) {
+      throw new NotFoundException(
+        `Widget with ID ${id} not found or you don't have permission to access it`,
+      );
     }
     return widget;
   }
@@ -130,10 +161,74 @@ export class WidgetsService {
     return updatedWidget;
   }
 
+  async updateByAdmin(
+    id: string,
+    updateWidgetDto: UpdateWidgetDto,
+    adminId: Types.ObjectId,
+  ): Promise<WidgetDocument> {
+    const widget = await this.findByIdAndAdmin(id, adminId); // Ensures widget exists and belongs to admin
+
+    if (
+      updateWidgetDto.departmentIds &&
+      updateWidgetDto.departmentIds.length > 0
+    ) {
+      // Only validate departments that belong to the same admin
+      const departments = await this.departmentsService.findAllByAdmin(adminId);
+      const adminDepartmentIds = departments.map((dept) => dept._id.toString());
+      const requestedDepartmentIds = updateWidgetDto.departmentIds.map((id) =>
+        id.toString(),
+      );
+
+      const invalidDepartments = requestedDepartmentIds.filter(
+        (id) => !adminDepartmentIds.includes(id),
+      );
+
+      if (invalidDepartments.length > 0) {
+        throw new BadRequestException(
+          'One or more department IDs are invalid or do not belong to you.',
+        );
+      }
+    }
+
+    const updatedWidget = await this.widgetModel
+      .findOneAndUpdate(
+        { _id: id, createdBy: adminId },
+        { ...updateWidgetDto },
+        { new: true },
+      )
+      .populate('departmentIds')
+      .exec();
+
+    if (!updatedWidget) {
+      throw new NotFoundException(
+        `Widget with ID ${id} not found for update or you don't have permission to update it.`,
+      );
+    }
+    return updatedWidget;
+  }
+
   async remove(id: string): Promise<WidgetDocument> {
     const deletedWidget = await this.widgetModel.findByIdAndDelete(id).exec();
     if (!deletedWidget) {
       throw new NotFoundException(`Widget with ID ${id} not found`);
+    }
+    return deletedWidget;
+  }
+
+  async removeByAdmin(
+    id: string,
+    adminId: Types.ObjectId,
+  ): Promise<WidgetDocument> {
+    // First check if the widget exists and belongs to the admin
+    await this.findByIdAndAdmin(id, adminId);
+
+    const deletedWidget = await this.widgetModel
+      .findOneAndDelete({ _id: id, createdBy: adminId })
+      .exec();
+    if (!deletedWidget) {
+      throw new NotFoundException(
+        `Widget with ID ${id} not found or you don't have permission to delete it`,
+      );
     }
     return deletedWidget;
   }

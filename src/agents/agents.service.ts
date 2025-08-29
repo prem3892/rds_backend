@@ -129,12 +129,25 @@ export class AgentsService {
     return profile;
   }
 
-  async getAllAgentProfilesWithUserDetails(): Promise<any[]> {
+  async getAllAgentProfilesWithUserDetails(
+    adminId: string | Types.ObjectId,
+  ): Promise<any[]> {
+    this.logger.log(`Getting all agent profiles for admin ${adminId}`);
+
+    // if adminId is not ObjectId, convert it to ObjectId
+    if (typeof adminId === 'string') adminId = new Types.ObjectId(adminId);
+
+    // Get all agent profiles for the given adminId
     const agentProfiles = await this.agentProfileModel
-      .find()
-      .populate('departmentIds')
+      .find({ adminId })
+      //.populate('departmentIds')
       .lean()
       .exec();
+
+    this.logger.debug(
+      `Fetched ${agentProfiles.length} agent profiles for admin ${adminId}.`,
+    );
+
     const userIds = agentProfiles.map((profile) => profile.userId);
 
     const users = await this.usersService.findManyByIds(userIds);

@@ -749,7 +749,7 @@ export class ChatGateway
     const agentProfile = await this.agentsService.findAgentProfileByUserId(
       client.user.sub,
     );
-    const _agentId = (agentProfile?._id as Types.ObjectId).toString();
+    const _agentId = (agentProfile?.userId as Types.ObjectId).toString();
 
     if (
       (_agentId && session.agentId?.toString() !== _agentId) ||
@@ -814,7 +814,7 @@ export class ChatGateway
     this.logger.debug(
       `[handleAgentEndChat] Agent profile ${JSON.stringify(agentProfile)}`,
     );
-    const agentId = (agentProfile._id as Types.ObjectId).toString();
+    const agentId = (agentProfile.userId as Types.ObjectId).toString();
     if (session.agentId?.toString() !== agentId) {
       throw new WsException('You are not the agent for this chat.');
     }

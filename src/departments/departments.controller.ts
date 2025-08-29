@@ -38,25 +38,36 @@ export class DepartmentsController {
   }
 
   @Get()
-  findAll() {
-    return this.departmentsService.findAll();
+  findAll(@AuthenticatedUser() user: JwtPayload) {
+    return this.departmentsService.findAllByAdmin(new Types.ObjectId(user.sub));
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.departmentsService.findById(id);
+  findOne(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
+    return this.departmentsService.findByIdAndAdmin(
+      id,
+      new Types.ObjectId(user.sub),
+    );
   }
 
   @Put(':id')
   update(
     @Param('id') id: string,
     @Body() updateDepartmentDto: UpdateDepartmentDto,
+    @AuthenticatedUser() user: JwtPayload,
   ) {
-    return this.departmentsService.update(id, updateDepartmentDto);
+    return this.departmentsService.updateByAdmin(
+      id,
+      updateDepartmentDto,
+      new Types.ObjectId(user.sub),
+    );
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.departmentsService.remove(id);
+  remove(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
+    return this.departmentsService.removeByAdmin(
+      id,
+      new Types.ObjectId(user.sub),
+    );
   }
 }
