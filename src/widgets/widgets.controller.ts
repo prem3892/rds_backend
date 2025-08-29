@@ -52,6 +52,11 @@ import {
 
 import { WidgetResponseDto } from './dto/widget-responses.dto';
 import { GetWidgetsQueryDto } from './dto/get-widgets-query.dto';
+import { AutoMessagesService } from './auto-messages.service';
+import { CreateAutoMessageDto } from './dto/create-auto-message.dto';
+import { UpdateAutoMessageDto } from './dto/update-auto-message.dto';
+import { GetAutoMessagesDto } from './dto/get-auto-messages.dto';
+import { AutoMessageResponseDto } from './dto/auto-message-responses.dto';
 
 @ApiTags('Widgets')
 @Controller('widgets')
@@ -59,7 +64,10 @@ export class WidgetsController {
   @Inject(ConfigService)
   private readonly configService: ConfigService;
 
-  constructor(private readonly widgetsService: WidgetsService) {}
+  constructor(
+    private readonly widgetsService: WidgetsService,
+    private readonly autoMessagesService: AutoMessagesService,
+  ) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
@@ -278,5 +286,55 @@ export class WidgetsController {
       throw new BadRequestException('Invalid widget ID format');
     }
     return this.widgetsService.removeByAdmin(id, new Types.ObjectId(user.sub));
+  }
+
+  // Public endpoint to get auto messages for a widget
+  @Get(':widgetId/auto-messages')
+  @ApiOperation({
+    summary: 'Get auto messages for widget (Public)',
+    description:
+      'Retrieve auto messages for a specific widget and domain. Used by the widget script.',
+  })
+  @ApiParam({
+    name: 'widgetId',
+    description: 'Widget unique identifier',
+    example: '507f1f77bcf86cd799439011',
+  })
+  @ApiQuery({
+    name: 'domain',
+    description: 'Domain to filter auto messages',
+    example: 'example.com',
+    required: true,
+  })
+  @ApiQuery({
+    name: 'path',
+    description: 'Current page path (optional)',
+    example: 'about-us',
+    required: false,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Auto messages retrieved successfully',
+    type: [AutoMessageResponseDto],
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid widget ID format or missing domain',
+  })
+  async getWidgetAutoMessages(
+    @Param('widgetId') widgetId: string,
+    @Query('domain') domain: string,
+    @Query('path') path?: string,
+  ) {
+    if (!Types.ObjectId.isValid(widgetId)) {
+      throw new BadRequestException('Invalid widget ID format');
+    }
+    if (!domain) {
+      throw new BadRequestException('Domain parameter is required');
+    }
+    return this.autoMessagesService.findPublicAutoMessages(
+      widgetId,
+      domain,
+      path,
+    );
   }
 }
