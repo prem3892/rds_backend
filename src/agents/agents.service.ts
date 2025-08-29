@@ -443,11 +443,15 @@ export class AgentsService {
     agentUserId: string,
     queryDto: GetCannedMessagesDto,
   ): Promise<{
-    data: CannedMessageDocument[];
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
+    items: CannedMessageDocument[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNext: boolean;
+      hasPrev: boolean;
+    };
   }> {
     const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
 
@@ -520,7 +524,7 @@ export class AgentsService {
     );
 
     // Execute queries
-    const [data, total] = await Promise.all([
+    const [items, total] = await Promise.all([
       this.cannedMessageModel
         .find(query)
         .populate('agentId', 'firstName lastName email')
@@ -532,27 +536,36 @@ export class AgentsService {
       this.cannedMessageModel.countDocuments(query).exec(),
     ]);
 
+    // Calculate pagination metadata
     const totalPages = Math.ceil(total / limit);
+    const hasNext = page < totalPages;
+    const hasPrev = page > 1;
 
     this.logger.debug(
-      `Retrieved ${data.length} canned messages for agent ${agentUserId} (page ${page}/${totalPages}), total found: ${total}`,
+      `Retrieved ${items.length} canned messages for agent ${agentUserId} (page ${page}/${totalPages}), total found: ${total}`,
     );
 
     if (search) {
       this.logger.debug(
-        `Search term "${search}" returned ${data.length} results`,
+        `Search term "${search}" returned ${items.length} results`,
       );
-      data.forEach((msg, index) => {
+      items.forEach((msg, index) => {
         this.logger.debug(`Result ${index + 1}: title="${msg.title}"`);
       });
     }
 
-    return {
-      data,
-      total,
+    const meta = {
       page,
       limit,
+      total,
       totalPages,
+      hasNext,
+      hasPrev,
+    };
+
+    return {
+      items,
+      meta,
     };
   }
 
