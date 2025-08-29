@@ -420,7 +420,20 @@ export class AgentsService {
       `Created canned message ${savedMessage._id} by agent ${agentUserId}`,
     );
 
-    return savedMessage;
+    // Populate the agentId and departmentIds before returning
+    const populatedMessage = await this.cannedMessageModel
+      .findById(savedMessage._id)
+      .populate('agentId', 'firstName lastName email')
+      .populate('departmentIds', 'name')
+      .exec();
+
+    if (!populatedMessage) {
+      throw new NotFoundException(
+        `Failed to retrieve created canned message ${savedMessage._id}`,
+      );
+    }
+
+    return populatedMessage;
   }
 
   /**
@@ -484,7 +497,12 @@ export class AgentsService {
     }
 
     if (search) {
-      query.$text = { $search: search };
+      // Escape special regex characters to prevent regex injection
+      const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.title = { $regex: escapedSearch, $options: 'i' };
+      this.logger.debug(
+        `Search query applied: ${JSON.stringify({ title: { $regex: escapedSearch, $options: 'i' } })}`,
+      );
     }
 
     // Calculate pagination
@@ -494,11 +512,18 @@ export class AgentsService {
     const sort: any = {};
     sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
 
+    this.logger.debug(
+      `Final query for canned messages: ${JSON.stringify(query)}`,
+    );
+    this.logger.debug(
+      `Sort: ${JSON.stringify(sort)}, Skip: ${skip}, Limit: ${limit}`,
+    );
+
     // Execute queries
     const [data, total] = await Promise.all([
       this.cannedMessageModel
         .find(query)
-        .populate('agentId', 'name email')
+        .populate('agentId', 'firstName lastName email')
         .populate('departmentIds', 'name')
         .sort(sort)
         .skip(skip)
@@ -510,8 +535,17 @@ export class AgentsService {
     const totalPages = Math.ceil(total / limit);
 
     this.logger.debug(
-      `Retrieved ${data.length} canned messages for agent ${agentUserId} (page ${page}/${totalPages})`,
+      `Retrieved ${data.length} canned messages for agent ${agentUserId} (page ${page}/${totalPages}), total found: ${total}`,
     );
+
+    if (search) {
+      this.logger.debug(
+        `Search term "${search}" returned ${data.length} results`,
+      );
+      data.forEach((msg, index) => {
+        this.logger.debug(`Result ${index + 1}: title="${msg.title}"`);
+      });
+    }
 
     return {
       data,
@@ -533,7 +567,7 @@ export class AgentsService {
 
     const cannedMessage = await this.cannedMessageModel
       .findById(messageId)
-      .populate('agentId', 'name email')
+      .populate('agentId', 'firstName lastName email')
       .populate('departmentIds', 'name')
       .exec();
 
@@ -615,7 +649,20 @@ export class AgentsService {
       `Updated canned message ${messageId} by agent ${agentUserId}`,
     );
 
-    return updatedMessage;
+    // Populate the agentId and departmentIds before returning
+    const populatedMessage = await this.cannedMessageModel
+      .findById(updatedMessage._id)
+      .populate('agentId', 'firstName lastName email')
+      .populate('departmentIds', 'name')
+      .exec();
+
+    if (!populatedMessage) {
+      throw new NotFoundException(
+        `Failed to retrieve updated canned message ${updatedMessage._id}`,
+      );
+    }
+
+    return populatedMessage;
   }
 
   /**

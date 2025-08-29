@@ -289,7 +289,7 @@ export class AgentsController {
   @ApiOperation({
     summary: 'Create a new canned message',
     description:
-      'Create a new canned message that can be used for quick responses in chat conversations',
+      'Create a new canned message that can be used for quick responses in chat conversations. Returns the created message with populated agent information.',
   })
   @ApiResponse({
     status: 201,
@@ -323,7 +323,7 @@ export class AgentsController {
   @ApiOperation({
     summary: 'Get canned messages with pagination and filtering',
     description:
-      'Retrieve canned messages with support for pagination, search, filtering by tags, departments, and sorting options',
+      'Retrieve canned messages with support for pagination, search by title, filtering by tags, departments, and sorting options. Returns populated agent information (firstName, lastName, email) for each message.',
   })
   @ApiResponse({
     status: 200,

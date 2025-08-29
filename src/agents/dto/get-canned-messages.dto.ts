@@ -12,7 +12,7 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class GetCannedMessagesDto {
   @ApiProperty({
-    description: 'Search text to filter canned messages by title or content',
+    description: 'Search text to filter canned messages by title',
     example: 'welcome',
     required: false,
   })
