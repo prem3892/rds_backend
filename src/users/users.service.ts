@@ -75,6 +75,25 @@ export class UsersService {
     return this.userModel.findOne({ email: email.toLowerCase() }).exec();
   }
 
+  async findOne(filter: any): Promise<UserDocument | null> {
+    return this.userModel.findOne(filter).exec();
+  }
+
+  async updateUser(
+    id: string | Types.ObjectId,
+    updateData: any,
+  ): Promise<UserDocument> {
+    const user = await this.userModel
+      .findByIdAndUpdate(id, updateData, { new: true })
+      .exec();
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    return user;
+  }
+
   async findManyByIds(
     ids: (string | Types.ObjectId)[],
   ): Promise<UserDocument[]> {

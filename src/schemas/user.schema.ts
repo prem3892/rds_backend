@@ -35,6 +35,21 @@ export class User {
   })
   role: UserRole;
 
+  @Prop({ default: false })
+  isEmailVerified: boolean;
+
+  @Prop()
+  emailVerificationToken: string;
+
+  @Prop()
+  emailVerificationExpires: Date;
+
+  @Prop()
+  passwordResetToken: string;
+
+  @Prop()
+  passwordResetExpires: Date;
+
   @Prop()
   createdAt: Date;
 

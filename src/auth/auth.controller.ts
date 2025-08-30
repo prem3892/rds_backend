@@ -6,6 +6,8 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  Get,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -21,6 +23,11 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { AdminRegisterDto } from './dto/admin-register.dto';
+import {
+  ForgotPasswordDto,
+  ResetPasswordDto,
+  VerifyEmailDto,
+} from './dto/password-reset.dto';
 import { LoginResponseDto, UserResponseDto } from './dto/auth-responses.dto';
 import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
 import { Roles } from '../shared/decorators/roles.decorator';
@@ -128,5 +135,122 @@ export class AuthController {
     const user = await this.authService.registerAdmin(adminRegisterDto);
     const { password, ...result } = user.toObject();
     return result;
+  }
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Request password reset',
+    description: 'Send password reset email to user',
+  })
+  @ApiBody({ type: ForgotPasswordDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Password reset email sent successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example: 'Password reset email sent successfully',
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid email or user not found',
+    type: ErrorResponseDto,
+  })
+  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
+    await this.authService.sendPasswordResetEmail(forgotPasswordDto.email);
+    return { message: 'Password reset email sent successfully' };
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reset password',
+    description: 'Reset user password using token from email',
+  })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Password reset successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Password reset successfully' },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid or expired token',
+    type: ErrorResponseDto,
+  })
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    await this.authService.resetPassword(
+      resetPasswordDto.token,
+      resetPasswordDto.newPassword,
+    );
+    return { message: 'Password reset successfully' };
+  }
+
+  @Post('send-verification')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Send email verification',
+    description: 'Send email verification link to authenticated user',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification email sent successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example: 'Verification email sent successfully',
+        },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Email already verified or user not found',
+    type: ErrorResponseDto,
+  })
+  async sendEmailVerification(@AuthenticatedUser() user: JwtPayload) {
+    await this.authService.sendEmailVerification(user.sub);
+    return { message: 'Verification email sent successfully' };
+  }
+
+  @Get('verify-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Verify email address',
+    description: 'Verify user email address using token from email',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Email verified successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Email verified successfully' },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid or expired verification token',
+    type: ErrorResponseDto,
+  })
+  async verifyEmail(@Query() verifyEmailDto: VerifyEmailDto) {
+    await this.authService.verifyEmail(verifyEmailDto.token);
+    return { message: 'Email verified successfully' };
   }
 }
