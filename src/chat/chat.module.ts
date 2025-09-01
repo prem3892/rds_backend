@@ -21,6 +21,8 @@ import { ChatGateway } from './chat.gateway';
 import { ChatSessionService } from './services/chat-session/chat-session.service';
 import { ChatMessageService } from './services/chat-message/chat-message.service';
 import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
+import { VisitorStateService } from './services/visitor-state/visitor-state.service';
+import { VisitorTrackingController } from './visitor-tracking.controller';
 
 @Module({
   imports: [
@@ -43,12 +45,14 @@ import { ChatNotificationService } from './services/chat-notification/chat-notif
     ChatSessionService,
     ChatMessageService,
     ChatNotificationService,
+    VisitorStateService,
   ],
-  controllers: [ChatController],
+  controllers: [ChatController, VisitorTrackingController],
   exports: [
     ChatSessionService,
     ChatMessageService,
     ChatNotificationService,
+    VisitorStateService,
     ChatGateway, // If other modules need to emit via gateway
     MongooseModule,
   ],

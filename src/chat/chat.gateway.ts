@@ -35,6 +35,7 @@ import {
   ChatMessageType,
   REDIS_AGENT_RECONNECT_PENDING_PREFIX,
   REDIS_CUSTOMER_RECONNECT_PENDING_PREFIX,
+  VisitorEventType,
 } from '../shared/constants/enums';
 import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { InitiateChatDto } from './dto/initiate-chat.dto';
@@ -49,6 +50,7 @@ import { CreateAppointmentDto } from 'src/appointments/dto/create-appointment.dt
 import { AppointmentDocument } from 'src/schemas/appointment.schema';
 import { AgentProfileDocument } from 'src/schemas/agent-profile.schema';
 import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
+import { VisitorStateService } from './services/visitor-state/visitor-state.service';
 
 interface AuthenticatedSocket extends Socket {
   user?: JwtPayload; // For agents
@@ -97,6 +99,8 @@ export class ChatGateway
     private readonly usersService: UsersService,
     @Inject(forwardRef(() => ChatNotificationService))
     private readonly chatNotificationService: ChatNotificationService,
+    @Inject(forwardRef(() => VisitorStateService))
+    private readonly visitorStateService: VisitorStateService,
   ) {
     this.agentReconnectTimeoutMs =
       this.configService.get<number>('chatTimers.agentReconnectTimeoutMs') ||
@@ -116,6 +120,8 @@ export class ChatGateway
     this.logger.log('ChatGateway Initialized');
     // Set the server instance in the notification service to avoid circular dependency
     this.chatNotificationService.setServer(server);
+    // Set the server instance in the visitor state service
+    this.visitorStateService.setServer(server);
   }
 
   async handleConnection(client: AuthenticatedSocket, ...args: any[]) {
@@ -258,11 +264,11 @@ export class ChatGateway
       const widget = await this.widgetsService.findById(customer.widgetId);
       if (widget) {
         const domain = customer.metadata?.initialDomain || 'unknown';
-        await this.chatNotificationService.notifyAgentsAboutVisitor(
+        await this.visitorStateService.notifyAgentsAboutVisitor(
           customer,
           widget,
           domain,
-          'visitor_disconnected',
+          VisitorEventType.DISCONNECT,
         );
 
         // Set grace period timer for potential visitor reconnection
@@ -471,7 +477,7 @@ export class ChatGateway
     );
 
     if (data.isOnline) {
-      client.join('online_agents');
+      client.join('online_agents'); // TODO: make it unique as per business
     } else {
       client.leave('online_agents');
       // Additional logic for when agent goes offline during active chats is handled in handleDisconnect
@@ -576,7 +582,7 @@ export class ChatGateway
     this.logger.debug(
       `[handleAgentAcceptChat] Agent profile ${JSON.stringify(agentProfile)}`,
     );
-    const agentId = (agentProfile._id as Types.ObjectId).toString();
+    const agentId = agentProfile.userId.toString();
     const activeChats = await this.chatSessionService.countActiveChatsForAgent(
       new Types.ObjectId(agentUserId),
     );
@@ -743,7 +749,7 @@ export class ChatGateway
     const agentProfile = await this.agentsService.findAgentProfileByUserId(
       client.user.sub,
     );
-    const _agentId = (agentProfile?._id as Types.ObjectId).toString();
+    const _agentId = (agentProfile?.userId as Types.ObjectId).toString();
 
     if (
       (_agentId && session.agentId?.toString() !== _agentId) ||
@@ -808,7 +814,7 @@ export class ChatGateway
     this.logger.debug(
       `[handleAgentEndChat] Agent profile ${JSON.stringify(agentProfile)}`,
     );
-    const agentId = (agentProfile._id as Types.ObjectId).toString();
+    const agentId = (agentProfile.userId as Types.ObjectId).toString();
     if (session.agentId?.toString() !== agentId) {
       throw new WsException('You are not the agent for this chat.');
     }
@@ -965,20 +971,22 @@ export class ChatGateway
     const gracePeriodData = await this.redisService.get(
       `visitor_grace_period:${customer._id.toString()}`,
     );
+    let isReconnection = false;
     if (gracePeriodData) {
       // Customer reconnected during grace period - notify agents about restoration
       await this.redisService.del(
         `visitor_grace_period:${customer._id.toString()}`,
       );
-      await this.chatNotificationService.notifyAgentsAboutVisitor(
+      await this.visitorStateService.notifyAgentsAboutVisitor(
         customer,
         widget,
         payload.domain,
-        'visitor_reconnected',
+        VisitorEventType.RECONNECT,
       );
       this.logger.log(
         `Customer ${customer._id} reconnected during grace period`,
       );
+      isReconnection = true;
     }
 
     // Check for existing active/pending_reconnect sessions for this customer
@@ -1043,12 +1051,12 @@ export class ChatGateway
 
     // Notify eligible agents about new visitor (regardless of new or existing session)
     // Only notify if this is not a grace period reconnection (already handled above)
-    if (!gracePeriodData) {
-      await this.chatNotificationService.notifyAgentsAboutVisitor(
+    if (!isReconnection) {
+      await this.visitorStateService.notifyAgentsAboutVisitor(
         customer,
         widget,
         payload.domain,
-        'visitor_connected',
+        VisitorEventType.CONNECT,
       );
     }
 

@@ -9,6 +9,18 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiQuery,
+  ApiBadRequestResponse,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+} from '@nestjs/swagger';
 import { ChatMessageService } from './services/chat-message/chat-message.service';
 import { ChatSessionService } from './services/chat-session/chat-session.service';
 import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
@@ -19,19 +31,52 @@ import { AuthenticatedUser } from '../shared/decorators/user.decorator';
 import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { GetMessagesQueryDto } from './dto/get-messages.dto';
 import { GetChatSessionsQueryDto } from './dto/get-chat-session.dto';
+import {
+  ChatSessionResponseDto,
+  ChatMessageResponseDto,
+  ActiveChatSessionResponseDto,
+} from './dto/chat-responses.dto';
 import { Types } from 'mongoose';
+import {
+  ErrorResponseDto,
+  UnauthorizedResponseDto,
+  ForbiddenResponseDto,
+  NotFoundResponseDto,
+  PaginatedResponseDto,
+} from '../shared/dto/common-responses.dto';
 
+@ApiTags('Chat')
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('chat')
 export class ChatController {
+  private readonly logger = new Logger(ChatController.name);
+
   constructor(
     private readonly chatMessageService: ChatMessageService,
     private readonly chatSessionService: ChatSessionService,
   ) {}
 
-  // Admin: View all chat sessions, filterable, paginated
   @Get('sessions')
   @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get all chat sessions (Admin only)',
+    description:
+      'Retrieve a paginated list of all chat sessions with filtering options. Only accessible by administrators.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Chat sessions retrieved successfully',
+    type: PaginatedResponseDto<ChatSessionResponseDto>,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required',
+    type: ForbiddenResponseDto,
+  })
   async getAllChatSessions(
     @Query(new ValidationPipe({ transform: true }))
     queryDto: GetChatSessionsQueryDto,
@@ -39,11 +84,33 @@ export class ChatController {
     return this.chatSessionService.findAllPaginated(queryDto);
   }
 
-  // Agent: List agent's active chats (Not paginated, could be if list grows large)
   @Get('sessions/my-active')
   @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get current user active chat sessions',
+    description:
+      'Retrieve all active chat sessions assigned to the currently authenticated agent',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Active chat sessions retrieved successfully',
+    type: [ActiveChatSessionResponseDto],
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent or Admin role required',
+    type: ForbiddenResponseDto,
+  })
   async getMyActiveSessions(@AuthenticatedUser() user: JwtPayload) {
-    return this.chatSessionService.getActiveSessionsForAgent(user.sub);
+    this.logger.debug(`Getting my active sessions for ${user.email}`);
+    const result = await this.chatSessionService.getActiveSessionsForAgent(
+      user.sub,
+    );
+    this.logger.debug(`${result.length} active sessions found`);
+    return result;
   }
 
   // Admin/Agent: View messages for a specific historic/active chat, paginated

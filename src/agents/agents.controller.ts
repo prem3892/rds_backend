@@ -2,16 +2,39 @@ import {
   Controller,
   Get,
   Put,
+  Post,
+  Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   Patch,
   NotFoundException,
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiQuery,
+  ApiBadRequestResponse,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+} from '@nestjs/swagger';
 import { AgentsService } from './agents.service';
 import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto';
+import { CreateCannedMessageDto } from './dto/create-canned-message.dto';
+import { UpdateCannedMessageDto } from './dto/update-canned-message.dto';
+import { GetCannedMessagesDto } from './dto/get-canned-messages.dto';
+import {
+  AgentProfileResponseDto,
+  CannedMessageResponseDto,
+  AgentStatusResponseDto,
+} from './dto/agent-responses.dto';
 import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../shared/guards/roles.guard';
 import { Roles } from '../shared/decorators/roles.decorator';
@@ -21,7 +44,17 @@ import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { UsersService } from '../users/users.service'; // For password updates
 import { UpdateUserDto } from 'src/users/dto/update-user.dto';
 import { Types } from 'mongoose';
+import {
+  ErrorResponseDto,
+  UnauthorizedResponseDto,
+  ForbiddenResponseDto,
+  NotFoundResponseDto,
+  SuccessMessageResponseDto,
+  PaginatedResponseDto,
+} from '../shared/dto/common-responses.dto';
 
+@ApiTags('Agents')
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('agents')
 export class AgentsController {
@@ -30,16 +63,54 @@ export class AgentsController {
     private readonly usersService: UsersService,
   ) {}
 
-  // Admin: List all agents with profiles
   @Get()
   @Roles(UserRole.ADMIN)
-  async getAllAgentsWithProfiles() {
-    return this.agentsService.getAllAgentProfilesWithUserDetails();
+  @ApiOperation({
+    summary: 'Get all agents with profiles (Admin only)',
+    description:
+      'Retrieve a list of all agent profiles with associated user details. Only accessible by administrators.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of agents retrieved successfully',
+    type: [AgentProfileResponseDto],
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  async getAllAgentsWithProfiles(@AuthenticatedUser() adminUser: JwtPayload) {
+    return this.agentsService.getAllAgentProfilesWithUserDetails(adminUser.sub);
   }
 
-  // Agent/Admin: Get their own profile
   @Get('me/profile')
   @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get current user agent profile',
+    description:
+      'Retrieve the agent profile for the currently authenticated user',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Agent profile retrieved successfully',
+    type: AgentProfileResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Agent profile not found',
+    type: NotFoundResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent or Admin role required',
+    type: ForbiddenResponseDto,
+  })
   async getMyProfile(@AuthenticatedUser() user: JwtPayload) {
     const agentProfile = await this.agentsService.findAgentProfileByUserId(
       user.sub,
@@ -209,5 +280,123 @@ export class AgentsController {
     }
     // This will also be handled by the ChatGateway, but providing a REST endpoint.
     return this.agentsService.setOnlineStatus(user.sub, body.isOnline);
+  }
+
+  // ==================== CANNED MESSAGES ENDPOINTS ====================
+
+  @Post('canned-messages')
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Create a new canned message',
+    description:
+      'Create a new canned message that can be used for quick responses in chat conversations. Returns the created message with populated agent information.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Canned message created successfully',
+    type: CannedMessageResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid input data',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent or Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  async createCannedMessage(
+    @AuthenticatedUser() user: JwtPayload,
+    @Body() createDto: CreateCannedMessageDto,
+  ) {
+    return this.agentsService.createCannedMessage(user.sub, createDto);
+  }
+
+  /**
+   * Get canned messages with pagination and filtering
+   */
+  @Get('canned-messages')
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get canned messages with pagination and filtering',
+    description:
+      'Retrieve canned messages with support for pagination, search by title, filtering by tags, departments, and sorting options. Returns populated agent information (firstName, lastName, email) for each message.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Canned messages retrieved successfully',
+    type: PaginatedResponseDto<CannedMessageResponseDto>,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid query parameters',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent or Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  async getCannedMessages(
+    @AuthenticatedUser() user: JwtPayload,
+    @Query() queryDto: GetCannedMessagesDto,
+  ) {
+    return this.agentsService.getCannedMessages(user.sub, queryDto);
+  }
+
+  /**
+   * Get a specific canned message by ID
+   */
+  @Get('canned-messages/:id')
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  async getCannedMessageById(
+    @AuthenticatedUser() user: JwtPayload,
+    @Param('id') messageId: string,
+  ) {
+    if (!Types.ObjectId.isValid(messageId)) {
+      throw new BadRequestException('Invalid message ID format');
+    }
+    return this.agentsService.getCannedMessageById(user.sub, messageId);
+  }
+
+  /**
+   * Update a canned message
+   */
+  @Put('canned-messages/:id')
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  async updateCannedMessage(
+    @AuthenticatedUser() user: JwtPayload,
+    @Param('id') messageId: string,
+    @Body() updateDto: UpdateCannedMessageDto,
+  ) {
+    if (!Types.ObjectId.isValid(messageId)) {
+      throw new BadRequestException('Invalid message ID format');
+    }
+    return this.agentsService.updateCannedMessage(
+      user.sub,
+      messageId,
+      updateDto,
+    );
+  }
+
+  /**
+   * Delete a canned message
+   */
+  @Delete('canned-messages/:id')
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  async deleteCannedMessage(
+    @AuthenticatedUser() user: JwtPayload,
+    @Param('id') messageId: string,
+  ) {
+    if (!Types.ObjectId.isValid(messageId)) {
+      throw new BadRequestException('Invalid message ID format');
+    }
+    await this.agentsService.deleteCannedMessage(user.sub, messageId);
+    return { message: 'Canned message deleted successfully' };
   }
 }

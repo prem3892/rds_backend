@@ -12,7 +12,7 @@ export class AgentProfile {
     index: true,
     required: true,
   })
-  userId: Types.ObjectId;
+  userId: Types.ObjectId; // aka agentId :)
 
   @Prop({
     type: Types.ObjectId,

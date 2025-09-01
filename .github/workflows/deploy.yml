@@ -1,0 +1,73 @@
+name: Deploy NestJS Backend to EC2 with Redis
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v0.1.8
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            cd /home/ubuntu/nestjs_chat_app
+            git fetch --all
+            git reset --hard origin/main
+            npm install
+
+            # Configure Redis password
+            sudo sed -i "s/^# requirepass .*/requirepass ${{ secrets.REDIS_PASSWORD }}/" /etc/redis/redis.conf
+            sudo systemctl restart redis-server
+
+            # Create production .env
+            cat <<EOF > .env
+            PORT=5000
+            NODE_ENV=production
+            MONGODB_URI=${{ secrets.MONGODB_URI }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            JWT_EXPIRES_IN=1d
+            REDIS_HOST=localhost
+            REDIS_PORT=6379
+            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+            REDIS_TLS=false
+            APP_DOMAIN=${{ secrets.APP_DOMAIN }}
+            INTERNAL_BASE_URL=${{ secrets.INTERNAL_BASE_URL }}
+            CHAT_FIRST_ALERT_THRESHOLD_MS=60000
+            CHAT_SUBSEQUENT_ALERT_INTERVAL_MS=90000
+            CHAT_MAX_PRIORITY_ALERTS=3
+            AGENT_RECONNECT_TIMEOUT_MS=120000
+            CUSTOMER_RECONNECT_TIMEOUT_MS=300000
+            CUSTOMER_ABANDON_TIMEOUT_MS=900000
+            VISITOR_REDIS_TTL_SECONDS=1800
+            VISITOR_CLEANUP_INTERVAL_MS=120000
+            VISITOR_GRACE_PERIOD_MS=300000
+            MAX_VISITORS_PER_AGENT=1000
+            VISITOR_DELTA_UPDATES=true
+            MAIL_ENABLED=true
+            MAIL_HOST=${{ secrets.MAIL_HOST }}
+            MAIL_PORT=${{ secrets.MAIL_PORT }}
+            MAIL_SECURE=${{ secrets.MAIL_SECURE }}
+            MAIL_USER=${{ secrets.MAIL_USER }}
+            MAIL_PASS=${{ secrets.MAIL_PASS }}
+            MAIL_FROM=${{ secrets.MAIL_FROM }}
+            EOF
+
+            # Build and restart NestJS app
+            npm run build
+            pm2 restart all

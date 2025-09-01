@@ -6,6 +6,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis'; // Use `ioredis` directly for adapter
 import { RedisService } from './shared/redis/redis.service';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 export class RedisIoAdapter extends IoAdapter {
   private adapterConstructor: ReturnType<typeof createAdapter>;
@@ -131,6 +132,54 @@ async function bootstrap() {
   );
   // app.useGlobalFilters(new GlobalHttpExceptionFilter()); // If you create a global HTTP filter
 
+  // Setup Swagger Documentation
+  const config = new DocumentBuilder()
+    .setTitle('Live Chat Application API')
+    .setDescription(
+      'A comprehensive real-time chat system with widget integration capabilities. This API provides chat functionality between customers and agents, with features like department selection, appointment scheduling, and embeddable chat widgets for websites.',
+    )
+    .setVersion('1.0')
+    .setContact(
+      'Development Team',
+      'https://github.com/your-repo', // Update with your actual repo
+      'dev@yourcompany.com', // Update with your actual email
+    )
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'JWT',
+        description: 'Enter JWT token',
+        in: 'header',
+      },
+      'JWT-auth', // This name here is important for matching up with @ApiBearerAuth() in your controllers
+    )
+    .addTag('Authentication', 'User authentication and authorization endpoints')
+    .addTag('Agents', 'Agent management and profile operations')
+    .addTag('Chat', 'Real-time chat sessions and message management')
+    .addTag('Departments', 'Department management and organization')
+    .addTag('Widgets', 'Embeddable chat widget configuration and deployment')
+    .addTag('Users', 'User management and profile operations')
+    .addTag('Appointments', 'Appointment scheduling and management')
+    .addTag('Visitor Tracking', 'Website visitor tracking and analytics')
+    .build();
+
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document, {
+    swaggerOptions: {
+      persistAuthorization: true, // Keep authorization when refreshing
+      tagsSorter: 'alpha',
+      operationsSorter: 'alpha',
+    },
+    customSiteTitle: 'Live Chat API Documentation',
+    customfavIcon: '/favicon.ico',
+    customCss: `
+      .swagger-ui .topbar { display: none }
+      .swagger-ui .info .title { color: #3b82f6 }
+    `,
+  });
+
   // Setup Redis adapter for Socket.IO
   const redisIoAdapter = new RedisIoAdapter(app, redisService);
   await redisIoAdapter.connectToRedis();
@@ -143,6 +192,7 @@ async function bootstrap() {
 
   await app.listen(port, '0.0.0.0');
   logger.log(`Application is running on: ${await app.getUrl()}`);
+  logger.log(`API Documentation available at: ${await app.getUrl()}/api/docs`);
   logger.log(`WebSocket server is running on namespace /chat`);
 }
 bootstrap();

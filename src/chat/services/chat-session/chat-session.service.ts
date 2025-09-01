@@ -298,10 +298,17 @@ export class ChatSessionService {
   async getActiveSessionsForAgent(
     agentId: string,
   ): Promise<ChatSessionDocument[]> {
+    this.logger.log(`Getting active sessions for agent ${agentId}`);
+
     return this.chatSessionModel
       .find({
         agentId: new Types.ObjectId(agentId),
-        status: ChatSessionStatus.ACTIVE,
+        status: {
+          $in: [
+            ChatSessionStatus.ACTIVE,
+            ChatSessionStatus.PENDING_AGENT_RECONNECT,
+          ],
+        },
       })
       .populate('widgetId', 'name')
       .populate('customerId', 'name email metadata')
