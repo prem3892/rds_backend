@@ -1,0 +1,32 @@
+# Node modules (we install dependencies inside Docker)
+node_modules
+npm-debug.log
+yarn-error.log
+pnpm-lock.yaml
+
+# Logs
+logs
+*.log
+*.log.*
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist
+build
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# Optional editor files
+.vscode
+.idea
+*.swp
