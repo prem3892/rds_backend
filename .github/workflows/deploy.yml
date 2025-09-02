@@ -43,15 +43,8 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            echo "Pulling latest image..."
-            docker pull lokeshseattle/rds-backend:latest
-
-            echo "Stopping old container..."
-            docker stop rds-backend || true
-            docker rm rds-backend || true
-
-            echo "Starting new container..."
-            docker run -d --name rds-backend -p 8888:8888 \
-              --env-file /home/ubuntu/rds-chat-api/.env \
-              --restart unless-stopped \
-              lokeshseattle/rds-backend:latest
+            cd /home/ubuntu/rds-chat-api
+            echo "Pull latest backend image..."
+            docker compose pull backend
+            echo "Start/update services..."
+            docker compose up -d
