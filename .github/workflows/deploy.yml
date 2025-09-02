@@ -52,5 +52,6 @@ jobs:
 
             echo "Starting new container..."
             docker run -d --name rds-backend -p 8888:8888 \
+              --env-file /home/ubuntu/rds-chat-api/.env \
               --restart unless-stopped \
               lokeshseattle/rds-backend:latest
