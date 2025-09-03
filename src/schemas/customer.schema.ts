@@ -22,6 +22,15 @@ export class Customer {
   @Prop({ type: Types.ObjectId, ref: 'Widget', required: true })
   widgetId: Types.ObjectId;
 
+  @Prop({ default: false })
+  isBlocked: boolean;
+
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  blockedBy?: Types.ObjectId;
+
+  @Prop()
+  blockedAt?: Date;
+
   @Prop()
   createdAt: Date;
 }
