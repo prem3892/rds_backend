@@ -89,6 +89,8 @@ export class CustomerResponseDto {
   createdAt: Date;
 }
 
+// Note: BlockedCustomersListResponseDto is now replaced by PaginatedResponseDto<CustomerResponseDto>
+// This is kept for backward compatibility but should be deprecated
 export class BlockedCustomersListResponseDto {
   @ApiProperty({
     description: 'Array of blocked customers with complete details',

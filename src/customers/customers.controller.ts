@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Body,
+  Query,
   UseGuards,
   BadRequestException,
   InternalServerErrorException,
@@ -30,13 +31,16 @@ import {
   BlockedCustomersListResponseDto,
   BlockCustomerResponseDto,
   UnblockCustomerResponseDto,
+  CustomerResponseDto,
 } from './dto/customer-responses.dto';
 import {
   ErrorResponseDto,
   UnauthorizedResponseDto,
   ForbiddenResponseDto,
   NotFoundResponseDto,
+  PaginatedResponseDto,
 } from '../shared/dto/common-responses.dto';
+import { GetBlockedCustomersDto } from './dto/get-blocked-customers.dto';
 import { Types } from 'mongoose';
 
 @ApiTags('Block Customer Management')
@@ -49,14 +53,14 @@ export class CustomersController {
   @Get()
   @Roles(UserRole.ADMIN)
   @ApiOperation({
-    summary: 'Get list of blocked customers (Admin only)',
+    summary: 'Get paginated list of blocked customers (Admin only)',
     description:
-      'Retrieves a comprehensive list of all customers that have been blocked by administrators. This endpoint provides detailed information about each blocked customer including who blocked them and when.',
+      'Retrieves a paginated and searchable list of all customers that have been blocked by administrators. This endpoint provides detailed information about each blocked customer including who blocked them and when. Supports search by name, email, or fingerprint, and sorting by various fields.',
   })
   @ApiResponse({
     status: 200,
-    description: 'List of blocked customers retrieved successfully',
-    type: BlockedCustomersListResponseDto,
+    description: 'Paginated list of blocked customers retrieved successfully',
+    type: PaginatedResponseDto<CustomerResponseDto>,
   })
   @ApiUnauthorizedResponse({
     description: 'Unauthorized - Invalid or missing JWT token',
@@ -73,26 +77,32 @@ export class CustomersController {
   })
   async getBlockedCustomers(
     @GetUser() user: JwtPayload,
-  ): Promise<BlockedCustomersListResponseDto> {
+    @Query() queryDto: GetBlockedCustomersDto,
+  ): Promise<PaginatedResponseDto<CustomerResponseDto>> {
     try {
-      const customers = await this.customersService.getBlockedCustomers(
+      const result = await this.customersService.getBlockedCustomers(
         new Types.ObjectId(user.sub),
         user.role,
+        queryDto,
       );
+
+      // Transform the items to match the response DTO
+      const transformedItems = result.items.map((customer) => ({
+        _id: customer._id,
+        fingerprint: customer.fingerprint,
+        name: customer.name,
+        email: customer.email,
+        widgetId: customer.widgetId,
+        isBlocked: customer.isBlocked,
+        blockedBy: customer.blockedBy,
+        blockedAt: customer.blockedAt,
+        metadata: customer.metadata,
+        createdAt: customer.createdAt,
+      }));
+
       return {
-        customers: customers.map((customer) => ({
-          _id: customer._id,
-          fingerprint: customer.fingerprint,
-          name: customer.name,
-          email: customer.email,
-          widgetId: customer.widgetId,
-          isBlocked: customer.isBlocked,
-          blockedBy: customer.blockedBy,
-          blockedAt: customer.blockedAt,
-          metadata: customer.metadata,
-          createdAt: customer.createdAt,
-        })),
-        total: customers.length,
+        items: transformedItems,
+        meta: result.meta,
       };
     } catch (error) {
       if (error.name === 'ForbiddenException' || error.status === 403) {

@@ -12,6 +12,11 @@ import {
   AgentProfileDocument,
 } from 'src/schemas/agent-profile.schema';
 import { UserRole } from 'src/shared/constants/enums';
+import { GetBlockedCustomersDto } from './dto/get-blocked-customers.dto';
+import {
+  PaginatedResponseDto,
+  PaginationMetaDto,
+} from 'src/shared/dto/common-responses.dto';
 
 @Injectable()
 export class CustomersService {
@@ -186,12 +191,13 @@ export class CustomersService {
   }
 
   /**
-   * Get blocked customers that the user has access to (Admin only)
+   * Get blocked customers that the user has access to (Admin only) with pagination
    */
   async getBlockedCustomers(
     userId: Types.ObjectId,
     userRole: UserRole,
-  ): Promise<CustomerDocument[]> {
+    queryDto: GetBlockedCustomersDto,
+  ): Promise<PaginatedResponseDto<CustomerDocument>> {
     if (userRole !== UserRole.ADMIN) {
       throw new ForbiddenException(
         'Only admins can view the blocked customers list',
@@ -203,15 +209,67 @@ export class CustomersService {
       userRole,
     );
 
-    return this.customerModel
-      .find({
-        isBlocked: true,
-        widgetId: { $in: accessibleWidgetIds },
-      })
-      .populate('blockedBy', 'firstName lastName email')
-      .populate('widgetId', 'name')
-      .sort({ blockedAt: -1 })
-      .exec();
+    const {
+      search,
+      page = 1,
+      limit = 10,
+      sortBy = 'blockedAt',
+      sortOrder = 'desc',
+    } = queryDto;
+
+    // Build query
+    const query: any = {
+      isBlocked: true,
+      widgetId: { $in: accessibleWidgetIds },
+    };
+
+    // Add search functionality
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { fingerprint: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+
+    // Build sort object
+    const sort: any = {};
+    sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+    // Execute queries in parallel
+    const [items, total] = await Promise.all([
+      this.customerModel
+        .find(query)
+        .populate('blockedBy', 'firstName lastName email')
+        .populate('widgetId', 'name')
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.customerModel.countDocuments(query).exec(),
+    ]);
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(total / limit);
+    const hasNext = page < totalPages;
+    const hasPrev = page > 1;
+
+    const meta: PaginationMetaDto = {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNext,
+      hasPrev,
+    };
+
+    return {
+      items,
+      meta,
+    };
   }
 
   async blockCustomer(
