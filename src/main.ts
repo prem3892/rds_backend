@@ -119,7 +119,7 @@ async function bootstrap() {
   //   credentials: true,
   // });
 
-// Removed CORS 
+  // Removed CORS
 
   // app.enableCors({
   //   origin: [
@@ -128,6 +128,12 @@ async function bootstrap() {
   //     'https://rds-frontend-mauve.vercel.app',
   //   ],
   // });
+  app.enableCors({
+    origin: '*',
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    credentials: true,
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
