@@ -35,6 +35,12 @@ export class User {
   })
   role: UserRole;
 
+  @Prop({ trim: true })
+  phoneNo: string;
+
+  @Prop({ trim: true })
+  website: string;
+
   @Prop({ default: false })
   isEmailVerified: boolean;
 

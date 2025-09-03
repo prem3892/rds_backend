@@ -130,6 +130,10 @@ export class UsersService {
     }
     if (updateUserDto.firstName) user.firstName = updateUserDto.firstName;
     if (updateUserDto.lastName) user.lastName = updateUserDto.lastName;
+    if (updateUserDto.phoneNo !== undefined)
+      user.phoneNo = updateUserDto.phoneNo;
+    if (updateUserDto.website !== undefined)
+      user.website = updateUserDto.website;
 
     const oldRole = user.role;
     if (updateUserDto.role) user.role = updateUserDto.role;

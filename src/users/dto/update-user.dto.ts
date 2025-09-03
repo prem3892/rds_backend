@@ -3,6 +3,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  IsUrl,
   MinLength,
 } from 'class-validator';
 import { UserRole } from '../../shared/constants/enums';
@@ -28,4 +29,12 @@ export class UpdateUserDto {
   @IsOptional()
   @IsEnum(UserRole, { message: 'Invalid role specified.' })
   role?: UserRole;
+
+  @IsOptional()
+  @IsString({ message: 'Phone number must be a string.' })
+  phoneNo?: string;
+
+  @IsOptional()
+  @IsUrl({}, { message: 'Website must be a valid URL.' })
+  website?: string;
 }

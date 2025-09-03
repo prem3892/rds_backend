@@ -17,6 +17,12 @@ export class LoginResponseDto {
       firstName: { type: 'string', example: 'John' },
       lastName: { type: 'string', example: 'Doe' },
       role: { enum: UserRole, example: UserRole.ADMIN },
+      phoneNo: { type: 'string', example: '+1234567890', required: false },
+      website: {
+        type: 'string',
+        example: 'https://example.com',
+        required: false,
+      },
     },
   })
   user: {
@@ -25,6 +31,8 @@ export class LoginResponseDto {
     firstName: string;
     lastName: string;
     role: UserRole;
+    phoneNo?: string;
+    website?: string;
   };
 }
 
@@ -59,6 +67,20 @@ export class UserResponseDto {
     example: UserRole.AGENT,
   })
   role: UserRole;
+
+  @ApiProperty({
+    description: 'User phone number',
+    example: '+1234567890',
+    required: false,
+  })
+  phoneNo?: string;
+
+  @ApiProperty({
+    description: 'User website URL',
+    example: 'https://example.com',
+    required: false,
+  })
+  website?: string;
 
   @ApiProperty({
     description: 'User creation timestamp',

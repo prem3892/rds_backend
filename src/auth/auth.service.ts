@@ -62,6 +62,8 @@ export class AuthService {
         firstName: validatedUser.firstName,
         lastName: validatedUser.lastName,
         role: validatedUser.role,
+        phoneNo: validatedUser.phoneNo,
+        website: validatedUser.website,
       },
     };
   }

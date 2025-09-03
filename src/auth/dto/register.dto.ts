@@ -2,7 +2,9 @@ import {
   IsEmail,
   IsEnum,
   IsNotEmpty,
+  IsOptional,
   IsString,
+  IsUrl,
   MinLength,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
@@ -53,4 +55,22 @@ export class RegisterDto {
   @IsEnum(UserRole)
   @IsNotEmpty()
   role: UserRole;
+
+  @ApiProperty({
+    description: 'User phone number',
+    example: '+1234567890',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  phoneNo?: string;
+
+  @ApiProperty({
+    description: 'User website URL',
+    example: 'https://example.com',
+    required: false,
+  })
+  @IsOptional()
+  @IsUrl()
+  website?: string;
 }
