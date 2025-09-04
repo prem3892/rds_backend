@@ -179,13 +179,13 @@ export class AutoMessagesService {
       if (!widget) {
         throw new NotFoundException('Widget not found or access denied');
       }
-      autoMessage.widgetId = new Types.ObjectId(updateDto.widgetId);
     }
 
     // If domain is being updated, validate it exists in widget's domains
     if (updateDto.domain) {
+      const widgetId = updateDto.widgetId || autoMessage.widgetId.toString();
       const widget = await this.widgetsService.findByIdAndAdmin(
-        autoMessage.widgetId.toString(),
+        widgetId,
         createdBy,
       );
       if (!widget.domains.includes(updateDto.domain)) {
@@ -193,7 +193,6 @@ export class AutoMessagesService {
           `Domain '${updateDto.domain}' is not configured for this widget`,
         );
       }
-      autoMessage.domain = updateDto.domain;
     }
 
     // Validate sitewide and pagePaths relationship
@@ -214,10 +213,26 @@ export class AutoMessagesService {
       }
     }
 
-    // Update fields
-    Object.assign(autoMessage, updateDto);
+    // Prepare update data
+    const updateData: any = { ...updateDto };
+    if (updateDto.widgetId) {
+      updateData.widgetId = new Types.ObjectId(updateDto.widgetId);
+    }
 
-    return autoMessage.save();
+    // Use findByIdAndUpdate to avoid full document validation
+    const updatedAutoMessage = await this.autoMessageModel
+      .findByIdAndUpdate(id, updateData, {
+        new: true,
+        runValidators: true, // Only validate the fields being updated
+      })
+      .populate('widgetId', 'name domains')
+      .exec();
+
+    if (!updatedAutoMessage) {
+      throw new NotFoundException('Auto message not found');
+    }
+
+    return updatedAutoMessage;
   }
 
   async remove(id: string, createdBy: Types.ObjectId): Promise<void> {
