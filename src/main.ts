@@ -169,6 +169,10 @@ async function bootstrap() {
     )
     .addTag('Authentication', 'User authentication and authorization endpoints')
     .addTag('Agents', 'Agent management and profile operations')
+    .addTag(
+      'Block Customer Management',
+      'Admin-only customer blocking and unblocking operations',
+    )
     .addTag('Chat', 'Real-time chat sessions and message management')
     .addTag('Departments', 'Department management and organization')
     .addTag('Widgets', 'Embeddable chat widget configuration and deployment')

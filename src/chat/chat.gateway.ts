@@ -957,6 +957,11 @@ export class ChatGateway
       },
     });
 
+    // Check if customer is blocked
+    if (customer.isBlocked) {
+      throw new WsException('Access denied. Customer is blocked.');
+    }
+
     client.customerId = customer._id.toString();
     await this.redisService.mapSocketIdToCustomerId(
       client.id,
@@ -1115,6 +1120,12 @@ export class ChatGateway
     const customer = await this.customersService.findByIdOrFail(
       client.customerId,
     );
+
+    // Check if customer is blocked
+    if (customer.isBlocked) {
+      throw new WsException('Access denied. Customer is blocked.');
+    }
+
     const widget = await this.widgetsService.findById(payload.widgetId); // Ensure widget exists
     const currentPageUrl = customer.metadata?.currentPageUrl || 'unknown_page'; // Get from customer metadata
     const domain = new URL(currentPageUrl).hostname;
@@ -1250,6 +1261,13 @@ export class ChatGateway
     );
     // Ack
     if (!client.customerId) throw new WsException('Customer not identified.');
+
+    // Check if customer is blocked
+    const customer = await this.customersService.findById(client.customerId);
+    if (customer && customer.isBlocked) {
+      throw new WsException('Access denied. Customer is blocked.');
+    }
+
     if (
       !payload.chatSessionId ||
       !Types.ObjectId.isValid(payload.chatSessionId)
