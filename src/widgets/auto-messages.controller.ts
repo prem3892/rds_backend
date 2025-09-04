@@ -20,6 +20,7 @@ import {
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiBody,
 } from '@nestjs/swagger';
 import { AutoMessagesService } from './auto-messages.service';
 import { CreateAutoMessageDto } from './dto/create-auto-message.dto';
@@ -171,6 +172,43 @@ export class AutoMessagesController {
     name: 'id',
     description: 'Auto message unique identifier',
     example: '507f1f77bcf86cd799439011',
+  })
+  @ApiBody({
+    type: UpdateAutoMessageDto,
+    description: 'Auto message update data',
+    examples: {
+      'Update title and message': {
+        summary: 'Update title and message',
+        description: 'Example of updating the title and message content',
+        value: {
+          title: 'Updated Welcome Message',
+          message:
+            'Hello! We have updated our support system. How can we help you today?',
+        },
+      },
+      'Update all fields': {
+        summary: 'Update all fields',
+        description: 'Example of updating all available fields',
+        value: {
+          title: 'Complete Auto Message Update',
+          message:
+            'This is a completely updated auto message with new content.',
+          widgetId: '507f1f77bcf86cd799439011',
+          domain: 'updated-example.com',
+          sitewide: true,
+          pagePaths: ['updated-path/page1', 'updated-path/page2'],
+          showAfterSeconds: 10,
+          isEnabled: true,
+        },
+      },
+      'Enable/disable message': {
+        summary: 'Toggle message status',
+        description: 'Example of just enabling or disabling the message',
+        value: {
+          isEnabled: false,
+        },
+      },
+    },
   })
   @ApiResponse({
     status: 200,
