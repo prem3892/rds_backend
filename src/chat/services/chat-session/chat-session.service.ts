@@ -406,9 +406,17 @@ export class ChatSessionService {
       .exec();
   }
 
-  async findAllPaginated(
-    queryDto: GetChatSessionsQueryDto,
-  ): Promise<{ data: ChatSessionDocument[]; total: number }> {
+  async findAllPaginated(queryDto: GetChatSessionsQueryDto): Promise<{
+    items: ChatSessionDocument[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNext: boolean;
+      hasPrev: boolean;
+    };
+  }> {
     const {
       limit = 10,
       page = 1,
@@ -441,26 +449,50 @@ export class ChatSessionService {
       );
       if (customerIds.length === 0 && (customerName || customerEmail)) {
         // No customers match, so no sessions will match
-        return { data: [], total: 0 };
+        const meta = {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false,
+        };
+        return { items: [], meta };
       }
       if (customerIds.length > 0) {
         query.customerId = { $in: customerIds };
       }
     }
 
-    const data = await this.chatSessionModel
-      .find(query)
-      .populate('widgetId', 'name')
-      .populate('customerId', 'name email')
-      .populate({ path: 'agentId', select: 'firstName lastName email' })
-      .populate('departmentId', 'name')
-      .sort({ initiatedAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .exec();
+    const [items, total] = await Promise.all([
+      this.chatSessionModel
+        .find(query)
+        .populate('widgetId', 'name')
+        .populate('customerId', 'name email')
+        .populate({ path: 'agentId', select: 'firstName lastName email' })
+        .populate('departmentId', 'name')
+        .sort({ initiatedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.chatSessionModel.countDocuments(query).exec(),
+    ]);
 
-    const total = await this.chatSessionModel.countDocuments(query).exec();
-    return { data, total };
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(total / limit);
+    const hasNext = page < totalPages;
+    const hasPrev = page > 1;
+
+    const meta = {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNext,
+      hasPrev,
+    };
+
+    return { items, meta };
   }
 
   async getSessionsForAgentReconnect(
