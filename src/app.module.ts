@@ -7,6 +7,7 @@ import { DepartmentsModule } from './departments/departments.module';
 import { WidgetsModule } from './widgets/widgets.module';
 import { AgentsModule } from './agents/agents.module';
 import { CustomersModule } from './customers/customers.module';
+import { ContactsModule } from './contacts/contacts.module';
 import { ChatModule } from './chat/chat.module';
 import { AppRedisModule } from './shared/redis/redis.module';
 import { MailerModule } from './shared/mailer/mailer.module';
@@ -39,6 +40,7 @@ import { AppointmentsModule } from './appointments/appointments.module';
     WidgetsModule,
     AgentsModule,
     CustomersModule,
+    ContactsModule,
     ChatModule,
     AppointmentsModule,
   ],

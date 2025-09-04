@@ -170,6 +170,10 @@ async function bootstrap() {
     .addTag('Authentication', 'User authentication and authorization endpoints')
     .addTag('Agents', 'Agent management and profile operations')
     .addTag('Chat', 'Real-time chat sessions and message management')
+    .addTag(
+      'Contacts',
+      'Contact management and customer relationship operations',
+    )
     .addTag('Departments', 'Department management and organization')
     .addTag('Widgets', 'Embeddable chat widget configuration and deployment')
     .addTag('Users', 'User management and profile operations')
