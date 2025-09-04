@@ -5,7 +5,7 @@ export type CannedMessageDocument = CannedMessage & Document;
 
 @Schema({ timestamps: true })
 export class CannedMessage {
-  @Prop({ required: true, trim: true })
+  @Prop({ required: true, trim: true, unique: true })
   title: string;
 
   @Prop({ required: true })
@@ -30,6 +30,7 @@ export class CannedMessage {
 export const CannedMessageSchema = SchemaFactory.createForClass(CannedMessage);
 
 // Add indexes for better query performance
+CannedMessageSchema.index({ title: 1 }, { unique: true });
 CannedMessageSchema.index({ agentId: 1 });
 CannedMessageSchema.index({ adminId: 1 });
 CannedMessageSchema.index({ isGlobal: 1 });

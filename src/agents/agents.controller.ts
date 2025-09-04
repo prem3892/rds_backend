@@ -297,7 +297,7 @@ export class AgentsController {
     type: CannedMessageResponseDto,
   })
   @ApiBadRequestResponse({
-    description: 'Invalid input data',
+    description: 'Invalid input data or duplicate title',
     type: ErrorResponseDto,
   })
   @ApiUnauthorizedResponse({
@@ -369,6 +369,33 @@ export class AgentsController {
    */
   @Put('canned-messages/:id')
   @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Update a canned message',
+    description:
+      'Update an existing canned message. Only the creator can update their own messages.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Canned message updated successfully',
+    type: CannedMessageResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid input data, duplicate title, or invalid message ID format',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent or Admin role required, or not the message creator',
+    type: ForbiddenResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Canned message not found',
+    type: NotFoundResponseDto,
+  })
   async updateCannedMessage(
     @AuthenticatedUser() user: JwtPayload,
     @Param('id') messageId: string,

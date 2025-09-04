@@ -415,7 +415,17 @@ export class AgentsService {
       tags: createDto.tags || [],
     });
 
-    const savedMessage = await cannedMessage.save();
+    let savedMessage;
+    try {
+      savedMessage = await cannedMessage.save();
+    } catch (error) {
+      if (error.code === 11000 && error.keyPattern?.title) {
+        throw new BadRequestException(
+          `A canned message with the title "${createDto.title}" already exists. Please choose a different title.`,
+        );
+      }
+      throw error;
+    }
     this.logger.log(
       `Created canned message ${savedMessage._id} by agent ${agentUserId}`,
     );
@@ -657,7 +667,17 @@ export class AgentsService {
       );
     }
 
-    const updatedMessage = await cannedMessage.save();
+    let updatedMessage;
+    try {
+      updatedMessage = await cannedMessage.save();
+    } catch (error) {
+      if (error.code === 11000 && error.keyPattern?.title) {
+        throw new BadRequestException(
+          `A canned message with the title "${updateDto.title}" already exists. Please choose a different title.`,
+        );
+      }
+      throw error;
+    }
     this.logger.log(
       `Updated canned message ${messageId} by agent ${agentUserId}`,
     );
