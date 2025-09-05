@@ -7,11 +7,12 @@ import {
   IsUrl,
   MinLength,
   ValidateNested,
+  IsArray,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { UserRole } from 'src/shared/constants/enums';
-import { WeeklyShiftDto } from './shift.dto';
+import { DayShiftEntryDto } from './shift.dto';
 
 export class RegisterDto {
   @ApiProperty({
@@ -79,47 +80,82 @@ export class RegisterDto {
 
   @ApiProperty({
     description: 'Agent working hours schedule (only applicable for agents)',
-    type: WeeklyShiftDto,
+    type: [DayShiftEntryDto],
     required: false,
-    example: {
-      monday: {
+    example: [
+      {
+        dayOfWeek: 'monday',
         isWorkingDay: true,
         timeSlots: [
           { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
         ],
+        isActive: true,
+        priority: 1,
+        description: 'Regular Monday hours',
       },
-      tuesday: {
+      {
+        dayOfWeek: 'tuesday',
         isWorkingDay: true,
         timeSlots: [
           { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
         ],
+        isActive: true,
+        priority: 1,
+        description: 'Regular Tuesday hours',
       },
-      wednesday: {
+      {
+        dayOfWeek: 'wednesday',
         isWorkingDay: true,
         timeSlots: [
           { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
         ],
+        isActive: true,
+        priority: 1,
+        description: 'Regular Wednesday hours',
       },
-      thursday: {
+      {
+        dayOfWeek: 'thursday',
         isWorkingDay: true,
         timeSlots: [
           { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
         ],
+        isActive: true,
+        priority: 1,
+        description: 'Regular Thursday hours',
       },
-      friday: {
+      {
+        dayOfWeek: 'friday',
         isWorkingDay: true,
         timeSlots: [
           { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
         ],
+        isActive: true,
+        priority: 1,
+        description: 'Regular Friday hours',
       },
-      saturday: { isWorkingDay: false, timeSlots: [] },
-      sunday: { isWorkingDay: false, timeSlots: [] },
-    },
+      {
+        dayOfWeek: 'saturday',
+        isWorkingDay: false,
+        timeSlots: [],
+        isActive: false,
+        priority: 1,
+        description: 'Weekend - not working',
+      },
+      {
+        dayOfWeek: 'sunday',
+        isWorkingDay: false,
+        timeSlots: [],
+        isActive: false,
+        priority: 1,
+        description: 'Weekend - not working',
+      },
+    ],
   })
   @IsOptional()
-  @ValidateNested()
-  @Type(() => WeeklyShiftDto)
-  shifts?: WeeklyShiftDto;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DayShiftEntryDto)
+  shifts?: DayShiftEntryDto[];
 
   @ApiProperty({
     description: 'Timezone for the agent shifts (IANA timezone identifier)',

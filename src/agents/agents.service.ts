@@ -217,36 +217,15 @@ export class AgentsService {
     if (updateDto.maxConcurrentChats)
       agentProfile.maxConcurrentChats = updateDto.maxConcurrentChats;
     if (updateDto.shifts) {
-      // Convert WeeklyShiftDto to WeeklyShift by providing defaults for missing days
-      const defaultDayShift = { isWorkingDay: false, timeSlots: [] };
-      const convertDayShift = (dayShiftDto: any) => ({
-        isWorkingDay: dayShiftDto?.isWorkingDay ?? false,
-        timeSlots: dayShiftDto?.timeSlots ?? [],
-      });
-
-      agentProfile.shifts = {
-        monday: updateDto.shifts.monday
-          ? convertDayShift(updateDto.shifts.monday)
-          : defaultDayShift,
-        tuesday: updateDto.shifts.tuesday
-          ? convertDayShift(updateDto.shifts.tuesday)
-          : defaultDayShift,
-        wednesday: updateDto.shifts.wednesday
-          ? convertDayShift(updateDto.shifts.wednesday)
-          : defaultDayShift,
-        thursday: updateDto.shifts.thursday
-          ? convertDayShift(updateDto.shifts.thursday)
-          : defaultDayShift,
-        friday: updateDto.shifts.friday
-          ? convertDayShift(updateDto.shifts.friday)
-          : defaultDayShift,
-        saturday: updateDto.shifts.saturday
-          ? convertDayShift(updateDto.shifts.saturday)
-          : defaultDayShift,
-        sunday: updateDto.shifts.sunday
-          ? convertDayShift(updateDto.shifts.sunday)
-          : defaultDayShift,
-      };
+      // Convert array of DayShiftEntryDto to array of DayShiftEntry
+      agentProfile.shifts = updateDto.shifts.map((shiftDto) => ({
+        dayOfWeek: shiftDto.dayOfWeek,
+        isWorkingDay: shiftDto.isWorkingDay ?? false,
+        timeSlots: shiftDto.timeSlots ?? [],
+        isActive: shiftDto.isActive ?? true,
+        priority: shiftDto.priority ?? 1,
+        description: shiftDto.description,
+      }));
     }
     if (updateDto.timezone) agentProfile.timezone = updateDto.timezone;
 
@@ -293,36 +272,15 @@ export class AgentsService {
     if (updateDto.maxConcurrentChats)
       agentProfile.maxConcurrentChats = updateDto.maxConcurrentChats;
     if (updateDto.shifts) {
-      // Convert WeeklyShiftDto to WeeklyShift by providing defaults for missing days
-      const defaultDayShift = { isWorkingDay: false, timeSlots: [] };
-      const convertDayShift = (dayShiftDto: any) => ({
-        isWorkingDay: dayShiftDto?.isWorkingDay ?? false,
-        timeSlots: dayShiftDto?.timeSlots ?? [],
-      });
-
-      agentProfile.shifts = {
-        monday: updateDto.shifts.monday
-          ? convertDayShift(updateDto.shifts.monday)
-          : defaultDayShift,
-        tuesday: updateDto.shifts.tuesday
-          ? convertDayShift(updateDto.shifts.tuesday)
-          : defaultDayShift,
-        wednesday: updateDto.shifts.wednesday
-          ? convertDayShift(updateDto.shifts.wednesday)
-          : defaultDayShift,
-        thursday: updateDto.shifts.thursday
-          ? convertDayShift(updateDto.shifts.thursday)
-          : defaultDayShift,
-        friday: updateDto.shifts.friday
-          ? convertDayShift(updateDto.shifts.friday)
-          : defaultDayShift,
-        saturday: updateDto.shifts.saturday
-          ? convertDayShift(updateDto.shifts.saturday)
-          : defaultDayShift,
-        sunday: updateDto.shifts.sunday
-          ? convertDayShift(updateDto.shifts.sunday)
-          : defaultDayShift,
-      };
+      // Convert array of DayShiftEntryDto to array of DayShiftEntry
+      agentProfile.shifts = updateDto.shifts.map((shiftDto) => ({
+        dayOfWeek: shiftDto.dayOfWeek,
+        isWorkingDay: shiftDto.isWorkingDay ?? false,
+        timeSlots: shiftDto.timeSlots ?? [],
+        isActive: shiftDto.isActive ?? true,
+        priority: shiftDto.priority ?? 1,
+        description: shiftDto.description,
+      }));
     }
     if (updateDto.timezone) agentProfile.timezone = updateDto.timezone;
 
