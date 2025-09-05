@@ -52,11 +52,8 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Check if email is verified for admin users
-    if (
-      validatedUser.role === UserRole.ADMIN &&
-      !validatedUser.isEmailVerified
-    ) {
+    // Check if email is verified for all users
+    if (!validatedUser.isEmailVerified) {
       throw new UnauthorizedException(
         'Please verify your email address before logging in. Check your inbox for the verification email.',
       );
@@ -98,6 +95,7 @@ export class AuthService {
     const user = await this.usersService.create(
       {
         ...userDto,
+        isEmailVerified: false, // Require email verification for all users
       },
       adminId,
     );
@@ -121,8 +119,8 @@ export class AuthService {
       );
     }
 
-    // Send welcome email
-    await this.sendWelcomeEmail(user);
+    // Send verification email instead of welcome email
+    await this.sendUserVerificationEmail(user);
 
     return user;
   }
@@ -381,6 +379,24 @@ export class AuthService {
     });
   }
 
+  async resendVerificationEmail(email: string): Promise<boolean> {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      throw new NotFoundException('User with this email does not exist');
+    }
+
+    if (user.isEmailVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+
+    // Send appropriate verification email based on user role
+    if (user.role === UserRole.ADMIN) {
+      return this.sendAdminVerificationEmail(user);
+    } else {
+      return this.sendUserVerificationEmail(user);
+    }
+  }
+
   async resendAdminVerificationEmail(email: string): Promise<boolean> {
     const user = await this.usersService.findByEmail(email);
     if (!user) {
@@ -397,6 +413,30 @@ export class AuthService {
 
     // Send verification email
     return this.sendAdminVerificationEmail(user);
+  }
+
+  async sendUserVerificationEmail(user: UserDocument): Promise<boolean> {
+    // Generate verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpires = new Date(Date.now() + 86400000); // 24 hours from now
+
+    // Save verification token to user
+    await this.usersService.updateUser(user._id, {
+      emailVerificationToken: verificationToken,
+      emailVerificationExpires: verificationExpires,
+    });
+
+    // Create verification link
+    const baseUrl = this.configService.get<string>('appDomain');
+    const verificationLink = `${baseUrl}/verify-email?token=${verificationToken}`;
+
+    // Send user verification email
+    return this.mailerService.sendAccountVerificationEmail(user.email, {
+      firstName: user.firstName,
+      lastName: user.lastName,
+      verificationLink,
+      expirationTime: '24 hours',
+    });
   }
 
   private async sendWelcomeEmail(user: UserDocument): Promise<void> {

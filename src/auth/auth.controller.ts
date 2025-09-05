@@ -75,8 +75,7 @@ export class AuthController {
     type: ErrorResponseDto,
   })
   @ApiUnauthorizedResponse({
-    description:
-      'Invalid credentials or email not verified (for admin accounts)',
+    description: 'Invalid credentials or email not verified',
     type: UnauthorizedResponseDto,
     examples: {
       invalidCredentials: {
@@ -88,7 +87,7 @@ export class AuthController {
         },
       },
       emailNotVerified: {
-        summary: 'Email not verified (Admin accounts)',
+        summary: 'Email not verified',
         value: {
           statusCode: 401,
           message:
@@ -107,14 +106,14 @@ export class AuthController {
   @Post('register')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Register new user (Admin only)',
+    summary: 'Register new user with email verification (Admin only)',
     description:
-      'Admin can register new agents or other admins in the system. For agents, working hours can be specified using the shifts field.',
+      'Admin can register new agents or other admins in the system. A verification email will be sent to the new user, and they must verify their email before login. For agents, working hours can be specified using the shifts field.',
   })
   @ApiBody({ type: RegisterDto })
   @ApiResponse({
     status: 201,
-    description: 'User registered successfully',
+    description: 'User registered successfully. Verification email sent.',
     type: UserResponseDto,
   })
   @ApiBadRequestResponse({
@@ -366,6 +365,41 @@ export class AuthController {
   async verifyEmail(@Query() verifyEmailDto: VerifyEmailDto) {
     await this.authService.verifyEmail(verifyEmailDto.token);
     return { message: 'Email verified successfully. You can now login.' };
+  }
+
+  @Post('resend-verification')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resend verification email',
+    description:
+      'Resend verification email to any unverified user account. Can be used if the original verification email was not received or expired.',
+  })
+  @ApiBody({ type: ResendAdminVerificationDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification email sent successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example:
+            'Verification email sent successfully. Please check your inbox.',
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid email, user not found, or email already verified',
+    type: ErrorResponseDto,
+  })
+  async resendVerification(
+    @Body() resendVerificationDto: ResendAdminVerificationDto,
+  ) {
+    await this.authService.resendVerificationEmail(resendVerificationDto.email);
+    return {
+      message: 'Verification email sent successfully. Please check your inbox.',
+    };
   }
 
   @Post('admin/resend-verification')
