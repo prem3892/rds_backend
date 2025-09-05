@@ -41,7 +41,9 @@ export class AuthService {
     return null;
   }
 
-  async login(loginDto: LoginDto): Promise<{ accessToken: string; user: any }> {
+  async login(
+    loginDto: LoginDto,
+  ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
     const validatedUser = await this.validateUser(
       loginDto.email,
       loginDto.password,
@@ -49,13 +51,23 @@ export class AuthService {
     if (!validatedUser) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    const payload: JwtPayload = {
-      email: validatedUser.email,
-      sub: validatedUser._id.toString(),
-      role: validatedUser.role,
-    };
+
+    // Check if email is verified for admin users
+    if (
+      validatedUser.role === UserRole.ADMIN &&
+      !validatedUser.isEmailVerified
+    ) {
+      throw new UnauthorizedException(
+        'Please verify your email address before logging in. Check your inbox for the verification email.',
+      );
+    }
+
+    // Generate tokens
+    const tokens = await this.generateTokens(validatedUser);
+
     return {
-      accessToken: this.jwtService.sign(payload),
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
       user: {
         id: validatedUser._id,
         email: validatedUser.email,
@@ -64,6 +76,7 @@ export class AuthService {
         role: validatedUser.role,
         phoneNo: validatedUser.phoneNo,
         website: validatedUser.website,
+        isEmailVerified: validatedUser.isEmailVerified,
       },
     };
   }
@@ -127,13 +140,14 @@ export class AuthService {
     const user = await this.usersService.create({
       ...adminRegisterDto,
       role: UserRole.ADMIN, // Explicitly set role to ADMIN
+      isEmailVerified: false, // Admin must verify email before login
     });
 
     // Create agent profile for admin since admin is also an agent with super abilities
     await this.agentsService.createAgentProfile(user._id);
 
-    // Send welcome email
-    await this.sendWelcomeEmail(user);
+    // Send admin verification email instead of welcome email
+    await this.sendAdminVerificationEmail(user);
 
     return user;
   }
@@ -149,6 +163,114 @@ export class AuthService {
       return payload;
     } catch (error) {
       return null;
+    }
+  }
+
+  async generateTokens(
+    user: any,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    const accessPayload: JwtPayload = {
+      email: user.email,
+      sub: user._id.toString(),
+      role: user.role,
+      type: 'access',
+    };
+
+    const refreshPayload: JwtPayload = {
+      email: user.email,
+      sub: user._id.toString(),
+      role: user.role,
+      tokenVersion: user.tokenVersion || 0,
+      type: 'refresh',
+    };
+
+    const accessToken = this.jwtService.sign(accessPayload, {
+      secret: this.configService.get<string>('jwt.secret'),
+      expiresIn: this.configService.get<string>('jwt.expiresIn'),
+    });
+
+    const refreshToken = this.jwtService.sign(refreshPayload, {
+      secret: this.configService.get<string>('jwt.refreshSecret'),
+      expiresIn: this.configService.get<string>('jwt.refreshExpiresIn'),
+    });
+
+    // Store refresh token in database
+    const refreshTokenExpires = new Date();
+    refreshTokenExpires.setDate(refreshTokenExpires.getDate() + 7); // 7 days
+
+    await this.usersService.updateUser(user._id, {
+      refreshToken,
+      refreshTokenExpires,
+    });
+
+    return { accessToken, refreshToken };
+  }
+
+  async refreshTokens(
+    refreshToken: string,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    try {
+      // Verify refresh token
+      const payload = this.jwtService.verify<JwtPayload>(refreshToken, {
+        secret: this.configService.get<string>('jwt.refreshSecret'),
+      });
+
+      if (payload.type !== 'refresh') {
+        throw new UnauthorizedException('Invalid token type');
+      }
+
+      // Get user from database
+      const user = await this.usersService.findById(payload.sub);
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      // Verify token version and stored refresh token
+      if (
+        user.tokenVersion !== payload.tokenVersion ||
+        user.refreshToken !== refreshToken ||
+        !user.refreshTokenExpires ||
+        user.refreshTokenExpires < new Date()
+      ) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      // Generate new tokens
+      return this.generateTokens(user);
+    } catch (error) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+  }
+
+  async revokeRefreshToken(userId: string): Promise<boolean> {
+    try {
+      await this.usersService.updateUser(userId, {
+        refreshToken: undefined,
+        refreshTokenExpires: undefined,
+        tokenVersion: { $inc: 1 }, // Increment token version to invalidate all existing tokens
+      });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async logout(refreshToken: string): Promise<boolean> {
+    try {
+      // Verify refresh token to get user ID
+      const payload = this.jwtService.verify<JwtPayload>(refreshToken, {
+        secret: this.configService.get<string>('jwt.refreshSecret'),
+      });
+
+      if (payload.type !== 'refresh') {
+        throw new UnauthorizedException('Invalid token type');
+      }
+
+      // Revoke the refresh token
+      return this.revokeRefreshToken(payload.sub);
+    } catch (error) {
+      // Even if token is invalid, we consider logout successful
+      return true;
     }
   }
 
@@ -252,6 +374,48 @@ export class AuthService {
     });
 
     return true;
+  }
+
+  async sendAdminVerificationEmail(user: UserDocument): Promise<boolean> {
+    // Generate verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpires = new Date(Date.now() + 86400000); // 24 hours from now
+
+    // Save verification token to user
+    await this.usersService.updateUser(user._id, {
+      emailVerificationToken: verificationToken,
+      emailVerificationExpires: verificationExpires,
+    });
+
+    // Create verification link
+    const baseUrl = this.configService.get<string>('appDomain');
+    const verificationLink = `${baseUrl}/auth/verify-email?token=${verificationToken}`;
+
+    // Send admin verification email
+    return this.mailerService.sendAdminVerificationEmail(user.email, {
+      firstName: user.firstName,
+      lastName: user.lastName,
+      verificationLink,
+      expirationTime: '24 hours',
+    });
+  }
+
+  async resendAdminVerificationEmail(email: string): Promise<boolean> {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      throw new NotFoundException('User with this email does not exist');
+    }
+
+    if (user.role !== UserRole.ADMIN) {
+      throw new BadRequestException('This endpoint is only for admin accounts');
+    }
+
+    if (user.isEmailVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+
+    // Send verification email
+    return this.sendAdminVerificationEmail(user);
   }
 
   private async sendWelcomeEmail(user: UserDocument): Promise<void> {

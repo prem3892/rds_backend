@@ -6,7 +6,13 @@ export class LoginResponseDto {
     description: 'JWT access token',
     example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
   })
-  access_token: string;
+  accessToken: string;
+
+  @ApiProperty({
+    description: 'JWT refresh token',
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+  })
+  refreshToken: string;
 
   @ApiProperty({
     description: 'User information',
@@ -23,6 +29,7 @@ export class LoginResponseDto {
         example: 'https://example.com',
         required: false,
       },
+      isEmailVerified: { type: 'boolean', example: true },
     },
   })
   user: {
@@ -33,7 +40,22 @@ export class LoginResponseDto {
     role: UserRole;
     phoneNo?: string;
     website?: string;
+    isEmailVerified: boolean;
   };
+}
+
+export class RefreshTokenResponseDto {
+  @ApiProperty({
+    description: 'New JWT access token',
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+  })
+  accessToken: string;
+
+  @ApiProperty({
+    description: 'New JWT refresh token',
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+  })
+  refreshToken: string;
 }
 
 export class UserResponseDto {
@@ -93,6 +115,12 @@ export class UserResponseDto {
     example: '2024-01-15T10:30:00.000Z',
   })
   updatedAt: string;
+
+  @ApiProperty({
+    description: 'Email verification status',
+    example: false,
+  })
+  isEmailVerified: boolean;
 
   @ApiProperty({
     description: 'ID of the admin who created this user (if applicable)',
