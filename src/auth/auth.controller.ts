@@ -32,7 +32,7 @@ import {
   ResetPasswordDto,
   VerifyEmailDto,
 } from './dto/password-reset.dto';
-import { RefreshTokenDto, LogoutDto } from './dto/refresh-token.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import {
   LoginResponseDto,
   UserResponseDto,
@@ -197,12 +197,13 @@ export class AuthController {
   }
 
   @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Logout user',
-    description: 'Revoke refresh token and logout user',
+    description: 'Revoke all refresh tokens for the authenticated user',
   })
-  @ApiBody({ type: LogoutDto })
   @ApiResponse({
     status: 200,
     description: 'Logout successful',
@@ -213,12 +214,12 @@ export class AuthController {
       },
     },
   })
-  @ApiBadRequestResponse({
-    description: 'Invalid refresh token',
-    type: ErrorResponseDto,
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
   })
-  async logout(@Body() logoutDto: LogoutDto) {
-    await this.authService.logout(logoutDto.refreshToken);
+  async logout(@AuthenticatedUser() user: JwtPayload) {
+    await this.authService.revokeRefreshToken(user.sub);
     return { message: 'Logout successful' };
   }
 

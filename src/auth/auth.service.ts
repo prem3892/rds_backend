@@ -255,25 +255,6 @@ export class AuthService {
     }
   }
 
-  async logout(refreshToken: string): Promise<boolean> {
-    try {
-      // Verify refresh token to get user ID
-      const payload = this.jwtService.verify<JwtPayload>(refreshToken, {
-        secret: this.configService.get<string>('jwt.refreshSecret'),
-      });
-
-      if (payload.type !== 'refresh') {
-        throw new UnauthorizedException('Invalid token type');
-      }
-
-      // Revoke the refresh token
-      return this.revokeRefreshToken(payload.sub);
-    } catch (error) {
-      // Even if token is invalid, we consider logout successful
-      return true;
-    }
-  }
-
   async sendPasswordResetEmail(email: string): Promise<boolean> {
     const user = await this.usersService.findByEmail(email);
     if (!user) {
@@ -389,7 +370,7 @@ export class AuthService {
 
     // Create verification link
     const baseUrl = this.configService.get<string>('appDomain');
-    const verificationLink = `${baseUrl}/auth/verify-email?token=${verificationToken}`;
+    const verificationLink = `${baseUrl}/verify-email?token=${verificationToken}`;
 
     // Send admin verification email
     return this.mailerService.sendAdminVerificationEmail(user.email, {
