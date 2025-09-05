@@ -11,7 +11,7 @@ import {
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { Types } from 'mongoose';
-import { WeeklyShiftDto } from '../../auth/dto/shift.dto';
+import { DayShiftEntryDto } from '../../auth/dto/shift.dto';
 
 export class UpdateAgentProfileDto {
   @ApiProperty({
@@ -59,13 +59,14 @@ export class UpdateAgentProfileDto {
 
   @ApiProperty({
     description: 'Agent working hours schedule',
-    type: WeeklyShiftDto,
+    type: [DayShiftEntryDto],
     required: false,
   })
   @IsOptional()
-  @ValidateNested()
-  @Type(() => WeeklyShiftDto)
-  shifts?: WeeklyShiftDto;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DayShiftEntryDto)
+  shifts?: DayShiftEntryDto[];
 
   @ApiProperty({
     description: 'Timezone for the agent shifts',
