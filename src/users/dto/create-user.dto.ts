@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEmail,
   IsEnum,
   IsNotEmpty,
@@ -38,4 +39,8 @@ export class CreateUserDto {
   @IsOptional()
   @IsUrl({}, { message: 'Website must be a valid URL.' })
   website?: string;
+
+  @IsOptional()
+  @IsBoolean({ message: 'Email verification status must be a boolean.' })
+  isEmailVerified?: boolean;
 }

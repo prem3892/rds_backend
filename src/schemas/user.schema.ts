@@ -57,6 +57,15 @@ export class User {
   passwordResetExpires: Date;
 
   @Prop()
+  refreshToken: string;
+
+  @Prop()
+  refreshTokenExpires: Date;
+
+  @Prop({ default: 0 })
+  tokenVersion: number;
+
+  @Prop()
   createdAt: Date;
 
   @Prop()

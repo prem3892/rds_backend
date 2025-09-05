@@ -24,11 +24,20 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { AdminRegisterDto } from './dto/admin-register.dto';
 import {
+  ResendAdminVerificationDto,
+  AdminSignupResponseDto,
+} from './dto/admin-verification.dto';
+import {
   ForgotPasswordDto,
   ResetPasswordDto,
   VerifyEmailDto,
 } from './dto/password-reset.dto';
-import { LoginResponseDto, UserResponseDto } from './dto/auth-responses.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
+import {
+  LoginResponseDto,
+  UserResponseDto,
+  RefreshTokenResponseDto,
+} from './dto/auth-responses.dto';
 import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
 import { Roles } from '../shared/decorators/roles.decorator';
 import { UserRole } from '../shared/constants/enums';
@@ -66,8 +75,27 @@ export class AuthController {
     type: ErrorResponseDto,
   })
   @ApiUnauthorizedResponse({
-    description: 'Invalid credentials',
+    description: 'Invalid credentials or email not verified',
     type: UnauthorizedResponseDto,
+    examples: {
+      invalidCredentials: {
+        summary: 'Invalid credentials',
+        value: {
+          statusCode: 401,
+          message: 'Invalid credentials',
+          error: 'Unauthorized',
+        },
+      },
+      emailNotVerified: {
+        summary: 'Email not verified',
+        value: {
+          statusCode: 401,
+          message:
+            'Please verify your email address before logging in. Check your inbox for the verification email.',
+          error: 'Unauthorized',
+        },
+      },
+    },
   })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
@@ -78,14 +106,14 @@ export class AuthController {
   @Post('register')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Register new user (Admin only)',
+    summary: 'Register new user with email verification (Admin only)',
     description:
-      'Admin can register new agents or other admins in the system. For agents, working hours can be specified using the shifts field.',
+      'Admin can register new agents or other admins in the system. A verification email will be sent to the new user, and they must verify their email before login. For agents, working hours can be specified using the shifts field.',
   })
   @ApiBody({ type: RegisterDto })
   @ApiResponse({
     status: 201,
-    description: 'User registered successfully',
+    description: 'User registered successfully. Verification email sent.',
     type: UserResponseDto,
   })
   @ApiBadRequestResponse({
@@ -115,15 +143,15 @@ export class AuthController {
   @Post('admin/signup')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Admin self-registration',
+    summary: 'Admin self-registration with email verification',
     description:
-      'Initial admin registration endpoint for system setup. This endpoint allows the first admin to be created.',
+      'Initial admin registration endpoint for system setup. Creates admin account and sends verification email. Admin must verify email before login.',
   })
   @ApiBody({ type: AdminRegisterDto })
   @ApiResponse({
     status: 201,
-    description: 'Admin registered successfully',
-    type: UserResponseDto,
+    description: 'Admin registered successfully. Verification email sent.',
+    type: AdminSignupResponseDto,
   })
   @ApiBadRequestResponse({
     description: 'Invalid input data or email already exists',
@@ -131,11 +159,95 @@ export class AuthController {
   })
   async registerAdmin(
     @Body() adminRegisterDto: AdminRegisterDto,
-  ): Promise<Omit<UserDocument, 'password'>> {
-    // Assuming UserRole.ADMIN will be set in the service
+  ): Promise<AdminSignupResponseDto> {
     const user = await this.authService.registerAdmin(adminRegisterDto);
-    const { password, ...result } = user.toObject();
-    return result;
+    const { password, ...userResult } = user.toObject();
+
+    return {
+      message:
+        'Admin account created successfully. Please check your email to verify your account.',
+      user: userResult,
+    };
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Refresh access token',
+    description:
+      'Generate new access and refresh tokens using a valid refresh token',
+  })
+  @ApiBody({ type: RefreshTokenDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Tokens refreshed successfully',
+    type: RefreshTokenResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid refresh token',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or expired refresh token',
+    type: UnauthorizedResponseDto,
+  })
+  async refreshToken(@Body() refreshTokenDto: RefreshTokenDto) {
+    return this.authService.refreshTokens(refreshTokenDto.refreshToken);
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Logout user',
+    description: 'Revoke all refresh tokens for the authenticated user',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Logout successful',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Logout successful' },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  async logout(@AuthenticatedUser() user: JwtPayload) {
+    await this.authService.revokeRefreshToken(user.sub);
+    return { message: 'Logout successful' };
+  }
+
+  @Post('revoke-all-tokens')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Revoke all refresh tokens',
+    description:
+      'Revoke all refresh tokens for the authenticated user (useful for security purposes)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'All tokens revoked successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'All tokens revoked successfully' },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  async revokeAllTokens(@AuthenticatedUser() user: JwtPayload) {
+    await this.authService.revokeRefreshToken(user.sub);
+    return { message: 'All tokens revoked successfully' };
   }
 
   @Post('forgot-password')
@@ -252,6 +364,79 @@ export class AuthController {
   })
   async verifyEmail(@Query() verifyEmailDto: VerifyEmailDto) {
     await this.authService.verifyEmail(verifyEmailDto.token);
-    return { message: 'Email verified successfully' };
+    return { message: 'Email verified successfully. You can now login.' };
+  }
+
+  @Post('resend-verification')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resend verification email',
+    description:
+      'Resend verification email to any unverified user account. Can be used if the original verification email was not received or expired.',
+  })
+  @ApiBody({ type: ResendAdminVerificationDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification email sent successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example:
+            'Verification email sent successfully. Please check your inbox.',
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid email, user not found, or email already verified',
+    type: ErrorResponseDto,
+  })
+  async resendVerification(
+    @Body() resendVerificationDto: ResendAdminVerificationDto,
+  ) {
+    await this.authService.resendVerificationEmail(resendVerificationDto.email);
+    return {
+      message: 'Verification email sent successfully. Please check your inbox.',
+    };
+  }
+
+  @Post('admin/resend-verification')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resend admin verification email',
+    description:
+      'Resend verification email to unverified admin account. Can be used if the original verification email was not received or expired.',
+  })
+  @ApiBody({ type: ResendAdminVerificationDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification email sent successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example:
+            'Verification email sent successfully. Please check your inbox.',
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid email, user not found, not an admin, or email already verified',
+    type: ErrorResponseDto,
+  })
+  async resendAdminVerification(
+    @Body() resendVerificationDto: ResendAdminVerificationDto,
+  ) {
+    await this.authService.resendAdminVerificationEmail(
+      resendVerificationDto.email,
+    );
+    return {
+      message: 'Verification email sent successfully. Please check your inbox.',
+    };
   }
 }

@@ -20,6 +20,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<JwtPayload> {
+    // Only allow access tokens for API requests
+    if (payload.type && payload.type !== 'access') {
+      throw new UnauthorizedException('Invalid token type for API access');
+    }
+
     // You could fetch the full user object here if needed for every request
     // const user = await this.usersService.findById(payload.sub);
     // if (!user) {
@@ -30,6 +35,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     Logger.log(`JWT Payload validated successfully`, JwtStrategy.name, {
       payload,
     });
-    return { sub: payload.sub, email: payload.email, role: payload.role };
+    return {
+      sub: payload.sub,
+      email: payload.email,
+      role: payload.role,
+      type: payload.type,
+      tokenVersion: payload.tokenVersion,
+    };
   }
 }

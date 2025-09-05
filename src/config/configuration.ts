@@ -8,7 +8,9 @@ export default () => ({
   },
   jwt: {
     secret: process.env.JWT_SECRET || 'yourSecretKey',
-    expiresIn: process.env.JWT_EXPIRES_IN || '1d',
+    expiresIn: process.env.JWT_EXPIRES_IN || '15m', // Shorter access token expiry
+    refreshSecret: process.env.JWT_REFRESH_SECRET || 'yourRefreshSecretKey',
+    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d', // Longer refresh token expiry
   },
   redis: {
     host: process.env.REDIS_HOST || 'localhost',
@@ -16,7 +18,7 @@ export default () => ({
     password: process.env.REDIS_PASSWORD || undefined,
     tls: process.env.REDIS_TLS === 'true' ? true : false,
   },
-  appDomain: process.env.APP_DOMAIN || 'localhost:3000', // Used for script URL
+  appDomain: process.env.APP_DOMAIN || 'http://localhost:3000', // Used for script URL
   chatTimers: {
     firstAlertThresholdMs: parseInt(
       process.env.CHAT_FIRST_ALERT_THRESHOLD_MS || '60000',

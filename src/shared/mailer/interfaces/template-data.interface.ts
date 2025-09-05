@@ -20,6 +20,13 @@ export interface WelcomeTemplateData {
   supportEmail: string;
 }
 
+export interface AdminVerificationTemplateData {
+  firstName: string;
+  lastName: string;
+  verificationLink: string;
+  expirationTime: string;
+}
+
 export interface AppointmentConfirmationTemplateData {
   customerName: string;
   agentName: string;
