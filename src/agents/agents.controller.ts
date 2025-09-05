@@ -20,6 +20,7 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiQuery,
+  ApiBody,
   ApiBadRequestResponse,
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
@@ -134,6 +135,28 @@ export class AgentsController {
   // Agent/Admin: Update their own profile (limited fields + password via usersService)
   @Put('me/profile')
   @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Update own agent profile',
+    description:
+      'Update the agent profile for the currently authenticated user. Agents can update limited fields (maxConcurrentChats, password), while admins have broader access.',
+  })
+  @ApiBody({
+    type: UpdateAgentProfileDto,
+    description: 'Agent profile update data with optional password field',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Agent profile updated successfully',
+    type: AgentProfileResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid input data or agent profile not found',
+    type: ErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Agent profile not found',
+    type: ErrorResponseDto,
+  })
   async updateMyProfile(
     @AuthenticatedUser() user: JwtPayload,
     @Body() updateDto: UpdateAgentProfileDto & { password?: string }, // Allow password here
@@ -174,6 +197,34 @@ export class AgentsController {
   // Admin: Update any agent's profile
   @Put(':agentId/profile')
   @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Update agent profile by admin',
+    description:
+      'Update any agent profile by admin. Supports updating all agent profile fields including shifts, timezone, departments, domain access, and user details (firstName, lastName, email, password). Admin can only update profiles they created.',
+  })
+  @ApiBody({
+    type: UpdateAgentProfileDto,
+    description:
+      'Agent profile update data with optional user fields (firstName, lastName, email, password)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Agent profile updated successfully',
+    type: AgentProfileResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid agent ID format, agent not found, or unauthorized access',
+    type: ErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Agent profile not found',
+    type: ErrorResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required',
+    type: ForbiddenResponseDto,
+  })
   async updateAgentProfileByAdmin(
     @Param('agentId') agentId: string,
     @AuthenticatedUser() adminUser: JwtPayload,
