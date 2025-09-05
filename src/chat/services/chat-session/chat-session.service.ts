@@ -468,7 +468,7 @@ export class ChatSessionService {
       this.chatSessionModel
         .find(query)
         .populate('widgetId', 'name')
-        .populate('customerId', 'name email')
+        .populate('customerId')
         .populate({ path: 'agentId', select: 'firstName lastName email' })
         .populate('departmentId', 'name')
         .sort({ initiatedAt: -1 })
@@ -603,7 +603,7 @@ export class ChatSessionService {
       this.chatSessionModel
         .find(query)
         .populate('widgetId', 'name')
-        .populate('customerId', 'name email')
+        .populate('customerId')
         .populate({ path: 'agentId', select: 'firstName lastName email' })
         .populate('departmentId', 'name')
         .sort({ initiatedAt: -1 })
