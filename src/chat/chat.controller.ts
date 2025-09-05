@@ -62,7 +62,7 @@ export class ChatController {
   @ApiOperation({
     summary: 'Get chat sessions',
     description:
-      'Retrieve a paginated list of chat sessions with filtering options. Admins can see all sessions, agents can only see their own assigned sessions.',
+      'Retrieve a paginated list of chat sessions with filtering options. Admins can only see sessions assigned to their managed agents, agents can only see their own assigned sessions.',
   })
   @ApiResponse({
     status: 200,
@@ -85,6 +85,14 @@ export class ChatController {
     // For agents, automatically filter to only their own sessions
     if (user.role === UserRole.AGENT) {
       queryDto.agentId = user.sub;
+    }
+
+    // For admins, filter to only sessions assigned to their managed agents
+    if (user.role === UserRole.ADMIN) {
+      return this.chatSessionService.findAllPaginatedForAdmin(
+        queryDto,
+        user.sub,
+      );
     }
 
     return this.chatSessionService.findAllPaginated(queryDto);
@@ -133,11 +141,33 @@ export class ChatController {
     }
     const session = await this.chatSessionService.findByIdOrFail(sessionId);
 
-    // Authorization: Agent can only access their own assigned chats unless admin
+    // Authorization: Agent can only access their own assigned chats
     if (user.role === UserRole.AGENT) {
       if (!session.agentId || session.agentId._id.toString() !== user.sub) {
         // Check if agent was EVER part of this chat, even if reassigned or closed?
         // For simplicity now, only current agent or admin.
+        throw new ForbiddenException(
+          'You do not have permission to view messages for this session.',
+        );
+      }
+    }
+
+    // Authorization: Admin can only access sessions assigned to their managed agents
+    if (user.role === UserRole.ADMIN) {
+      if (!session.agentId) {
+        throw new ForbiddenException(
+          'You do not have permission to view messages for this unassigned session.',
+        );
+      }
+
+      // Check if the session's agent is managed by this admin
+      const isAuthorized =
+        await this.chatSessionService.isSessionAccessibleByAdmin(
+          sessionId,
+          user.sub,
+        );
+
+      if (!isAuthorized) {
         throw new ForbiddenException(
           'You do not have permission to view messages for this session.',
         );
