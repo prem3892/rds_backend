@@ -523,4 +523,29 @@ export class ChatSessionService {
       .populate({ path: 'agentId', select: 'firstName lastName' })
       .exec();
   }
+
+  /**
+   * Get paginated chat sessions for a specific agent
+   * @param agentId - The ID of the agent
+   * @param queryDto - Query parameters for filtering and pagination
+   * @returns Paginated list of chat sessions for the agent
+   */
+  async findSessionsForAgent(
+    agentId: string,
+    queryDto: GetChatSessionsQueryDto,
+  ): Promise<{
+    items: ChatSessionDocument[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNext: boolean;
+      hasPrev: boolean;
+    };
+  }> {
+    // Create a copy of the query DTO and force the agentId
+    const agentQueryDto = { ...queryDto, agentId };
+    return this.findAllPaginated(agentQueryDto);
+  }
 }

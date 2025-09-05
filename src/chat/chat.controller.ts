@@ -58,11 +58,11 @@ export class ChatController {
   ) {}
 
   @Get('sessions')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   @ApiOperation({
-    summary: 'Get all chat sessions (Admin only)',
+    summary: 'Get chat sessions',
     description:
-      'Retrieve a paginated list of all chat sessions with filtering options. Only accessible by administrators.',
+      'Retrieve a paginated list of chat sessions with filtering options. Admins can see all sessions, agents can only see their own assigned sessions.',
   })
   @ApiResponse({
     status: 200,
@@ -74,13 +74,19 @@ export class ChatController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Agent role required',
     type: ForbiddenResponseDto,
   })
   async getAllChatSessions(
     @Query(new ValidationPipe({ transform: true }))
     queryDto: GetChatSessionsQueryDto,
+    @AuthenticatedUser() user: JwtPayload,
   ) {
+    // For agents, automatically filter to only their own sessions
+    if (user.role === UserRole.AGENT) {
+      queryDto.agentId = user.sub;
+    }
+
     return this.chatSessionService.findAllPaginated(queryDto);
   }
 
