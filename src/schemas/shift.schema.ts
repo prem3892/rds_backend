@@ -78,16 +78,67 @@ export class WeeklyShift {
 
 export const WeeklyShiftSchema = SchemaFactory.createForClass(WeeklyShift);
 
-@Schema({ timestamps: true })
-export class Shift {
-  @Prop({ type: WeeklyShiftSchema, required: true })
-  weeklySchedule: WeeklyShift;
+@Schema({ _id: false })
+export class DayShiftEntry {
+  @Prop({
+    required: true,
+    enum: [
+      'monday',
+      'tuesday',
+      'wednesday',
+      'thursday',
+      'friday',
+      'saturday',
+      'sunday',
+    ],
+  })
+  dayOfWeek: string;
 
-  @Prop({ default: 'UTC' })
-  timezone: string;
+  @Prop({ default: false })
+  isWorkingDay: boolean;
+
+  @Prop({ type: [TimeSlotSchema], default: [] })
+  timeSlots: TimeSlot[];
 
   @Prop({ default: true })
   isActive: boolean;
+
+  @Prop({ default: 1, min: 1, max: 10 })
+  priority: number;
+
+  @Prop({ trim: true })
+  description?: string;
+}
+
+export const DayShiftEntrySchema = SchemaFactory.createForClass(DayShiftEntry);
+
+@Schema({ _id: false })
+export class NamedShift {
+  @Prop({ required: true, trim: true })
+  name: string;
+
+  @Prop({ type: WeeklyShiftSchema, required: true })
+  weeklySchedule: WeeklyShift;
+
+  @Prop({ default: true })
+  isActive: boolean;
+
+  @Prop({ default: 1, min: 1, max: 10 })
+  priority: number;
+
+  @Prop({ trim: true })
+  description?: string;
+}
+
+export const NamedShiftSchema = SchemaFactory.createForClass(NamedShift);
+
+@Schema({ timestamps: true })
+export class Shift {
+  @Prop({ type: [NamedShiftSchema], default: [] })
+  shifts: NamedShift[];
+
+  @Prop({ default: 'UTC' })
+  timezone: string;
 }
 
 export const ShiftSchema = SchemaFactory.createForClass(Shift);

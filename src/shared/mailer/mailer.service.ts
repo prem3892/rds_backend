@@ -10,6 +10,7 @@ import {
 import {
   ResetPasswordTemplateData,
   AccountVerificationTemplateData,
+  AdminVerificationTemplateData,
   WelcomeTemplateData,
   AppointmentConfirmationTemplateData,
 } from './interfaces/template-data.interface';
@@ -17,6 +18,7 @@ import {
 // Import templates
 import { resetPasswordTemplate } from './templates/reset-password.template';
 import { accountVerificationTemplate } from './templates/account-verification.template';
+import { adminVerificationTemplate } from './templates/admin-verification.template';
 import { welcomeTemplate } from './templates/welcome.template';
 import { appointmentConfirmationTemplate } from './templates/appointment-confirmation.template';
 
@@ -81,6 +83,10 @@ export class MailerService {
       this.templates.set(
         'account-verification',
         Handlebars.compile(accountVerificationTemplate),
+      );
+      this.templates.set(
+        'admin-verification',
+        Handlebars.compile(adminVerificationTemplate),
       );
       this.templates.set('welcome', Handlebars.compile(welcomeTemplate));
       this.templates.set(
@@ -188,6 +194,18 @@ export class MailerService {
       to,
       subject: 'Welcome to Our Platform!',
       template: 'welcome',
+      context: data,
+    });
+  }
+
+  async sendAdminVerificationEmail(
+    to: string,
+    data: AdminVerificationTemplateData,
+  ): Promise<boolean> {
+    return this.sendTemplateMail({
+      to,
+      subject: 'Verify Your Admin Account - Live Chat System',
+      template: 'admin-verification',
       context: data,
     });
   }

@@ -8,6 +8,7 @@ import {
   Min,
   Max,
   IsString,
+  IsNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
@@ -185,10 +186,88 @@ export class WeeklyShiftDto {
   sunday?: DayShiftDto;
 }
 
-export class ShiftDto {
+export class DayShiftEntryDto {
+  @ApiProperty({
+    description: 'Day of the week',
+    enum: [
+      'monday',
+      'tuesday',
+      'wednesday',
+      'thursday',
+      'friday',
+      'saturday',
+      'sunday',
+    ],
+    example: 'monday',
+  })
+  @IsString()
+  @IsNotEmpty()
+  dayOfWeek: string;
+
+  @ApiProperty({
+    description: 'Whether this is a working day',
+    example: true,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  isWorkingDay?: boolean;
+
+  @ApiProperty({
+    description: 'Time slots for this day',
+    type: [TimeSlotDto],
+    example: [{ startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 }],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TimeSlotDto)
+  timeSlots?: TimeSlotDto[];
+
+  @ApiProperty({
+    description: 'Whether this day shift is currently active',
+    example: true,
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
   @ApiProperty({
     description:
-      'Weekly shift schedule defining working hours for each day of the week',
+      'Priority of this day shift (1-10, higher number = higher priority)',
+    example: 1,
+    minimum: 1,
+    maximum: 10,
+    default: 1,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(10)
+  priority?: number;
+
+  @ApiProperty({
+    description: 'Optional description for this day shift',
+    example: 'Regular Monday hours',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
+export class NamedShiftDto {
+  @ApiProperty({
+    description: 'Name/title of the shift',
+    example: 'Morning Shift',
+  })
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @ApiProperty({
+    description: 'Weekly schedule for this shift',
     type: WeeklyShiftDto,
     example: {
       monday: {
@@ -228,6 +307,91 @@ export class ShiftDto {
   @ValidateNested()
   @Type(() => WeeklyShiftDto)
   weeklySchedule: WeeklyShiftDto;
+
+  @ApiProperty({
+    description: 'Whether this shift is currently active',
+    example: true,
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @ApiProperty({
+    description:
+      'Priority of this shift (1-10, higher number = higher priority)',
+    example: 1,
+    minimum: 1,
+    maximum: 10,
+    default: 1,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(10)
+  priority?: number;
+
+  @ApiProperty({
+    description: 'Optional description for this shift',
+    example: 'Regular business hours shift',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
+export class ShiftDto {
+  @ApiProperty({
+    description: 'Array of named shifts for the agent',
+    type: [NamedShiftDto],
+    example: [
+      {
+        name: 'Morning Shift',
+        isActive: true,
+        priority: 1,
+        description: 'Regular morning hours',
+        weeklySchedule: {
+          monday: {
+            isWorkingDay: true,
+            timeSlots: [
+              { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
+            ],
+          },
+          tuesday: {
+            isWorkingDay: true,
+            timeSlots: [
+              { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
+            ],
+          },
+          wednesday: {
+            isWorkingDay: true,
+            timeSlots: [
+              { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
+            ],
+          },
+          thursday: {
+            isWorkingDay: true,
+            timeSlots: [
+              { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
+            ],
+          },
+          friday: {
+            isWorkingDay: true,
+            timeSlots: [
+              { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
+            ],
+          },
+          saturday: { isWorkingDay: false, timeSlots: [] },
+          sunday: { isWorkingDay: false, timeSlots: [] },
+        },
+      },
+    ],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => NamedShiftDto)
+  shifts: NamedShiftDto[];
 
   @ApiProperty({
     description: 'Timezone for the shifts (IANA timezone identifier)',
