@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
+import { WeeklyShift, WeeklyShiftSchema } from './shift.schema';
 
 export type AgentProfileDocument = AgentProfile & Document;
 
@@ -40,6 +41,12 @@ export class AgentProfile {
 
   @Prop()
   lastSeen?: Date;
+
+  @Prop({ type: WeeklyShiftSchema })
+  shifts?: WeeklyShift;
+
+  @Prop({ default: 'UTC' })
+  timezone: string;
 }
 
 export const AgentProfileSchema = SchemaFactory.createForClass(AgentProfile);

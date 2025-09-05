@@ -80,12 +80,33 @@ export class AuthService {
       throw new ConflictException('User with this email already exists.');
     }
 
+    const { shifts, timezone, ...userDto } = registerDto;
+
     const user = await this.usersService.create(
       {
-        ...registerDto,
+        ...userDto,
       },
       adminId,
     );
+
+    // If the user is an agent, create agent profile with shifts
+    if (user.role === UserRole.AGENT) {
+      const agentProfileData: any = {};
+
+      if (shifts) {
+        agentProfileData.shifts = shifts;
+      }
+
+      if (timezone) {
+        agentProfileData.timezone = timezone;
+      }
+
+      await this.agentsService.createAgentProfile(
+        user._id,
+        adminId,
+        agentProfileData,
+      );
+    }
 
     // Send welcome email
     await this.sendWelcomeEmail(user);

@@ -26,6 +26,7 @@ import { UserRole } from '../shared/constants/enums';
 import { DepartmentsService } from 'src/departments/departments.service';
 import { ChatSessionService } from 'src/chat/services/chat-session/chat-session.service';
 import { WidgetsService } from 'src/widgets/widgets.service';
+import { ShiftService } from '../shared/services/shift.service';
 
 @Injectable()
 export class AgentsService {
@@ -41,6 +42,7 @@ export class AgentsService {
     @Inject(forwardRef(() => ChatSessionService))
     private readonly chatSessionService: ChatSessionService,
     private readonly widgetsService: WidgetsService,
+    private readonly shiftService: ShiftService,
   ) {}
 
   async createAgentProfile(
@@ -214,6 +216,39 @@ export class AgentsService {
     }
     if (updateDto.maxConcurrentChats)
       agentProfile.maxConcurrentChats = updateDto.maxConcurrentChats;
+    if (updateDto.shifts) {
+      // Convert WeeklyShiftDto to WeeklyShift by providing defaults for missing days
+      const defaultDayShift = { isWorkingDay: false, timeSlots: [] };
+      const convertDayShift = (dayShiftDto: any) => ({
+        isWorkingDay: dayShiftDto?.isWorkingDay ?? false,
+        timeSlots: dayShiftDto?.timeSlots ?? [],
+      });
+
+      agentProfile.shifts = {
+        monday: updateDto.shifts.monday
+          ? convertDayShift(updateDto.shifts.monday)
+          : defaultDayShift,
+        tuesday: updateDto.shifts.tuesday
+          ? convertDayShift(updateDto.shifts.tuesday)
+          : defaultDayShift,
+        wednesday: updateDto.shifts.wednesday
+          ? convertDayShift(updateDto.shifts.wednesday)
+          : defaultDayShift,
+        thursday: updateDto.shifts.thursday
+          ? convertDayShift(updateDto.shifts.thursday)
+          : defaultDayShift,
+        friday: updateDto.shifts.friday
+          ? convertDayShift(updateDto.shifts.friday)
+          : defaultDayShift,
+        saturday: updateDto.shifts.saturday
+          ? convertDayShift(updateDto.shifts.saturday)
+          : defaultDayShift,
+        sunday: updateDto.shifts.sunday
+          ? convertDayShift(updateDto.shifts.sunday)
+          : defaultDayShift,
+      };
+    }
+    if (updateDto.timezone) agentProfile.timezone = updateDto.timezone;
 
     return agentProfile.save();
   }
@@ -257,6 +292,39 @@ export class AgentsService {
     }
     if (updateDto.maxConcurrentChats)
       agentProfile.maxConcurrentChats = updateDto.maxConcurrentChats;
+    if (updateDto.shifts) {
+      // Convert WeeklyShiftDto to WeeklyShift by providing defaults for missing days
+      const defaultDayShift = { isWorkingDay: false, timeSlots: [] };
+      const convertDayShift = (dayShiftDto: any) => ({
+        isWorkingDay: dayShiftDto?.isWorkingDay ?? false,
+        timeSlots: dayShiftDto?.timeSlots ?? [],
+      });
+
+      agentProfile.shifts = {
+        monday: updateDto.shifts.monday
+          ? convertDayShift(updateDto.shifts.monday)
+          : defaultDayShift,
+        tuesday: updateDto.shifts.tuesday
+          ? convertDayShift(updateDto.shifts.tuesday)
+          : defaultDayShift,
+        wednesday: updateDto.shifts.wednesday
+          ? convertDayShift(updateDto.shifts.wednesday)
+          : defaultDayShift,
+        thursday: updateDto.shifts.thursday
+          ? convertDayShift(updateDto.shifts.thursday)
+          : defaultDayShift,
+        friday: updateDto.shifts.friday
+          ? convertDayShift(updateDto.shifts.friday)
+          : defaultDayShift,
+        saturday: updateDto.shifts.saturday
+          ? convertDayShift(updateDto.shifts.saturday)
+          : defaultDayShift,
+        sunday: updateDto.shifts.sunday
+          ? convertDayShift(updateDto.shifts.sunday)
+          : defaultDayShift,
+      };
+    }
+    if (updateDto.timezone) agentProfile.timezone = updateDto.timezone;
 
     return agentProfile.save();
   }
@@ -335,12 +403,22 @@ export class AgentsService {
       `After filtering, we got ${departmentAndDomainEligibleAgents.length} agents`,
     );
 
-    // Further filter by maxConcurrentChats
+    // Further filter by maxConcurrentChats and shift availability
     const eligibleAgents: AgentProfileDocument[] = [];
     for (const agent of departmentAndDomainEligibleAgents) {
       const activeChats =
         await this.chatSessionService.countActiveChatsForAgent(agent.userId);
-      if (activeChats < agent.maxConcurrentChats) {
+
+      // Check if agent is within their working hours
+      const isWithinShift = agent.shifts
+        ? this.shiftService.isAgentAvailable(agent.shifts, agent.timezone)
+        : true; // If no shifts defined, assume always available
+
+      this.logger.debug(
+        `Agent ${agent.userId} - Active chats: ${activeChats}/${agent.maxConcurrentChats}, Within shift: ${isWithinShift}`,
+      );
+
+      if (activeChats < agent.maxConcurrentChats && isWithinShift) {
         eligibleAgents.push(agent);
       }
     }
@@ -349,6 +427,44 @@ export class AgentsService {
       `Found ${eligibleAgents.length} eligible agents for widget ${widgetId} and domain ${domain}`,
     );
     return eligibleAgents;
+  }
+
+  /**
+   * Check if an agent is currently available based on their shift schedule
+   */
+  async isAgentCurrentlyAvailable(agentId: string): Promise<{
+    isAvailable: boolean;
+    isWithinShift: boolean;
+    isOnline: boolean;
+    nextAvailableTime?: Date;
+  }> {
+    const agent = await this.findAgentProfileByUserId(agentId);
+    if (!agent) {
+      return {
+        isAvailable: false,
+        isWithinShift: false,
+        isOnline: false,
+      };
+    }
+
+    const isWithinShift = agent.shifts
+      ? this.shiftService.isAgentAvailable(agent.shifts, agent.timezone)
+      : true;
+
+    const nextAvailableTime =
+      agent.shifts && !isWithinShift
+        ? this.shiftService.getNextAvailableTime(
+            agent.shifts,
+            agent.timezone,
+          ) || undefined
+        : undefined;
+
+    return {
+      isAvailable: agent.isOnline && isWithinShift,
+      isWithinShift,
+      isOnline: agent.isOnline,
+      nextAvailableTime,
+    };
   }
 
   /**

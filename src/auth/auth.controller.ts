@@ -79,7 +79,8 @@ export class AuthController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Register new user (Admin only)',
-    description: 'Admin can register new agents or other admins in the system',
+    description:
+      'Admin can register new agents or other admins in the system. For agents, working hours can be specified using the shifts field.',
   })
   @ApiBody({ type: RegisterDto })
   @ApiResponse({

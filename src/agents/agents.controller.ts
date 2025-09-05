@@ -426,4 +426,81 @@ export class AgentsController {
     await this.agentsService.deleteCannedMessage(user.sub, messageId);
     return { message: 'Canned message deleted successfully' };
   }
+
+  /**
+   * Check agent availability based on shift schedule
+   */
+  @Get('me/availability')
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Check agent availability',
+    description:
+      'Check if the agent is currently available based on their shift schedule and online status',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Agent availability status',
+    schema: {
+      type: 'object',
+      properties: {
+        isAvailable: {
+          type: 'boolean',
+          description: 'Whether agent is available for new chats',
+        },
+        isWithinShift: {
+          type: 'boolean',
+          description: 'Whether current time is within agent working hours',
+        },
+        isOnline: {
+          type: 'boolean',
+          description: 'Whether agent is marked as online',
+        },
+        nextAvailableTime: {
+          type: 'string',
+          format: 'date-time',
+          description: 'Next available time if currently unavailable',
+        },
+      },
+      examples: {
+        available: {
+          summary: 'Agent Available',
+          value: {
+            isAvailable: true,
+            isWithinShift: true,
+            isOnline: true,
+            nextAvailableTime: null,
+          },
+        },
+        offline: {
+          summary: 'Agent Offline',
+          value: {
+            isAvailable: false,
+            isWithinShift: true,
+            isOnline: false,
+            nextAvailableTime: null,
+          },
+        },
+        outsideShift: {
+          summary: 'Outside Working Hours',
+          value: {
+            isAvailable: false,
+            isWithinShift: false,
+            isOnline: true,
+            nextAvailableTime: '2024-01-15T09:00:00.000Z',
+          },
+        },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent or Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  async getMyAvailability(@AuthenticatedUser() user: JwtPayload) {
+    return this.agentsService.isAgentCurrentlyAvailable(user.sub);
+  }
 }

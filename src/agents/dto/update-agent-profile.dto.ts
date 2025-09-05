@@ -6,9 +6,12 @@ import {
   IsOptional,
   IsString,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { Types } from 'mongoose';
+import { WeeklyShiftDto } from '../../auth/dto/shift.dto';
 
 export class UpdateAgentProfileDto {
   @ApiProperty({
@@ -53,4 +56,23 @@ export class UpdateAgentProfileDto {
   @IsNumber()
   @Min(1)
   maxConcurrentChats?: number;
+
+  @ApiProperty({
+    description: 'Agent working hours schedule',
+    type: WeeklyShiftDto,
+    required: false,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WeeklyShiftDto)
+  shifts?: WeeklyShiftDto;
+
+  @ApiProperty({
+    description: 'Timezone for the agent shifts',
+    example: 'UTC',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  timezone?: string;
 }

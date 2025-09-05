@@ -14,6 +14,7 @@ import { UsersModule } from '../users/users.module'; // For updating user part l
 import { DepartmentsModule } from 'src/departments/departments.module';
 import { ChatModule } from 'src/chat/chat.module'; // For active chat counts
 import { WidgetsModule } from 'src/widgets/widgets.module'; // For widget details
+import { ShiftService } from '../shared/services/shift.service';
 
 @Module({
   imports: [
@@ -27,7 +28,7 @@ import { WidgetsModule } from 'src/widgets/widgets.module'; // For widget detail
     WidgetsModule, // For widget access
   ],
   controllers: [AgentsController],
-  providers: [AgentsService],
+  providers: [AgentsService, ShiftService],
   exports: [AgentsService, MongooseModule],
 })
 export class AgentsModule {}

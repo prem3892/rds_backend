@@ -6,9 +6,12 @@ import {
   IsString,
   IsUrl,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { UserRole } from 'src/shared/constants/enums';
+import { WeeklyShiftDto } from './shift.dto';
 
 export class RegisterDto {
   @ApiProperty({
@@ -73,4 +76,75 @@ export class RegisterDto {
   @IsOptional()
   @IsUrl()
   website?: string;
+
+  @ApiProperty({
+    description: 'Agent working hours schedule (only applicable for agents)',
+    type: WeeklyShiftDto,
+    required: false,
+    example: {
+      monday: {
+        isWorkingDay: true,
+        timeSlots: [
+          { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
+        ],
+      },
+      tuesday: {
+        isWorkingDay: true,
+        timeSlots: [
+          { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
+        ],
+      },
+      wednesday: {
+        isWorkingDay: true,
+        timeSlots: [
+          { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
+        ],
+      },
+      thursday: {
+        isWorkingDay: true,
+        timeSlots: [
+          { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
+        ],
+      },
+      friday: {
+        isWorkingDay: true,
+        timeSlots: [
+          { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 },
+        ],
+      },
+      saturday: { isWorkingDay: false, timeSlots: [] },
+      sunday: { isWorkingDay: false, timeSlots: [] },
+    },
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WeeklyShiftDto)
+  shifts?: WeeklyShiftDto;
+
+  @ApiProperty({
+    description: 'Timezone for the agent shifts (IANA timezone identifier)',
+    example: 'America/New_York',
+    required: false,
+    examples: {
+      utc: {
+        summary: 'UTC Timezone',
+        value: 'UTC',
+      },
+      eastern: {
+        summary: 'Eastern Time',
+        value: 'America/New_York',
+      },
+      pacific: {
+        summary: 'Pacific Time',
+        value: 'America/Los_Angeles',
+      },
+      london: {
+        summary: 'London Time',
+        value: 'Europe/London',
+      },
+    },
+  })
+  @IsOptional()
+  @IsString()
+  timezone?: string;
 }

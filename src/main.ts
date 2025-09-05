@@ -148,7 +148,7 @@ async function bootstrap() {
   const config = new DocumentBuilder()
     .setTitle('Live Chat Application API')
     .setDescription(
-      'A comprehensive real-time chat system with widget integration capabilities. This API provides chat functionality between customers and agents, with features like department selection, appointment scheduling, and embeddable chat widgets for websites.',
+      'A comprehensive real-time chat system with widget integration capabilities. This API provides chat functionality between customers and agents, with features like department selection, appointment scheduling, embeddable chat widgets for websites, and advanced agent shift management for working hours scheduling.',
     )
     .setVersion('1.0')
     .setContact(
@@ -168,7 +168,10 @@ async function bootstrap() {
       'JWT-auth', // This name here is important for matching up with @ApiBearerAuth() in your controllers
     )
     .addTag('Authentication', 'User authentication and authorization endpoints')
-    .addTag('Agents', 'Agent management and profile operations')
+    .addTag(
+      'Agents',
+      'Agent management, profile operations, and shift scheduling',
+    )
     .addTag(
       'Block Customer Management',
       'Admin-only customer blocking and unblocking operations',
@@ -197,6 +200,11 @@ async function bootstrap() {
     customCss: `
       .swagger-ui .topbar { display: none }
       .swagger-ui .info .title { color: #3b82f6 }
+      .swagger-ui .info .description { font-size: 16px; line-height: 1.6; }
+      .swagger-ui .opblock-tag { font-size: 18px; font-weight: 600; }
+      .swagger-ui .opblock-summary-description { font-weight: 500; }
+      .swagger-ui .parameter__name { font-weight: 600; }
+      .swagger-ui .model-title { color: #059669; font-weight: 600; }
     `,
   });
 
