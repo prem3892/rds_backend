@@ -90,7 +90,7 @@ export class AuthService {
       throw new ConflictException('User with this email already exists.');
     }
 
-    const { shifts, timezone, ...userDto } = registerDto;
+    const { shifts, timezone, profilePicture, ...userDto } = registerDto;
 
     const user = await this.usersService.create(
       {
@@ -110,6 +110,10 @@ export class AuthService {
 
       if (timezone) {
         agentProfileData.timezone = timezone;
+      }
+
+      if (profilePicture) {
+        agentProfileData.profilePicture = profilePicture;
       }
 
       await this.agentsService.createAgentProfile(

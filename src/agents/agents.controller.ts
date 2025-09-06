@@ -12,6 +12,8 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -21,6 +23,7 @@ import {
   ApiParam,
   ApiQuery,
   ApiBody,
+  ApiConsumes,
   ApiBadRequestResponse,
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
@@ -45,6 +48,8 @@ import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { UsersService } from '../users/users.service'; // For password updates
 import { UpdateUserDto } from 'src/users/dto/update-user.dto';
 import { Types } from 'mongoose';
+import { createProfilePictureUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
+import { getProfilePictureUrl } from '../shared/utils/file-upload.utils';
 import {
   ErrorResponseDto,
   UnauthorizedResponseDto,
@@ -331,6 +336,82 @@ export class AgentsController {
     }
     // This will also be handled by the ChatGateway, but providing a REST endpoint.
     return this.agentsService.setOnlineStatus(user.sub, body.isOnline);
+  }
+
+  // ==================== PROFILE PICTURE ENDPOINTS ====================
+
+  @Post('profile-picture/upload')
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @UseInterceptors(createProfilePictureUploadInterceptor())
+  @ApiOperation({
+    summary: 'Upload profile picture',
+    description:
+      'Upload a profile picture for the authenticated agent. Supports JPG, JPEG, PNG, and GIF formats. Maximum file size: 5MB. The uploaded file will be automatically renamed and stored securely.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Profile picture file upload',
+    schema: {
+      type: 'object',
+      properties: {
+        profilePicture: {
+          type: 'string',
+          format: 'binary',
+          description: 'Profile picture file (JPG, JPEG, PNG, GIF)',
+        },
+      },
+      required: ['profilePicture'],
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Profile picture uploaded successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        profilePictureUrl: {
+          type: 'string',
+          example: '/uploads/profile-pictures/agent-123-uuid.jpg',
+          description: 'URL path to the uploaded profile picture',
+        },
+        message: {
+          type: 'string',
+          example: 'Profile picture uploaded successfully',
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid file type, file too large, or no file provided',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent or Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  async uploadProfilePicture(
+    @AuthenticatedUser() user: JwtPayload,
+    @UploadedFile() file: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    const profilePictureUrl = getProfilePictureUrl(file.filename);
+
+    // TODO: Add image resizing/optimization functionality here
+    // - Resize to standard dimensions (e.g., 200x200, 400x400)
+    // - Optimize file size while maintaining quality
+    // - Generate thumbnails for different use cases
+
+    return {
+      profilePictureUrl,
+      message: 'Profile picture uploaded successfully',
+    };
   }
 
   // ==================== CANNED MESSAGES ENDPOINTS ====================

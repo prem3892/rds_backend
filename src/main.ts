@@ -7,6 +7,8 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis'; // Use `ioredis` directly for adapter
 import { RedisService } from './shared/redis/redis.service';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 
 export class RedisIoAdapter extends IoAdapter {
   private adapterConstructor: ReturnType<typeof createAdapter>;
@@ -94,10 +96,15 @@ export class RedisIoAdapter extends IoAdapter {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const configService = app.get(ConfigService);
   const redisService = app.get(RedisService);
   const logger = new Logger('Bootstrap');
+
+  // Configure static file serving for uploads
+  app.useStaticAssets(join(__dirname, '..', 'uploads'), {
+    prefix: '/uploads/',
+  });
 
   // app.enableCors({
   //   origin: '*', // Configure for specific origins in production
