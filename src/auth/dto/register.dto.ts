@@ -183,4 +183,13 @@ export class RegisterDto {
   @IsOptional()
   @IsString()
   timezone?: string;
+
+  @ApiProperty({
+    description: 'Profile picture URL or file path for the agent',
+    example: '/uploads/profile-pictures/agent-123-uuid.jpg',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  profilePicture?: string;
 }

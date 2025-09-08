@@ -47,6 +47,9 @@ export class AgentProfile {
 
   @Prop({ default: 'UTC' })
   timezone: string;
+
+  @Prop()
+  profilePicture?: string; // File path/URL for profile picture
 }
 
 export const AgentProfileSchema = SchemaFactory.createForClass(AgentProfile);

@@ -12,6 +12,8 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -20,6 +22,8 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiQuery,
+  ApiBody,
+  ApiConsumes,
   ApiBadRequestResponse,
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
@@ -44,6 +48,8 @@ import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { UsersService } from '../users/users.service'; // For password updates
 import { UpdateUserDto } from 'src/users/dto/update-user.dto';
 import { Types } from 'mongoose';
+import { createProfilePictureUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
+import { getProfilePictureUrl } from '../shared/utils/file-upload.utils';
 import {
   ErrorResponseDto,
   UnauthorizedResponseDto,
@@ -134,6 +140,28 @@ export class AgentsController {
   // Agent/Admin: Update their own profile (limited fields + password via usersService)
   @Put('me/profile')
   @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Update own agent profile',
+    description:
+      'Update the agent profile for the currently authenticated user. Agents can update limited fields (maxConcurrentChats, password), while admins have broader access.',
+  })
+  @ApiBody({
+    type: UpdateAgentProfileDto,
+    description: 'Agent profile update data with optional password field',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Agent profile updated successfully',
+    type: AgentProfileResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid input data or agent profile not found',
+    type: ErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Agent profile not found',
+    type: ErrorResponseDto,
+  })
   async updateMyProfile(
     @AuthenticatedUser() user: JwtPayload,
     @Body() updateDto: UpdateAgentProfileDto & { password?: string }, // Allow password here
@@ -174,6 +202,34 @@ export class AgentsController {
   // Admin: Update any agent's profile
   @Put(':agentId/profile')
   @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Update agent profile by admin',
+    description:
+      'Update any agent profile by admin. Supports updating all agent profile fields including shifts, timezone, departments, domain access, and user details (firstName, lastName, email, password). Admin can only update profiles they created.',
+  })
+  @ApiBody({
+    type: UpdateAgentProfileDto,
+    description:
+      'Agent profile update data with optional user fields (firstName, lastName, email, password)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Agent profile updated successfully',
+    type: AgentProfileResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid agent ID format, agent not found, or unauthorized access',
+    type: ErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Agent profile not found',
+    type: ErrorResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required',
+    type: ForbiddenResponseDto,
+  })
   async updateAgentProfileByAdmin(
     @Param('agentId') agentId: string,
     @AuthenticatedUser() adminUser: JwtPayload,
@@ -280,6 +336,82 @@ export class AgentsController {
     }
     // This will also be handled by the ChatGateway, but providing a REST endpoint.
     return this.agentsService.setOnlineStatus(user.sub, body.isOnline);
+  }
+
+  // ==================== PROFILE PICTURE ENDPOINTS ====================
+
+  @Post('profile-picture/upload')
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @UseInterceptors(createProfilePictureUploadInterceptor())
+  @ApiOperation({
+    summary: 'Upload profile picture',
+    description:
+      'Upload a profile picture for the authenticated agent. Supports JPG, JPEG, PNG, and GIF formats. Maximum file size: 5MB. The uploaded file will be automatically renamed and stored securely.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Profile picture file upload',
+    schema: {
+      type: 'object',
+      properties: {
+        profilePicture: {
+          type: 'string',
+          format: 'binary',
+          description: 'Profile picture file (JPG, JPEG, PNG, GIF)',
+        },
+      },
+      required: ['profilePicture'],
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Profile picture uploaded successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        profilePictureUrl: {
+          type: 'string',
+          example: '/uploads/profile-pictures/agent-123-uuid.jpg',
+          description: 'URL path to the uploaded profile picture',
+        },
+        message: {
+          type: 'string',
+          example: 'Profile picture uploaded successfully',
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid file type, file too large, or no file provided',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent or Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  async uploadProfilePicture(
+    @AuthenticatedUser() user: JwtPayload,
+    @UploadedFile() file: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    const profilePictureUrl = getProfilePictureUrl(file.filename);
+
+    // TODO: Add image resizing/optimization functionality here
+    // - Resize to standard dimensions (e.g., 200x200, 400x400)
+    // - Optimize file size while maintaining quality
+    // - Generate thumbnails for different use cases
+
+    return {
+      profilePictureUrl,
+      message: 'Profile picture uploaded successfully',
+    };
   }
 
   // ==================== CANNED MESSAGES ENDPOINTS ====================

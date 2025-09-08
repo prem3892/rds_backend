@@ -228,6 +228,8 @@ export class AgentsService {
       }));
     }
     if (updateDto.timezone) agentProfile.timezone = updateDto.timezone;
+    if (updateDto.profilePicture)
+      agentProfile.profilePicture = updateDto.profilePicture;
 
     return agentProfile.save();
   }
@@ -283,6 +285,8 @@ export class AgentsService {
       }));
     }
     if (updateDto.timezone) agentProfile.timezone = updateDto.timezone;
+    if (updateDto.profilePicture)
+      agentProfile.profilePicture = updateDto.profilePicture;
 
     return agentProfile.save();
   }

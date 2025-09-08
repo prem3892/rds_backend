@@ -47,6 +47,13 @@ export class AgentProfileResponseDto {
   maxConcurrentChats: number;
 
   @ApiProperty({
+    description: 'Profile picture URL or file path for the agent',
+    example: '/uploads/profile-pictures/agent-123-uuid.jpg',
+    required: false,
+  })
+  profilePicture?: string;
+
+  @ApiProperty({
     description: 'Profile creation timestamp',
     example: '2024-01-15T10:30:00.000Z',
   })
