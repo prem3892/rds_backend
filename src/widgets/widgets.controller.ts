@@ -241,6 +241,7 @@ export class WidgetsController {
         theme: widgetPublicData.theme,
         welcomeMessage: widgetPublicData.welcomeMessage,
         headerText: widgetPublicData.headerText,
+        offline_text: widgetPublicData.offline_text,
         button_location: widgetPublicData.button_location,
         button_label: widgetPublicData.button_label,
         widget_text_color: widgetPublicData.widget_text_color,

@@ -205,7 +205,7 @@ export class WidgetsService {
     const widget = await this.widgetModel
       .findById(id)
       .select(
-        'name domains departmentIds isEnabled primaryColor secondaryColor theme welcomeMessage headerText button_location button_label widget_text_color injectableScriptUrl',
+        'name domains departmentIds isEnabled primaryColor secondaryColor theme welcomeMessage headerText offline_text button_location button_label widget_text_color injectableScriptUrl',
       )
       .populate({ path: 'departmentIds', select: 'name _id' }) // Only name and id for public
       .exec();

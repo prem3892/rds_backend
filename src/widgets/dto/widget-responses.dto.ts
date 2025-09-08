@@ -83,6 +83,13 @@ export class WidgetResponseDto {
   headerText: string;
 
   @ApiProperty({
+    description: 'Text displayed when all agents are offline',
+    example:
+      'We are currently offline. Please leave a message and we will get back to you.',
+  })
+  offline_text: string;
+
+  @ApiProperty({
     description: 'Array of email addresses to receive notifications',
     type: [String],
     example: ['admin@example.com', 'support@example.com'],
@@ -178,6 +185,11 @@ export class WidgetPublicConfigResponseDto {
         example: 'Hello! How can we help you today?',
       },
       headerText: { type: 'string', example: 'Customer Support' },
+      offline_text: {
+        type: 'string',
+        example:
+          'We are currently offline. Please leave a message and we will get back to you.',
+      },
       button_location: { type: 'string', example: 'bottom_right' },
       button_label: { type: 'string', example: 'Chat with us' },
       widget_text_color: { type: 'string', example: '#ffffff' },
@@ -189,6 +201,7 @@ export class WidgetPublicConfigResponseDto {
     theme: WidgetTheme;
     welcomeMessage: string;
     headerText: string;
+    offline_text: string;
     button_location: ButtonLocation;
     button_label: string;
     widget_text_color: string;

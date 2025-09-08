@@ -158,6 +158,16 @@ export class CreateWidgetDto {
   headerText?: string;
 
   @ApiProperty({
+    description: 'Text displayed when all agents are offline',
+    example:
+      'We are currently offline. Please leave a message and we will get back to you.',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  offline_text?: string;
+
+  @ApiProperty({
     description: 'Array of email addresses to receive notifications',
     type: [String],
     example: ['admin@example.com', 'support@example.com'],

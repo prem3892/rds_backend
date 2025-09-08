@@ -69,6 +69,9 @@ export class Widget {
   @Prop({ trim: true })
   headerText?: string;
 
+  @Prop({ trim: true })
+  offline_text?: string;
+
   @Prop({ type: [String], default: [] })
   notification_emails: string[];
 
