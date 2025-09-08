@@ -75,6 +75,25 @@ export class UsersService {
     return this.userModel.findOne({ email: email.toLowerCase() }).exec();
   }
 
+  async findOne(filter: any): Promise<UserDocument | null> {
+    return this.userModel.findOne(filter).exec();
+  }
+
+  async updateUser(
+    id: string | Types.ObjectId,
+    updateData: any,
+  ): Promise<UserDocument> {
+    const user = await this.userModel
+      .findByIdAndUpdate(id, updateData, { new: true })
+      .exec();
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    return user;
+  }
+
   async findManyByIds(
     ids: (string | Types.ObjectId)[],
   ): Promise<UserDocument[]> {
@@ -111,6 +130,10 @@ export class UsersService {
     }
     if (updateUserDto.firstName) user.firstName = updateUserDto.firstName;
     if (updateUserDto.lastName) user.lastName = updateUserDto.lastName;
+    if (updateUserDto.phoneNo !== undefined)
+      user.phoneNo = updateUserDto.phoneNo;
+    if (updateUserDto.website !== undefined)
+      user.website = updateUserDto.website;
 
     const oldRole = user.role;
     if (updateUserDto.role) user.role = updateUserDto.role;

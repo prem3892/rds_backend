@@ -1,0 +1,50 @@
+name: CI/CD rds Docker Deploy
+
+on:
+  push:
+    branches:
+      - dev # Trigger on main branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout code
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      # 2. Set up Docker Buildx
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+
+      # 3. Log in to Docker Hub
+      - name: Docker Hub login
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # 4. Build Docker image
+      - name: Build Docker image
+        run: |
+          docker build -t lokeshseattle/rds-backend:latest .
+
+      # 5. Push Docker image to Docker Hub
+      - name: Push Docker image
+        run: |
+          docker push lokeshseattle/rds-backend:latest
+
+      # 6. SSH to EC2 and pull & restart container
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v0.1.8
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/rds-chat-api
+            echo "Pull latest backend image..."
+            docker compose pull backend
+            echo "Start/update services..."
+            docker compose up -d

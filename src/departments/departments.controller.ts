@@ -8,6 +8,17 @@ import {
   Put,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiBadRequestResponse,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+} from '@nestjs/swagger';
 import { DepartmentsService } from './departments.service';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
@@ -19,7 +30,16 @@ import { UserRole } from '../shared/constants/enums';
 import { Types } from 'mongoose';
 import { AuthenticatedUser } from 'src/shared/decorators/user.decorator';
 import { JwtPayload } from 'src/shared/interfaces/jwt-payload.interface';
+import {
+  ErrorResponseDto,
+  UnauthorizedResponseDto,
+  ForbiddenResponseDto,
+  NotFoundResponseDto,
+  SuccessMessageResponseDto,
+} from '../shared/dto/common-responses.dto';
 
+@ApiTags('Departments')
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 @Controller('departments')
@@ -38,25 +58,54 @@ export class DepartmentsController {
   }
 
   @Get()
-  findAll() {
-    return this.departmentsService.findAll();
+  @ApiOperation({
+    summary: 'Get all departments (Admin only)',
+    description:
+      'Retrieve all departments created by the authenticated admin user.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Departments retrieved successfully',
+    // You might want to create a DepartmentResponseDto for proper typing
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  findAll(@AuthenticatedUser() user: JwtPayload) {
+    return this.departmentsService.findAllByAdmin(new Types.ObjectId(user.sub));
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.departmentsService.findById(id);
+  findOne(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
+    return this.departmentsService.findByIdAndAdmin(
+      id,
+      new Types.ObjectId(user.sub),
+    );
   }
 
   @Put(':id')
   update(
     @Param('id') id: string,
     @Body() updateDepartmentDto: UpdateDepartmentDto,
+    @AuthenticatedUser() user: JwtPayload,
   ) {
-    return this.departmentsService.update(id, updateDepartmentDto);
+    return this.departmentsService.updateByAdmin(
+      id,
+      updateDepartmentDto,
+      new Types.ObjectId(user.sub),
+    );
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.departmentsService.remove(id);
+  remove(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
+    return this.departmentsService.removeByAdmin(
+      id,
+      new Types.ObjectId(user.sub),
+    );
   }
 }

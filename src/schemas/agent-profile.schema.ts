@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
+import { DayShiftEntry, DayShiftEntrySchema } from './shift.schema';
 
 export type AgentProfileDocument = AgentProfile & Document;
 
@@ -12,7 +13,7 @@ export class AgentProfile {
     index: true,
     required: true,
   })
-  userId: Types.ObjectId;
+  userId: Types.ObjectId; // aka agentId :)
 
   @Prop({
     type: Types.ObjectId,
@@ -40,6 +41,12 @@ export class AgentProfile {
 
   @Prop()
   lastSeen?: Date;
+
+  @Prop({ type: [DayShiftEntrySchema], default: [] })
+  shifts: DayShiftEntry[];
+
+  @Prop({ default: 'UTC' })
+  timezone: string;
 }
 
 export const AgentProfileSchema = SchemaFactory.createForClass(AgentProfile);

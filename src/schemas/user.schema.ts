@@ -35,6 +35,36 @@ export class User {
   })
   role: UserRole;
 
+  @Prop({ trim: true })
+  phoneNo: string;
+
+  @Prop({ trim: true })
+  website: string;
+
+  @Prop({ default: false })
+  isEmailVerified: boolean;
+
+  @Prop()
+  emailVerificationToken: string;
+
+  @Prop()
+  emailVerificationExpires: Date;
+
+  @Prop()
+  passwordResetToken: string;
+
+  @Prop()
+  passwordResetExpires: Date;
+
+  @Prop()
+  refreshToken: string;
+
+  @Prop()
+  refreshTokenExpires: Date;
+
+  @Prop({ default: 0 })
+  tokenVersion: number;
+
   @Prop()
   createdAt: Date;
 

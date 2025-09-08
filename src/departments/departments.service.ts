@@ -46,6 +46,13 @@ export class DepartmentsService {
       .exec();
   }
 
+  async findAllByAdmin(adminId: Types.ObjectId): Promise<DepartmentDocument[]> {
+    return this.departmentModel
+      .find({ createdBy: adminId })
+      .populate('createdBy', 'firstName lastName email')
+      .exec();
+  }
+
   async findById(id: string | Types.ObjectId): Promise<DepartmentDocument> {
     const department = await this.departmentModel
       .findById(id)
@@ -53,6 +60,22 @@ export class DepartmentsService {
       .exec();
     if (!department) {
       throw new NotFoundException(`Department with ID ${id} not found`);
+    }
+    return department;
+  }
+
+  async findByIdAndAdmin(
+    id: string | Types.ObjectId,
+    adminId: Types.ObjectId,
+  ): Promise<DepartmentDocument> {
+    const department = await this.departmentModel
+      .findOne({ _id: id, createdBy: adminId })
+      .populate('createdBy', 'firstName lastName email')
+      .exec();
+    if (!department) {
+      throw new NotFoundException(
+        `Department with ID ${id} not found or you don't have permission to access it`,
+      );
     }
     return department;
   }
@@ -96,6 +119,45 @@ export class DepartmentsService {
     return updatedDepartment;
   }
 
+  async updateByAdmin(
+    id: string,
+    updateDepartmentDto: UpdateDepartmentDto,
+    adminId: Types.ObjectId,
+  ): Promise<DepartmentDocument> {
+    const department = await this.findByIdAndAdmin(id, adminId); // Ensures department exists and belongs to admin
+
+    if (
+      updateDepartmentDto.name &&
+      updateDepartmentDto.name !== department.name
+    ) {
+      const existingDepartment = await this.departmentModel
+        .findOne({
+          name: updateDepartmentDto.name,
+          _id: { $ne: id },
+          createdBy: adminId,
+        })
+        .exec();
+      if (existingDepartment) {
+        throw new ConflictException(
+          `Department with name "${updateDepartmentDto.name}" already exists.`,
+        );
+      }
+    }
+
+    const updatedDepartment = await this.departmentModel
+      .findOneAndUpdate({ _id: id, createdBy: adminId }, updateDepartmentDto, {
+        new: true,
+      })
+      .populate('createdBy', 'firstName lastName email')
+      .exec();
+    if (!updatedDepartment) {
+      throw new NotFoundException(
+        `Department with ID ${id} not found for update or you don't have permission to update it.`,
+      );
+    }
+    return updatedDepartment;
+  }
+
   async remove(id: string): Promise<DepartmentDocument> {
     // Add logic here to check if department is in use by any widgets or agents before deleting
     // For example, query Widgets and AgentProfiles
@@ -104,6 +166,26 @@ export class DepartmentsService {
       .exec();
     if (!deletedDepartment) {
       throw new NotFoundException(`Department with ID ${id} not found`);
+    }
+    return deletedDepartment;
+  }
+
+  async removeByAdmin(
+    id: string,
+    adminId: Types.ObjectId,
+  ): Promise<DepartmentDocument> {
+    // First check if the department exists and belongs to the admin
+    await this.findByIdAndAdmin(id, adminId);
+
+    // Add logic here to check if department is in use by any widgets or agents before deleting
+    // For example, query Widgets and AgentProfiles
+    const deletedDepartment = await this.departmentModel
+      .findOneAndDelete({ _id: id, createdBy: adminId })
+      .exec();
+    if (!deletedDepartment) {
+      throw new NotFoundException(
+        `Department with ID ${id} not found or you don't have permission to delete it`,
+      );
     }
     return deletedDepartment;
   }

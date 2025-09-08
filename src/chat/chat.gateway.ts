@@ -477,7 +477,7 @@ export class ChatGateway
     );
 
     if (data.isOnline) {
-      client.join('online_agents');
+      client.join('online_agents'); // TODO: make it unique as per business
     } else {
       client.leave('online_agents');
       // Additional logic for when agent goes offline during active chats is handled in handleDisconnect
@@ -582,7 +582,7 @@ export class ChatGateway
     this.logger.debug(
       `[handleAgentAcceptChat] Agent profile ${JSON.stringify(agentProfile)}`,
     );
-    const agentId = (agentProfile._id as Types.ObjectId).toString();
+    const agentId = agentProfile.userId.toString();
     const activeChats = await this.chatSessionService.countActiveChatsForAgent(
       new Types.ObjectId(agentUserId),
     );
@@ -749,7 +749,7 @@ export class ChatGateway
     const agentProfile = await this.agentsService.findAgentProfileByUserId(
       client.user.sub,
     );
-    const _agentId = (agentProfile?._id as Types.ObjectId).toString();
+    const _agentId = (agentProfile?.userId as Types.ObjectId).toString();
 
     if (
       (_agentId && session.agentId?.toString() !== _agentId) ||
@@ -814,7 +814,7 @@ export class ChatGateway
     this.logger.debug(
       `[handleAgentEndChat] Agent profile ${JSON.stringify(agentProfile)}`,
     );
-    const agentId = (agentProfile._id as Types.ObjectId).toString();
+    const agentId = (agentProfile.userId as Types.ObjectId).toString();
     if (session.agentId?.toString() !== agentId) {
       throw new WsException('You are not the agent for this chat.');
     }
@@ -956,6 +956,11 @@ export class ChatGateway
         initialDomain: payload.domain,
       },
     });
+
+    // Check if customer is blocked
+    if (customer.isBlocked) {
+      throw new WsException('Access denied. Customer is blocked.');
+    }
 
     client.customerId = customer._id.toString();
     await this.redisService.mapSocketIdToCustomerId(
@@ -1115,6 +1120,12 @@ export class ChatGateway
     const customer = await this.customersService.findByIdOrFail(
       client.customerId,
     );
+
+    // Check if customer is blocked
+    if (customer.isBlocked) {
+      throw new WsException('Access denied. Customer is blocked.');
+    }
+
     const widget = await this.widgetsService.findById(payload.widgetId); // Ensure widget exists
     const currentPageUrl = customer.metadata?.currentPageUrl || 'unknown_page'; // Get from customer metadata
     const domain = new URL(currentPageUrl).hostname;
@@ -1250,6 +1261,13 @@ export class ChatGateway
     );
     // Ack
     if (!client.customerId) throw new WsException('Customer not identified.');
+
+    // Check if customer is blocked
+    const customer = await this.customersService.findById(client.customerId);
+    if (customer && customer.isBlocked) {
+      throw new WsException('Access denied. Customer is blocked.');
+    }
+
     if (
       !payload.chatSessionId ||
       !Types.ObjectId.isValid(payload.chatSessionId)

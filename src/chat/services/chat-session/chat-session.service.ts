@@ -306,10 +306,17 @@ export class ChatSessionService {
   async getActiveSessionsForAgent(
     agentId: string,
   ): Promise<ChatSessionDocument[]> {
+    this.logger.log(`Getting active sessions for agent ${agentId}`);
+
     return this.chatSessionModel
       .find({
         agentId: new Types.ObjectId(agentId),
-        status: ChatSessionStatus.ACTIVE,
+        status: {
+          $in: [
+            ChatSessionStatus.ACTIVE,
+            ChatSessionStatus.PENDING_AGENT_RECONNECT,
+          ],
+        },
       })
       .populate('widgetId', 'name')
       .populate('customerId', 'name email metadata')
@@ -484,9 +491,17 @@ export class ChatSessionService {
       .exec();
   }
 
-  async findAllPaginated(
-    queryDto: GetChatSessionsQueryDto,
-  ): Promise<{ data: ChatSessionDocument[]; total: number }> {
+  async findAllPaginated(queryDto: GetChatSessionsQueryDto): Promise<{
+    items: ChatSessionDocument[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNext: boolean;
+      hasPrev: boolean;
+    };
+  }> {
     const {
       limit = 10,
       page = 1,
@@ -519,26 +534,218 @@ export class ChatSessionService {
       );
       if (customerIds.length === 0 && (customerName || customerEmail)) {
         // No customers match, so no sessions will match
-        return { data: [], total: 0 };
+        const meta = {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false,
+        };
+        return { items: [], meta };
       }
       if (customerIds.length > 0) {
         query.customerId = { $in: customerIds };
       }
     }
 
-    const data = await this.chatSessionModel
-      .find(query)
-      .populate('widgetId', 'name')
-      .populate('customerId', 'name email')
-      .populate({ path: 'agentId', select: 'firstName lastName email' })
-      .populate('departmentId', 'name')
-      .sort({ initiatedAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .exec();
+    const [items, total] = await Promise.all([
+      this.chatSessionModel
+        .find(query)
+        .populate('widgetId', 'name')
+        .populate('customerId')
+        .populate({ path: 'agentId', select: 'firstName lastName email' })
+        .populate('departmentId', 'name')
+        .sort({ initiatedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.chatSessionModel.countDocuments(query).exec(),
+    ]);
 
-    const total = await this.chatSessionModel.countDocuments(query).exec();
-    return { data, total };
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(total / limit);
+    const hasNext = page < totalPages;
+    const hasPrev = page > 1;
+
+    const meta = {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNext,
+      hasPrev,
+    };
+
+    return { items, meta };
+  }
+
+  /**
+   * Find all paginated chat sessions for an admin (only sessions assigned to their managed agents)
+   * @param queryDto - Query parameters for filtering and pagination
+   * @param adminId - The ID of the admin
+   * @returns Paginated list of chat sessions for the admin's managed agents
+   */
+  async findAllPaginatedForAdmin(
+    queryDto: GetChatSessionsQueryDto,
+    adminId: string,
+  ): Promise<{
+    items: ChatSessionDocument[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNext: boolean;
+      hasPrev: boolean;
+    };
+  }> {
+    // Get all agents managed by this admin
+    const agentProfiles =
+      await this.agentsService.getAllAgentProfilesWithUserDetails(adminId);
+    const managedAgentIds = agentProfiles.map((profile) => profile.userId);
+
+    // Also include the admin themselves if they have an agent profile (admins can also act as agents)
+    const adminAgentProfile =
+      await this.agentsService.findAgentProfileByUserId(adminId);
+    if (adminAgentProfile) {
+      managedAgentIds.push(new Types.ObjectId(adminId));
+    }
+
+    if (managedAgentIds.length === 0) {
+      // Admin has no managed agents and is not an agent themselves
+      const { limit = 10, page = 1 } = queryDto;
+      const meta = {
+        page,
+        limit,
+        total: 0,
+        totalPages: 0,
+        hasNext: false,
+        hasPrev: false,
+      };
+      return { items: [], meta };
+    }
+
+    const {
+      limit = 10,
+      page = 1,
+      status,
+      agentId,
+      departmentId,
+      customerName,
+      customerEmail,
+    } = queryDto;
+    const skip = (page - 1) * limit;
+
+    const query: any = {
+      agentId: { $in: managedAgentIds }, // Only sessions assigned to managed agents
+    };
+
+    // Apply additional filters
+    if (status) query.status = status;
+    if (agentId) {
+      if (!Types.ObjectId.isValid(agentId))
+        throw new BadRequestException('Invalid agent ID format');
+      const requestedAgentId = new Types.ObjectId(agentId);
+      // Ensure the requested agent is managed by this admin
+      if (!managedAgentIds.some((id) => id.equals(requestedAgentId))) {
+        throw new BadRequestException(
+          'You do not have permission to view sessions for this agent',
+        );
+      }
+      query.agentId = requestedAgentId;
+    }
+    if (departmentId) {
+      if (!Types.ObjectId.isValid(departmentId))
+        throw new BadRequestException('Invalid department ID format');
+      query.departmentId = new Types.ObjectId(departmentId);
+    }
+
+    let customerIds: Types.ObjectId[] | undefined = undefined;
+    if (customerName || customerEmail) {
+      customerIds = await this.customersService.findCustomersByNameOrEmail(
+        customerName,
+        customerEmail,
+      );
+      if (customerIds.length === 0 && (customerName || customerEmail)) {
+        // No customers match, so no sessions will match
+        const meta = {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false,
+        };
+        return { items: [], meta };
+      }
+      if (customerIds.length > 0) {
+        query.customerId = { $in: customerIds };
+      }
+    }
+
+    const [items, total] = await Promise.all([
+      this.chatSessionModel
+        .find(query)
+        .populate('widgetId', 'name')
+        .populate('customerId')
+        .populate({ path: 'agentId', select: 'firstName lastName email' })
+        .populate('departmentId', 'name')
+        .sort({ initiatedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.chatSessionModel.countDocuments(query).exec(),
+    ]);
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(total / limit);
+    const hasNext = page < totalPages;
+    const hasPrev = page > 1;
+
+    const meta = {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNext,
+      hasPrev,
+    };
+
+    return { items, meta };
+  }
+
+  /**
+   * Check if a chat session is accessible by an admin (i.e., assigned to one of their managed agents)
+   * @param sessionId - The ID of the chat session
+   * @param adminId - The ID of the admin
+   * @returns True if the admin can access this session, false otherwise
+   */
+  async isSessionAccessibleByAdmin(
+    sessionId: string,
+    adminId: string,
+  ): Promise<boolean> {
+    const session = await this.findById(sessionId);
+    if (!session || !session.agentId) {
+      return false;
+    }
+
+    // Get all agents managed by this admin
+    const agentProfiles =
+      await this.agentsService.getAllAgentProfilesWithUserDetails(adminId);
+    const managedAgentIds = agentProfiles.map((profile) =>
+      profile.userId.toString(),
+    );
+
+    // Also include the admin themselves if they have an agent profile (admins can also act as agents)
+    const adminAgentProfile =
+      await this.agentsService.findAgentProfileByUserId(adminId);
+    if (adminAgentProfile) {
+      managedAgentIds.push(adminId);
+    }
+
+    // Check if the session's agent is in the list of managed agents
+    return managedAgentIds.includes(session.agentId._id.toString());
   }
 
   async getSessionsForAgentReconnect(
@@ -568,5 +775,30 @@ export class ChatSessionService {
       })
       .populate({ path: 'agentId', select: 'firstName lastName' })
       .exec();
+  }
+
+  /**
+   * Get paginated chat sessions for a specific agent
+   * @param agentId - The ID of the agent
+   * @param queryDto - Query parameters for filtering and pagination
+   * @returns Paginated list of chat sessions for the agent
+   */
+  async findSessionsForAgent(
+    agentId: string,
+    queryDto: GetChatSessionsQueryDto,
+  ): Promise<{
+    items: ChatSessionDocument[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNext: boolean;
+      hasPrev: boolean;
+    };
+  }> {
+    // Create a copy of the query DTO and force the agentId
+    const agentQueryDto = { ...queryDto, agentId };
+    return this.findAllPaginated(agentQueryDto);
   }
 }
