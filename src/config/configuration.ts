@@ -42,6 +42,14 @@ export default () => ({
       process.env.CUSTOMER_ABANDON_TIMEOUT_MS || '900000',
       10,
     ), // 15 mins
+    agentInactivityThresholdMs: parseInt(
+      process.env.AGENT_INACTIVITY_THRESHOLD_MS || '180000',
+      10,
+    ), // 3 mins
+    visitorGracePeriodMs: parseInt(
+      process.env.VISITOR_GRACE_PERIOD_MS || '30000',
+      10,
+    ), // 30 seconds
   },
   visitorTracking: {
     redisTtlSeconds: parseInt(

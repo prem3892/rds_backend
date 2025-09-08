@@ -212,6 +212,7 @@ export class ChatSessionService {
   ): Promise<ChatSessionDocument | null> {
     const agentObjectId = new Types.ObjectId(agentId);
     const sessionObjectId = new Types.ObjectId(chatSessionId);
+    const now = new Date();
 
     // Atomic update to prevent race conditions
     const updatedSession = await this.chatSessionModel
@@ -225,8 +226,15 @@ export class ChatSessionService {
           $set: {
             agentId: agentObjectId,
             status: ChatSessionStatus.ACTIVE,
-            acceptedAt: new Date(),
-            agentLastSeen: new Date(),
+            acceptedAt: now,
+            agentLastSeen: now,
+          },
+          $push: {
+            agentHistory: {
+              agentId: agentObjectId,
+              joinedAt: now,
+              isActive: true,
+            },
           },
         },
         { new: true }, // Return the updated document
@@ -396,6 +404,83 @@ export class ChatSessionService {
   ): Promise<void> {
     await this.chatSessionModel
       .findByIdAndUpdate(sessionId, { $set: { agentLastSeen: timestamp } })
+      .exec();
+  }
+
+  /**
+   * Marks an agent as inactive in a chat session and updates the session status
+   * @param sessionId The chat session ID
+   * @param agentId The agent ID to mark as inactive
+   * @returns The updated chat session
+   */
+  async markAgentInactive(
+    sessionId: string | Types.ObjectId,
+    agentId: string | Types.ObjectId,
+  ): Promise<ChatSessionDocument> {
+    const now = new Date();
+    const agentObjectId =
+      typeof agentId === 'string' ? new Types.ObjectId(agentId) : agentId;
+
+    // Update the agent history to mark the agent as inactive
+    const updatedSession = await this.chatSessionModel
+      .findOneAndUpdate(
+        {
+          _id: sessionId,
+          status: ChatSessionStatus.ACTIVE,
+          agentId: agentObjectId,
+          'agentHistory.agentId': agentObjectId,
+          'agentHistory.isActive': true,
+        },
+        {
+          $set: {
+            status: ChatSessionStatus.PENDING_ASSIGNMENT,
+            agentId: null,
+            'agentHistory.$[elem].isActive': false,
+            'agentHistory.$[elem].leftAt': now,
+          },
+        },
+        {
+          arrayFilters: [
+            { 'elem.agentId': agentObjectId, 'elem.isActive': true },
+          ],
+          new: true,
+        },
+      )
+      .populate('widgetId')
+      .populate('customerId')
+      .populate('departmentId')
+      .exec();
+
+    if (!updatedSession) {
+      throw new NotFoundException(
+        `Chat session with ID ${sessionId} not found or agent ${agentId} is not active in this session.`,
+      );
+    }
+
+    this.logger.log(
+      `Agent ${agentId} marked as inactive in chat session ${sessionId}. Session status updated to PENDING_ASSIGNMENT.`,
+    );
+    return updatedSession;
+  }
+
+  /**
+   * Find active chat sessions where the agent has been inactive for a specified duration
+   * @param inactivityThresholdMs The threshold in milliseconds for agent inactivity
+   * @returns Array of chat sessions with inactive agents
+   */
+  async findSessionsWithInactiveAgents(
+    inactivityThresholdMs: number,
+  ): Promise<ChatSessionDocument[]> {
+    const inactivityThreshold = new Date(Date.now() - inactivityThresholdMs);
+
+    return this.chatSessionModel
+      .find({
+        status: ChatSessionStatus.ACTIVE,
+        agentId: { $ne: null },
+        agentLastSeen: { $lt: inactivityThreshold },
+      })
+      .populate('agentId')
+      .populate('customerId')
       .exec();
   }
 
