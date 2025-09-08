@@ -7,6 +7,8 @@ import { ChatSessionStatus } from 'src/shared/constants/enums';
 import { ChatSessionService } from '../chat-session/chat-session.service';
 import { AgentsService } from 'src/agents/agents.service';
 import { WidgetsService } from 'src/widgets/widgets.service';
+import { ChatSessionDocument } from 'src/schemas/chat-session.schema';
+import { UsersService } from 'src/users/users.service';
 
 @Injectable()
 export class ChatNotificationService {
@@ -14,6 +16,7 @@ export class ChatNotificationService {
   private readonly firstAlertThresholdMs: number;
   private readonly subsequentAlertIntervalMs: number;
   private readonly maxPriorityAlerts: number;
+  private readonly agentInactivityThresholdMs: number;
 
   private server: Server | null = null;
 
@@ -21,6 +24,7 @@ export class ChatNotificationService {
     private readonly chatSessionService: ChatSessionService,
     private readonly agentsService: AgentsService,
     private readonly configService: ConfigService,
+    private readonly usersService: UsersService,
   ) {
     this.firstAlertThresholdMs =
       this.configService.get<number>('chatTimers.firstAlertThresholdMs') ||
@@ -30,6 +34,9 @@ export class ChatNotificationService {
       60000;
     this.maxPriorityAlerts =
       this.configService.get<number>('chatTimers.maxPriorityAlerts') || 3;
+    this.agentInactivityThresholdMs =
+      this.configService.get<number>('chatTimers.agentInactivityThresholdMs') ||
+      180000; // Default to 3 minutes
   }
 
   /**
@@ -39,7 +46,7 @@ export class ChatNotificationService {
     this.server = server;
   }
 
-  @Cron(CronExpression.EVERY_30_SECONDS) // Configurable
+  @Cron(CronExpression.EVERY_10_MINUTES) // Configurable
   async handleUnattendedChatNotifications() {
     this.logger.debug('Running unattended chat notification job...');
     const pendingSessions =
@@ -180,6 +187,151 @@ export class ChatNotificationService {
     } catch (error) {
       this.logger.error(
         `Failed to notify agents about visitor activity: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
+   * Notify customer that the agent has become inactive
+   * @param session The chat session
+   */
+  async notifyCustomerAboutAgentInactivity(session: ChatSessionDocument) {
+    try {
+      if (!this.server) {
+        this.logger.warn(
+          'Socket.IO server not available for customer notifications',
+        );
+        return;
+      }
+
+      const customerId = session.customerId.toString();
+
+      // Find the inactive agent from agent history
+      const inactiveAgent = session.agentHistory?.find(
+        (agent) => !agent.isActive && !agent.leftAt,
+      );
+
+      if (!inactiveAgent) {
+        this.logger.warn(
+          `No inactive agent found in history for session ${session._id}`,
+        );
+        return;
+      }
+
+      // Get agent name for the notification
+      const agentUser = await this.usersService.findById(inactiveAgent.agentId);
+      const agentName = agentUser?.firstName || 'Agent';
+
+      // Send notification to customer
+      this.server.to(`customer:${customerId}`).emit('server:agent_inactive', {
+        chatSessionId: session._id.toString(),
+        message: `${agentName} is no longer available. We're connecting you with another agent.`,
+        inactiveAgentId: inactiveAgent.agentId.toString(),
+        inactiveAgentName: agentName,
+        inactivityDuration: Math.floor(this.agentInactivityThresholdMs / 60000), // in minutes
+      });
+
+      this.logger.log(
+        `Notified customer ${customerId} about agent ${inactiveAgent.agentId} inactivity in session ${session._id}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to notify customer about agent inactivity: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
+   * Notify available agents about a pending chat that needs reassignment
+   * @param session The chat session that needs a new agent
+   */
+  async notifyAgentsAboutPendingChat(session: ChatSessionDocument) {
+    try {
+      if (!this.server) {
+        this.logger.warn(
+          'Socket.IO server not available for agent notifications',
+        );
+        return;
+      }
+
+      // Get eligible agents for this widget and domain
+      const eligibleAgents = await this.agentsService.getEligibleOnlineAgents(
+        session.widgetId,
+        session.domain,
+      );
+
+      if (eligibleAgents.length === 0) {
+        this.logger.debug(
+          `No eligible agents found for pending chat notification for session ${session._id}`,
+        );
+        return;
+      }
+
+      // Get previous agent info for context
+      const previousAgentHistory = session.agentHistory?.find(
+        (agent) => !agent.isActive && agent.leftAt,
+      );
+
+      let previousAgentInfo: {
+        id: string;
+        name: string;
+        inactivityDuration: number;
+      } | null = null;
+
+      if (previousAgentHistory) {
+        const previousAgent = await this.usersService.findById(
+          previousAgentHistory.agentId,
+        );
+        if (previousAgent) {
+          previousAgentInfo = {
+            id: previousAgent._id.toString(),
+            name: previousAgent.firstName,
+            inactivityDuration: Math.floor(
+              this.agentInactivityThresholdMs / 60000,
+            ), // in minutes
+          };
+        }
+      }
+
+      // Prepare notification data
+      const notificationData = {
+        chatSessionId: session._id.toString(),
+        customerName:
+          typeof session.customerId === 'object' && 'name' in session.customerId
+            ? session.customerId.name || 'Customer'
+            : 'Customer',
+        initialMessage: session.initialMessage,
+        waitingTime: Math.floor(
+          (Date.now() - session.initiatedAt.getTime()) / 60000,
+        ), // in minutes
+        previousAgent: previousAgentInfo,
+        priority: true, // Mark as priority since it's a reassignment
+        reassignment: true,
+      };
+
+      // Send notification to all eligible agents
+      for (const agent of eligibleAgents) {
+        // Skip the previous agent who was inactive
+        if (
+          previousAgentHistory &&
+          agent.userId.toString() === previousAgentHistory.agentId.toString()
+        ) {
+          continue;
+        }
+
+        this.server
+          .to(`agent:${agent.userId.toString()}`)
+          .emit('server:pending_chat_notification', notificationData);
+      }
+
+      this.logger.log(
+        `Notified ${eligibleAgents.length} eligible agents about pending chat session ${session._id} that needs reassignment`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to notify agents about pending chat: ${error.message}`,
         error.stack,
       );
     }

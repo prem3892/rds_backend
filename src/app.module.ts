@@ -15,6 +15,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import configuration from './config/configuration';
 import { AppointmentsModule } from './appointments/appointments.module';
+import { JobsModule } from './jobs/jobs.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { AppointmentsModule } from './appointments/appointments.module';
     ContactsModule,
     ChatModule,
     AppointmentsModule,
+    JobsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

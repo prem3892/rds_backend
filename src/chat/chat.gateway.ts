@@ -1437,6 +1437,77 @@ export class ChatGateway
       });
   }
 
+  @SubscribeMessage('agent:mark_messages_read')
+  async handleAgentMessageSeen(
+    @MessageBody()
+    data: { chatSessionId: string; messageId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    if (!client.user) throw new WsException('Agent not authenticated.');
+    if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
+      throw new WsException('Invalid chatSessionId');
+    if (!data.messageId || !Types.ObjectId.isValid(data.messageId))
+      throw new WsException('Invalid messageId');
+
+    const now = new Date();
+
+    // Mark the message as read by agent
+    await this.chatMessageService.markMessagesAsReadByAgent(
+      data.chatSessionId,
+      now,
+    );
+
+    // Update agent's last seen timestamp
+    await this.chatSessionService.updateAgentLastSeen(data.chatSessionId, now);
+
+    // Notify the customer that the agent has seen the message
+    this.server
+      .to(`chatSession:${data.chatSessionId}`)
+      .except(client.id)
+      .emit('server:message_seen_by_agent', {
+        chatSessionId: data.chatSessionId,
+        messageId: data.messageId,
+        timestamp: now,
+      });
+  }
+
+  @SubscribeMessage('customer:mark_messages_read')
+  async handleCustomerMessageSeen(
+    @MessageBody()
+    data: { chatSessionId: string; messageId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    if (!client.customerId) throw new WsException('Customer not identified.');
+    if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
+      throw new WsException('Invalid chatSessionId');
+    if (!data.messageId || !Types.ObjectId.isValid(data.messageId))
+      throw new WsException('Invalid messageId');
+
+    const now = new Date();
+
+    // Mark the message as read by customer
+    await this.chatMessageService.markMessagesAsReadByCustomer(
+      data.chatSessionId,
+      now,
+    );
+
+    // Update customer's last seen timestamp
+    await this.chatSessionService.updateCustomerLastSeen(
+      data.chatSessionId,
+      now,
+    );
+
+    // Notify the agent that the customer has seen the message
+    this.server
+      .to(`chatSession:${data.chatSessionId}`)
+      .except(client.id)
+      .emit('server:message_seen_by_customer', {
+        chatSessionId: data.chatSessionId,
+        messageId: data.messageId,
+        timestamp: now,
+      });
+  }
+
   // --- Appointment Booking via Socket by Agent ---
   @SubscribeMessage('agent:book_appointment')
   async handleAgentBookAppointment(
