@@ -3,6 +3,24 @@ import { Document, Types } from 'mongoose';
 
 export type WidgetDocument = Widget & Document;
 
+export enum ButtonLocation {
+  TOP_LEFT = 'top_left',
+  TOP_RIGHT = 'top_right',
+  BOTTOM_LEFT = 'bottom_left',
+  BOTTOM_RIGHT = 'bottom_right',
+  CENTER_LEFT = 'center_left',
+  CENTER_RIGHT = 'center_right',
+}
+
+export interface WidgetTheme {
+  name: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor?: string;
+  textColor?: string;
+  backgroundColor?: string;
+}
+
 @Schema({ timestamps: true })
 export class Widget {
   _id: Types.ObjectId;
@@ -30,10 +48,42 @@ export class Widget {
   primaryColor?: string;
 
   @Prop({ trim: true })
+  secondaryColor?: string;
+
+  @Prop({
+    type: {
+      name: { type: String, required: true },
+      primaryColor: { type: String, required: true },
+      secondaryColor: { type: String, required: true },
+      accentColor: { type: String, required: false },
+      textColor: { type: String, required: false },
+      backgroundColor: { type: String, required: false },
+    },
+    required: false,
+  })
+  theme?: WidgetTheme;
+
+  @Prop({ trim: true })
   welcomeMessage?: string;
 
   @Prop({ trim: true })
   headerText?: string;
+
+  @Prop({ type: [String], default: [] })
+  notification_emails: string[];
+
+  @Prop({
+    type: String,
+    enum: Object.values(ButtonLocation),
+    default: ButtonLocation.BOTTOM_RIGHT,
+  })
+  button_location: ButtonLocation;
+
+  @Prop({ trim: true, default: 'Chat with us' })
+  button_label: string;
+
+  @Prop({ trim: true })
+  widget_text_color?: string;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   createdBy: Types.ObjectId; // Admin
