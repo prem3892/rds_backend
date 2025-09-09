@@ -276,7 +276,7 @@ export class AuthService {
 
     // Create reset link
     const appDomain = this.configService.get<string>('appDomain');
-    const resetLink = `http://${appDomain}/reset-password?token=${resetToken}`;
+    const resetLink = `${appDomain}/reset-password?token=${resetToken}`;
 
     // Send email
     return this.mailerService.sendResetPasswordEmail(user.email, {
