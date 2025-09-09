@@ -111,8 +111,10 @@ export class AgentsService {
     if (typeof userId === 'string') _id = new Types.ObjectId(userId);
     else _id = userId;
 
+    this.logger.debug(`Converted userId to Types.ObjectId: ${typeof _id}`);
+
     return this.agentProfileModel
-      .findById(_id)
+      .findOne({ userId: _id })
       .populate('departmentIds')
       .exec();
   }
