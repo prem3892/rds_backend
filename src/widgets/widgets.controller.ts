@@ -237,8 +237,14 @@ export class WidgetsController {
       })), // Assuming departmentIds is populated
       widgetConfig: {
         primaryColor: widgetPublicData.primaryColor,
+        secondaryColor: widgetPublicData.secondaryColor,
+        theme: widgetPublicData.theme,
         welcomeMessage: widgetPublicData.welcomeMessage,
         headerText: widgetPublicData.headerText,
+        offline_text: widgetPublicData.offline_text,
+        button_location: widgetPublicData.button_location,
+        button_label: widgetPublicData.button_label,
+        widget_text_color: widgetPublicData.widget_text_color,
       },
       // Add socket endpoint, etc.
       socketUrl: '/', // Or your specific WebSocket server URL
