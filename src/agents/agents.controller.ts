@@ -325,7 +325,7 @@ export class AgentsController {
 
     // First check if the agent profile exists using agentId (not userId)
     const existingAgentProfile =
-      await this.agentsService.findAgentProfileById(agentId);
+      await this.agentsService.findAgentProfileByUserId(agentId);
     if (!existingAgentProfile) {
       throw new NotFoundException(`Agent profile with ID ${agentId} not found`);
     }
