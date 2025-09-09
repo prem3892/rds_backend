@@ -112,7 +112,7 @@ export class AgentsService {
     else _id = userId;
 
     return this.agentProfileModel
-      .findOne({ userId: _id })
+      .findById(_id)
       .populate('departmentIds')
       .exec();
   }

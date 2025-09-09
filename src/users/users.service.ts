@@ -51,6 +51,8 @@ export class UsersService {
   }
 
   async findById(id: string | Types.ObjectId): Promise<UserDocument | null> {
+    if (typeof id === 'string') id = new Types.ObjectId(id); // Convert string to ObjectId (if needed)
+
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid user ID format');
     }
@@ -64,6 +66,8 @@ export class UsersService {
   }
 
   async findByIdOrFail(id: string | Types.ObjectId): Promise<UserDocument> {
+    if (typeof id === 'string') id = new Types.ObjectId(id); // Convert string to ObjectId (if needed)
+
     const user = await this.findById(id);
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
