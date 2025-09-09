@@ -18,6 +18,7 @@ import { UserDocument } from 'src/schemas/user.schema';
 import { AgentsService } from 'src/agents/agents.service';
 import { Types } from 'mongoose';
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AuthService {
@@ -296,9 +297,12 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired reset token');
     }
 
+    // Hash the password manually since we need to use updateUser to clear token fields
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
     // Update password and clear reset token
     await this.usersService.updateUser(user._id, {
-      password: newPassword,
+      password: hashedPassword,
       passwordResetToken: undefined,
       passwordResetExpires: undefined,
     });

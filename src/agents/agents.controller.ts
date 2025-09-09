@@ -147,7 +147,7 @@ export class AgentsController {
   })
   @ApiBody({
     type: UpdateAgentProfileDto,
-    description: 'Agent profile update data with optional password field',
+    description: 'Agent profile update data',
   })
   @ApiResponse({
     status: 200,
@@ -166,7 +166,6 @@ export class AgentsController {
     @AuthenticatedUser() user: JwtPayload,
     @Body()
     updateDto: UpdateAgentProfileDto & {
-      password?: string;
       firstName?: string;
       lastName?: string;
       email?: string;
@@ -204,22 +203,16 @@ export class AgentsController {
       }
 
       // Check for user fields that agents cannot update
-      if (
-        updateDto.firstName ||
-        updateDto.lastName ||
-        updateDto.email ||
-        updateDto.password
-      ) {
+      if (updateDto.firstName || updateDto.lastName || updateDto.email) {
         throw new BadRequestException(
-          'Please contact your admin to update personal information or password.',
+          'Please contact your admin to update personal information.',
         );
       }
     }
 
-    // Handle USER schema fields (firstName, lastName, email, password) - only for admins
+    // Handle USER schema fields (firstName, lastName, email) - only for admins
     if (user.role === UserRole.ADMIN) {
       const userUpdatePayload: UpdateUserDto = {};
-      if (updateDto.password) userUpdatePayload.password = updateDto.password;
       if (updateDto.firstName)
         userUpdatePayload.firstName = updateDto.firstName;
       if (updateDto.lastName) userUpdatePayload.lastName = updateDto.lastName;
@@ -234,7 +227,6 @@ export class AgentsController {
     // Handle AGENT PROFILE schema fields
     const agentProfileUpdatePayload: UpdateAgentProfileDto = { ...updateDto };
     // Remove user-specific fields from agent profile payload
-    delete agentProfileUpdatePayload['password'];
     delete agentProfileUpdatePayload['firstName'];
     delete agentProfileUpdatePayload['lastName'];
     delete agentProfileUpdatePayload['email'];
