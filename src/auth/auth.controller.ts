@@ -32,6 +32,7 @@ import {
   ResetPasswordDto,
   VerifyEmailDto,
 } from './dto/password-reset.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import {
   LoginResponseDto,
@@ -306,6 +307,46 @@ export class AuthController {
       resetPasswordDto.newPassword,
     );
     return { message: 'Password reset successfully' };
+  }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Change password',
+    description:
+      'Change user password by providing current password and new password. Requires authentication.',
+  })
+  @ApiBody({ type: ChangePasswordDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Password changed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Password changed successfully' },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Current password is incorrect',
+    type: ErrorResponseDto,
+  })
+  async changePassword(
+    @AuthenticatedUser() user: JwtPayload,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    await this.authService.changePassword(
+      user.sub,
+      changePasswordDto.oldPassword,
+      changePasswordDto.newPassword,
+    );
+    return { message: 'Password changed successfully' };
   }
 
   @Post('send-verification')

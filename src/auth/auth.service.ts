@@ -310,6 +310,34 @@ export class AuthService {
     return true;
   }
 
+  async changePassword(
+    userId: string,
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<boolean> {
+    // Find the user with password included for validation
+    const user = await this.usersService.findOne({ _id: userId });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Validate the old password
+    const isOldPasswordValid = await user.validatePassword(oldPassword);
+    if (!isOldPasswordValid) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    // Hash the new password manually since we need to use updateUser
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update the password
+    await this.usersService.updateUser(user._id, {
+      password: hashedNewPassword,
+    });
+
+    return true;
+  }
+
   async sendEmailVerification(userId: string): Promise<boolean> {
     const user = await this.usersService.findById(userId);
     if (!user) {
