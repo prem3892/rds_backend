@@ -103,6 +103,7 @@ export class AgentsService {
     userId: string | Types.ObjectId,
   ): Promise<AgentProfileDocument | null> {
     // handle the string userId as a Types.ObjectId
+    this.logger.log(`Finding agent profile for user ID ${userId}`);
     let _id: Types.ObjectId;
     if (typeof userId === 'string') _id = new Types.ObjectId(userId);
     else _id = userId;
@@ -207,6 +208,10 @@ export class AgentsService {
 
     if (updateDto.domainAccess)
       agentProfile.domainAccess = updateDto.domainAccess;
+
+    this.logger.log(
+      `Updating agent profile for user ID ${agentUserId} with DTO: ${JSON.stringify(updateDto)}`,
+    );
     if (typeof updateDto.isOnline === 'boolean') {
       agentProfile.isOnline = updateDto.isOnline;
       if (updateDto.isOnline === false || updateDto.isOnline === true) {
@@ -239,7 +244,7 @@ export class AgentsService {
     updateDto: UpdateAgentProfileDto,
     isAdminUpdate: boolean = false, // to distinguish admin updates from agent's own
   ): Promise<AgentProfileDocument> {
-    const agentProfile = await this.agentProfileModel.findById(agentId).exec();
+    const agentProfile = await this.findAgentProfileByUserId(agentId);
     if (!agentProfile) {
       throw new NotFoundException(
         `Agent profile for user ID ${agentId} not found.`,
@@ -264,6 +269,11 @@ export class AgentsService {
 
     if (updateDto.domainAccess)
       agentProfile.domainAccess = updateDto.domainAccess;
+
+    this.logger.debug(
+      `Updating agent profile for user ID ${agentId} with DTO: ${JSON.stringify(updateDto)}`,
+    );
+
     if (typeof updateDto.isOnline === 'boolean') {
       agentProfile.isOnline = updateDto.isOnline;
       if (updateDto.isOnline === false || updateDto.isOnline === true) {

@@ -143,7 +143,7 @@ export class AgentsController {
   @ApiOperation({
     summary: 'Update own agent profile',
     description:
-      'Update the agent profile for the currently authenticated user. Agents can update limited fields (maxConcurrentChats, password), while admins have broader access.',
+      'Update the agent profile for the currently authenticated user. Agents can only update their online status and profile picture. Admins have full access to update all fields including personal information, departments, and settings.',
   })
   @ApiBody({
     type: UpdateAgentProfileDto,
@@ -164,28 +164,114 @@ export class AgentsController {
   })
   async updateMyProfile(
     @AuthenticatedUser() user: JwtPayload,
-    @Body() updateDto: UpdateAgentProfileDto & { password?: string }, // Allow password here
+    @Body()
+    updateDto: UpdateAgentProfileDto & {
+      password?: string;
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+    },
   ) {
-    // Password update
-    if (updateDto.password) {
-      await this.usersService.update(user.sub, {
-        password: updateDto.password,
-      });
+    // First check if the agent profile exists
+    const existingAgentProfile =
+      await this.agentsService.findAgentProfileByUserId(user.sub);
+    if (!existingAgentProfile) {
+      throw new NotFoundException('Agent profile not found.');
     }
 
-    // Profile fields (Agent can update a limited set for themselves)
-    const allowedProfileUpdates: Partial<UpdateAgentProfileDto> = {};
-    if (updateDto.maxConcurrentChats)
-      allowedProfileUpdates.maxConcurrentChats = updateDto.maxConcurrentChats;
-    // Agents typically shouldn't change their own departments or domainAccess; admins do that.
-    // If they can, add them here:
-    // if (updateDto.departmentIds) allowedProfileUpdates.departmentIds = updateDto.departmentIds;
-    // if (updateDto.domainAccess) allowedProfileUpdates.domainAccess = updateDto.domainAccess;
+    // Role-based field restrictions
+    if (user.role === UserRole.AGENT) {
+      // Agents can only update profile picture and basic profile fields
+      // Restricted fields that require admin permission
+      const restrictedFields = [
+        'departmentIds',
+        'domainAccess',
+        'maxConcurrentChats',
+        'shifts',
+        'timezone',
+        'email',
+        'firstName',
+        'lastName',
+      ];
+      const hasRestrictedFields = restrictedFields.some(
+        (field) => updateDto[field] !== undefined,
+      );
 
+      if (hasRestrictedFields) {
+        throw new BadRequestException(
+          'Please contact your admin to update department access, domain permissions, concurrent chat limits, shifts, or timezone settings.',
+        );
+      }
+
+      // Check for user fields that agents cannot update
+      if (
+        updateDto.firstName ||
+        updateDto.lastName ||
+        updateDto.email ||
+        updateDto.password
+      ) {
+        throw new BadRequestException(
+          'Please contact your admin to update personal information or password.',
+        );
+      }
+    }
+
+    // Handle USER schema fields (firstName, lastName, email, password) - only for admins
+    if (user.role === UserRole.ADMIN) {
+      const userUpdatePayload: UpdateUserDto = {};
+      if (updateDto.password) userUpdatePayload.password = updateDto.password;
+      if (updateDto.firstName)
+        userUpdatePayload.firstName = updateDto.firstName;
+      if (updateDto.lastName) userUpdatePayload.lastName = updateDto.lastName;
+      if (updateDto.email) userUpdatePayload.email = updateDto.email;
+
+      // Update user fields if any are provided
+      if (Object.keys(userUpdatePayload).length > 0) {
+        await this.usersService.update(user.sub, userUpdatePayload);
+      }
+    }
+
+    // Handle AGENT PROFILE schema fields
+    const agentProfileUpdatePayload: UpdateAgentProfileDto = { ...updateDto };
+    // Remove user-specific fields from agent profile payload
+    delete agentProfileUpdatePayload['password'];
+    delete agentProfileUpdatePayload['firstName'];
+    delete agentProfileUpdatePayload['lastName'];
+    delete agentProfileUpdatePayload['email'];
+
+    // For agents, only allow specific fields
+    if (user.role === UserRole.AGENT) {
+      const allowedAgentFields: Partial<UpdateAgentProfileDto> = {};
+      if (typeof updateDto.isOnline === 'boolean')
+        allowedAgentFields.isOnline = updateDto.isOnline;
+      if (updateDto.profilePicture)
+        allowedAgentFields.profilePicture = updateDto.profilePicture;
+
+      // Update with only allowed fields
+      const updatedProfile = await this.agentsService.updateAgentProfileById(
+        user.sub,
+        allowedAgentFields,
+      );
+
+      const userDetails = await this.usersService.findById(user.sub);
+      return {
+        ...updatedProfile.toObject(),
+        user: userDetails
+          ? {
+              email: userDetails.email,
+              firstName: userDetails.firstName,
+              lastName: userDetails.lastName,
+            }
+          : null,
+      };
+    }
+
+    // For admins, allow all fields
     const updatedProfile = await this.agentsService.updateAgentProfileById(
       user.sub,
-      allowedProfileUpdates,
+      agentProfileUpdatePayload,
     );
+
     const userDetails = await this.usersService.findById(user.sub);
     return {
       ...updatedProfile.toObject(),
