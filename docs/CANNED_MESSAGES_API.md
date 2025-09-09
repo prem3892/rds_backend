@@ -58,10 +58,20 @@ Creates a new canned message.
   "_id": "64f1a2b3c4d5e6f7g8h9i0j1",
   "title": "Welcome Message",
   "content": "Hello! Welcome to our support chat. How can I help you today?",
-  "agentId": "64f1a2b3c4d5e6f7g8h9i0j2",
+  "agentId": {
+    "_id": "64f1a2b3c4d5e6f7g8h9i0j2",
+    "firstName": "John",
+    "lastName": "Doe",
+    "email": "john@example.com"
+  },
   "adminId": "64f1a2b3c4d5e6f7g8h9i0j3",
   "isGlobal": false,
-  "departmentIds": ["64f1a2b3c4d5e6f7g8h9i0j1"],
+  "departmentIds": [
+    {
+      "_id": "64f1a2b3c4d5e6f7g8h9i0j1",
+      "name": "Support"
+    }
+  ],
   "tags": ["greeting", "welcome"],
   "createdAt": "2024-01-15T10:30:00.000Z",
   "updatedAt": "2024-01-15T10:30:00.000Z"
@@ -79,7 +89,7 @@ Retrieves canned messages with pagination and filtering options.
 **Query Parameters:**
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `search` | string | No | Text search in title and content |
+| `search` | string | No | Text search in title (case-insensitive regex) |
 | `tags` | string | No | Comma-separated list of tags to filter by |
 | `departmentIds` | string | No | Comma-separated list of department IDs |
 | `isGlobal` | boolean | No | Filter by global/personal messages |
@@ -99,14 +109,15 @@ GET /agents/canned-messages?page=1&limit=10&tags=greeting,welcome&isGlobal=true&
 
 ```json
 {
-  "data": [
+  "items": [
     {
       "_id": "64f1a2b3c4d5e6f7g8h9i0j1",
       "title": "Welcome Message",
       "content": "Hello! Welcome to our support chat. How can I help you today?",
       "agentId": {
         "_id": "64f1a2b3c4d5e6f7g8h9i0j2",
-        "name": "John Doe",
+        "firstName": "John",
+        "lastName": "Doe",
         "email": "john@example.com"
       },
       "adminId": "64f1a2b3c4d5e6f7g8h9i0j3",
@@ -122,10 +133,14 @@ GET /agents/canned-messages?page=1&limit=10&tags=greeting,welcome&isGlobal=true&
       "updatedAt": "2024-01-15T10:30:00.000Z"
     }
   ],
-  "total": 25,
-  "page": 1,
-  "limit": 10,
-  "totalPages": 3
+  "meta": {
+    "page": 1,
+    "limit": 10,
+    "total": 25,
+    "totalPages": 3,
+    "hasNext": true,
+    "hasPrev": false
+  }
 }
 ```
 
@@ -151,7 +166,8 @@ Retrieves a specific canned message by its ID.
   "content": "Hello! Welcome to our support chat. How can I help you today?",
   "agentId": {
     "_id": "64f1a2b3c4d5e6f7g8h9i0j2",
-    "name": "John Doe",
+    "firstName": "John",
+    "lastName": "Doe",
     "email": "john@example.com"
   },
   "adminId": "64f1a2b3c4d5e6f7g8h9i0j3",
@@ -208,10 +224,20 @@ Updates an existing canned message. Only the creator can update their own messag
   "_id": "64f1a2b3c4d5e6f7g8h9i0j1",
   "title": "Updated Welcome Message",
   "content": "Hi there! Welcome to our support chat. How may I assist you?",
-  "agentId": "64f1a2b3c4d5e6f7g8h9i0j2",
+  "agentId": {
+    "_id": "64f1a2b3c4d5e6f7g8h9i0j2",
+    "firstName": "John",
+    "lastName": "Doe",
+    "email": "john@example.com"
+  },
   "adminId": "64f1a2b3c4d5e6f7g8h9i0j3",
   "isGlobal": true,
-  "departmentIds": ["64f1a2b3c4d5e6f7g8h9i0j1"],
+  "departmentIds": [
+    {
+      "_id": "64f1a2b3c4d5e6f7g8h9i0j1",
+      "name": "Support"
+    }
+  ],
   "tags": ["greeting", "welcome", "updated"],
   "createdAt": "2024-01-15T10:30:00.000Z",
   "updatedAt": "2024-01-15T11:45:00.000Z"
@@ -288,6 +314,12 @@ Deletes a canned message. Only the creator can delete their own messages.
 - Used for categorization and filtering
 - Can be used for quick search and organization
 
+### Search Functionality:
+
+- Search is performed on the `title` field only
+- Uses case-insensitive regex matching
+- Special regex characters are escaped to prevent injection
+
 ---
 
 ## Frontend Implementation Examples
@@ -324,13 +356,17 @@ const getCannedMessages = async (filters = {}) => {
 };
 
 // Usage
-const messages = await getCannedMessages({
+const result = await getCannedMessages({
   page: 1,
   limit: 20,
   search: 'welcome',
   tags: 'greeting,support',
   isGlobal: true,
 });
+
+console.log('Messages:', result.items);
+console.log('Pagination:', result.meta);
+// result.meta contains: { page, limit, total, totalPages, hasNext, hasPrev }
 ```
 
 #### Update Canned Message:
@@ -363,4 +399,94 @@ const deleteCannedMessage = async (messageId) => {
 };
 ```
 
+#### Pagination Helper:
+
+```javascript
+const PaginationHelper = {
+  // Build pagination controls
+  buildPaginationControls: (meta) => {
+    return {
+      currentPage: meta.page,
+      totalPages: meta.totalPages,
+      totalItems: meta.total,
+      itemsPerPage: meta.limit,
+      hasNextPage: meta.hasNext,
+      hasPreviousPage: meta.hasPrev,
+      nextPage: meta.hasNext ? meta.page + 1 : null,
+      previousPage: meta.hasPrev ? meta.page - 1 : null,
+    };
+  },
+
+  // Generate page numbers for pagination UI
+  generatePageNumbers: (meta, maxVisible = 5) => {
+    const { page, totalPages } = meta;
+    const pages = [];
+
+    let start = Math.max(1, page - Math.floor(maxVisible / 2));
+    let end = Math.min(totalPages, start + maxVisible - 1);
+
+    if (end - start + 1 < maxVisible) {
+      start = Math.max(1, end - maxVisible + 1);
+    }
+
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+
+    return pages;
+  },
+};
+```
+
 ---
+
+## UI/UX Recommendations
+
+### Suggested Features:
+
+1. **Search Bar**: For quick text search across titles
+2. **Tag Filter**: Dropdown or multi-select for filtering by tags
+3. **Department Filter**: Filter messages by department access
+4. **Global/Personal Toggle**: Switch between viewing all accessible messages vs. only personal messages
+5. **Pagination Controls**: Page navigation with configurable page size
+6. **Sort Options**: Sort by creation date, title, or usage frequency
+7. **Quick Actions**: Edit, delete, and copy-to-clipboard buttons
+8. **Preview**: Show message content preview in list view
+9. **Usage Analytics**: Track which messages are used most frequently
+
+### Suggested UI Components:
+
+- **Message Card**: Display title, content preview, tags, and actions
+- **Create/Edit Modal**: Form for creating or editing messages
+- **Confirmation Dialog**: For delete operations
+- **Filter Sidebar**: Advanced filtering options
+- **Search Results Highlighting**: Highlight search terms in results
+- **Pagination Component**: Standard pagination with first/last/prev/next controls
+
+### Pagination UI Example:
+
+```javascript
+const PaginationComponent = ({ meta, onPageChange }) => {
+  const { page, totalPages, hasNext, hasPrev } = meta;
+
+  return (
+    <div className="pagination">
+      <button disabled={!hasPrev} onClick={() => onPageChange(page - 1)}>
+        Previous
+      </button>
+
+      <span>
+        Page {page} of {totalPages}
+      </span>
+
+      <button disabled={!hasNext} onClick={() => onPageChange(page + 1)}>
+        Next
+      </button>
+
+      <div className="page-info">
+        Showing {meta.limit} items per page, {meta.total} total items
+      </div>
+    </div>
+  );
+};
+```

@@ -19,7 +19,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "migrate:admin-agent-profiles": "ts-node -r tsconfig-paths/register src/scripts/migrate-admin-agent-profiles.ts"
+    "migrate:admin-agent-profiles": "ts-node -r tsconfig-paths/register src/scripts/migrate-admin-agent-profiles.ts",
+    "migrate:canned-message-indexes": "ts-node -r tsconfig-paths/register src/scripts/migrate-canned-message-indexes.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

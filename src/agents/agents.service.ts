@@ -497,9 +497,12 @@ export class AgentsService {
     try {
       savedMessage = await cannedMessage.save();
     } catch (error) {
-      if (error.code === 11000 && error.keyPattern?.title) {
+      if (
+        error.code === 11000 &&
+        (error.keyPattern?.title || error.keyPattern?.adminId)
+      ) {
         throw new BadRequestException(
-          `A canned message with the title "${createDto.title}" already exists. Please choose a different title.`,
+          `A canned message with the title "${createDto.title}" already exists for this admin. Please choose a different title.`,
         );
       }
       throw error;
@@ -749,9 +752,12 @@ export class AgentsService {
     try {
       updatedMessage = await cannedMessage.save();
     } catch (error) {
-      if (error.code === 11000 && error.keyPattern?.title) {
+      if (
+        error.code === 11000 &&
+        (error.keyPattern?.title || error.keyPattern?.adminId)
+      ) {
         throw new BadRequestException(
-          `A canned message with the title "${updateDto.title}" already exists. Please choose a different title.`,
+          `A canned message with the title "${updateDto.title}" already exists for this admin. Please choose a different title.`,
         );
       }
       throw error;
