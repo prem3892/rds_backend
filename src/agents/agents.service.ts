@@ -93,6 +93,9 @@ export class AgentsService {
   async findAgentProfileById(
     agentId: string | Types.ObjectId,
   ): Promise<AgentProfileDocument | null> {
+    // handle the string agentId as a Types.ObjectId if provided as a string
+    if (typeof agentId === 'string') agentId = new Types.ObjectId(agentId);
+
     return this.agentProfileModel
       .findById(agentId)
       .populate('departmentIds')
