@@ -28,23 +28,13 @@ export function generateWidgetScript(
       // Utility functions
       const utils = {
         generateFingerprint() {
-          const domain = window.location.hostname;
-
-          // Gather browser signals
-          const browserInfo = [
-            navigator.userAgent,
-            navigator.language,
-            screen.width + 'x' + screen.height,
-            screen.colorDepth,
-            domain
-          ].join('|');
-
-          // Hash everything with SHA-256 for stability
-          const encoder = new TextEncoder();
-          const data = encoder.encode(browserInfo);
-          const hashBuffer = crypto.subtle.digest('SHA-256', data);
-          const hashArray = Array.from(new Uint8Array(hashBuffer));
-          return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 32);
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          ctx.textBaseline = 'top';
+          ctx.font = '14px Arial';
+          ctx.fillText('Browser fingerprint', 2, 2);
+          const fingerprint = canvas.toDataURL();
+          return btoa(fingerprint).substring(0, 32);
         },
         
         getBrowserInfo() {
