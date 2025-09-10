@@ -94,6 +94,7 @@ export class AgentsService {
     agentId: string | Types.ObjectId,
   ): Promise<AgentProfileDocument | null> {
     // handle the string agentId as a Types.ObjectId if provided as a string
+    this.logger.log(`Finding agent profile for agent ID ${agentId}`);
     if (typeof agentId === 'string') agentId = new Types.ObjectId(agentId);
 
     return this.agentProfileModel
@@ -111,7 +112,7 @@ export class AgentsService {
     if (typeof userId === 'string') _id = new Types.ObjectId(userId);
     else _id = userId;
 
-    this.logger.debug(`Converted userId to Types.ObjectId: ${typeof _id}`);
+    this.logger.debug(`Converted userId to Types.ObjectId: ${_id}`);
 
     return this.agentProfileModel
       .findOne({ userId: _id })
@@ -182,13 +183,19 @@ export class AgentsService {
   }
 
   async updateAgentProfileByUserId(
-    agentUserId: string,
+    agentUserId: string | Types.ObjectId,
     updateDto: UpdateAgentProfileDto,
     isAdminUpdate: boolean = false, // to distinguish admin updates from agent's own
   ): Promise<AgentProfileDocument> {
+    this.logger.log(`Updating agent profile for user ID ${agentUserId}:`, updateDto);
+
+    if (typeof agentUserId === 'string') agentUserId = new Types.ObjectId(agentUserId);
+
     const agentProfile = await this.agentProfileModel
       .findOne({ userId: agentUserId })
       .exec();
+
+    this.logger.log(`Found agent profile for user ID ${agentUserId}:`, agentProfile);
     if (!agentProfile) {
       throw new NotFoundException(
         `Agent profile for user ID ${agentUserId} not found.`,
@@ -249,7 +256,7 @@ export class AgentsService {
     updateDto: UpdateAgentProfileDto,
     isAdminUpdate: boolean = false, // to distinguish admin updates from agent's own
   ): Promise<AgentProfileDocument> {
-    const agentProfile = await this.findAgentProfileByUserId(agentId);
+    const agentProfile = await this.findAgentProfileById(agentId);
     if (!agentProfile) {
       throw new NotFoundException(
         `Agent profile for user ID ${agentId} not found.`,

@@ -210,6 +210,8 @@ export class AgentsController {
       }
     }
 
+
+
     // Handle USER schema fields (firstName, lastName, email) - only for admins
     if (user.role === UserRole.ADMIN) {
       const userUpdatePayload: UpdateUserDto = {};
@@ -223,6 +225,8 @@ export class AgentsController {
         await this.usersService.update(user.sub, userUpdatePayload);
       }
     }
+
+
 
     // Handle AGENT PROFILE schema fields
     const agentProfileUpdatePayload: UpdateAgentProfileDto = { ...updateDto };
@@ -240,10 +244,12 @@ export class AgentsController {
         allowedAgentFields.profilePicture = updateDto.profilePicture;
 
       // Update with only allowed fields
-      const updatedProfile = await this.agentsService.updateAgentProfileById(
+      const updatedProfile = await this.agentsService.updateAgentProfileByUserId(
         user.sub,
         allowedAgentFields,
       );
+
+
 
       const userDetails = await this.usersService.findById(user.sub);
       return {
@@ -258,11 +264,15 @@ export class AgentsController {
       };
     }
 
+
+
     // For admins, allow all fields
-    const updatedProfile = await this.agentsService.updateAgentProfileById(
+    const updatedProfile = await this.agentsService.updateAgentProfileByUserId(
       user.sub,
       agentProfileUpdatePayload,
     );
+
+
 
     const userDetails = await this.usersService.findById(user.sub);
     return {
@@ -329,6 +339,7 @@ export class AgentsController {
     if (!existingAgentProfile) {
       throw new NotFoundException(`Agent profile with ID ${agentId} not found`);
     }
+
 
     // Check if the current admin is the one who created this agent profile
     if (
