@@ -152,21 +152,29 @@ export class ChatGateway
     client: AuthenticatedSocket,
     agentId: string,
   ) {
-    await this.redisService.removeAgentSocketMapping(client.id, agentId);
+    // Use the new multi-socket removal method
+    await this.redisService.removeAgentSocketMappingMulti(client.id, agentId);
 
-    // Only set offline if this was their last/only connected socket
-    // For simplicity, current model assumes one socket per agent for chat activity
-    const stillConnectedSocketId =
-      await this.redisService.getSocketIdByAgentId(agentId);
-    if (!stillConnectedSocketId || stillConnectedSocketId === client.id) {
-      // Check if it's the same socket being removed
+    // Check if agent still has other connected sockets
+    const hasOtherSockets = await this.redisService.hasAgentSockets(agentId);
+    const remainingSocketCount =
+      await this.redisService.getAgentSocketCount(agentId);
+
+    this.logger.log(
+      `Agent ${agentId} disconnected socket ${client.id}. Remaining sockets: ${remainingSocketCount}`,
+    );
+
+    if (!hasOtherSockets) {
+      // Agent has no more connected sockets, mark as offline
       const agentProfile = await this.agentsService.setOnlineStatus(
         agentId,
         false,
       );
-      this.logger.log(`Agent ${agentId} marked as offline.`);
+      this.logger.log(
+        `Agent ${agentId} marked as offline (no remaining sockets).`,
+      );
       client.leave(`agent:${agentId}`);
-      client.leave('online_agents'); // Using socket.io rooms
+      client.leave('online_agents');
       this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
 
       const activeSessions =
@@ -202,8 +210,11 @@ export class ChatGateway
       }
     } else {
       this.logger.log(
-        `Agent ${agentId} has other active sockets. Not marking offline. Socket ${client.id} removed.`,
+        `Agent ${agentId} still has ${remainingSocketCount} active socket(s). Not marking offline. Socket ${client.id} removed.`,
       );
+      // Just remove this socket from the rooms, but don't change online status
+      client.leave(`agent:${agentId}`);
+      client.leave('online_agents');
     }
   }
 
@@ -401,10 +412,17 @@ export class ChatGateway
     }
 
     client.user = jwtPayload;
-    await this.redisService.mapSocketIdToAgentId(client.id, jwtPayload.sub);
+    await this.redisService.mapSocketIdToAgentIdMulti(
+      client.id,
+      jwtPayload.sub,
+    );
     client.join(`agent:${jwtPayload.sub}`);
+
+    const socketCount = await this.redisService.getAgentSocketCount(
+      jwtPayload.sub,
+    );
     this.logger.log(
-      `Agent ${jwtPayload.sub} (${jwtPayload.email}) authenticated with socket ${client.id}`,
+      `Agent ${jwtPayload.sub} (${jwtPayload.email}) authenticated with socket ${client.id}. Total sockets: ${socketCount}`,
     );
 
     // Check for PENDING_AGENT_RECONNECT sessions for this agent
@@ -432,13 +450,19 @@ export class ChatGateway
         session.customerId.toString(),
       );
       if (customerSocketId) {
-        // Fix for "Cannot read properties of undefined (reading 'get')" error
-        let customerClient;
-        if (this.server.sockets && this.server.sockets.sockets) {
-          customerClient = this.server.sockets.sockets.get(customerSocketId);
+        try {
+          const customerSockets = await this.server
+            .in(customerSocketId)
+            .fetchSockets();
+          if (customerSockets.length > 0) {
+            const customerClient = customerSockets[0];
+            await customerClient.join(`chatSession:${session._id.toString()}`);
+          }
+        } catch (error) {
+          this.logger.error(
+            `Error adding customer socket ${customerSocketId} to chat session room: ${error.message}`,
+          );
         }
-        if (customerClient)
-          customerClient.join(`chatSession:${session._id.toString()}`);
       }
 
       this.server
@@ -468,27 +492,71 @@ export class ChatGateway
     if (typeof data.isOnline !== 'boolean')
       throw new WsException('Invalid payload for online status.');
 
+    const agentId = client.user.sub;
     const agentProfile = await this.agentsService.setOnlineStatus(
-      client.user.sub,
+      agentId,
       data.isOnline,
     );
+
+    // Get all sockets for this agent
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentId);
+
     this.logger.log(
-      `Agent ${client.user.sub} set online status to ${data.isOnline}`,
+      `Agent ${agentId} set online status to ${data.isOnline} from socket ${client.id}. Broadcasting to ${allAgentSockets.length} socket(s): [${allAgentSockets.join(', ')}]`,
     );
 
-    if (data.isOnline) {
-      client.join('online_agents'); // TODO: make it unique as per business
-    } else {
-      client.leave('online_agents');
-      // Additional logic for when agent goes offline during active chats is handled in handleDisconnect
+    // Manage room membership for ALL agent's sockets
+    for (const socketId of allAgentSockets) {
+      try {
+        const sockets = await this.server.in(socketId).fetchSockets();
+        if (sockets.length > 0) {
+          const agentSocket = sockets[0]; // Should only be one socket with this ID
+          if (data.isOnline) {
+            await agentSocket.join('online_agents');
+            this.logger.debug(`Socket ${socketId} joined 'online_agents' room`);
+          } else {
+            await agentSocket.leave('online_agents');
+            this.logger.debug(`Socket ${socketId} left 'online_agents' room`);
+          }
+        } else {
+          this.logger.warn(
+            `Socket ${socketId} not found in server for agent ${agentId}`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Error managing room membership for socket ${socketId}: ${error.message}`,
+        );
+      }
     }
-    // Broadcast pool status update
+
+    // Broadcast acknowledgment to ALL agent's sockets (not just the triggering one)
+    const acknowledgmentData = {
+      event: 'server:online_status_updated',
+      data: {
+        isOnline: agentProfile.isOnline,
+        triggeredBySocket: client.id, // Optional: let client know which device triggered the change
+        totalSockets: allAgentSockets.length,
+      },
+    };
+
+    // Send to all agent's sockets via the agent room
+    this.server
+      .to(`agent:${agentId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
+    this.logger.log(
+      `Sent online status acknowledgment to all sockets for agent ${agentId}. Status: ${data.isOnline}`,
+    );
+
+    // Broadcast pool status update to other clients
     this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
 
-    return {
-      event: 'server:online_status_updated',
-      data: { isOnline: agentProfile.isOnline },
-    };
+    // Return acknowledgment to the triggering socket (this is the traditional response)
+    // Note: The triggering socket will receive this twice (once from room broadcast, once from return)
+    // but that's acceptable for backward compatibility
+    return acknowledgmentData;
   }
 
   private async broadcastAgentPoolStatusUpdateForAgent(agentProfile: any) {
@@ -1057,11 +1125,21 @@ export class ChatGateway
     // Notify eligible agents about new visitor (regardless of new or existing session)
     // Only notify if this is not a grace period reconnection (already handled above)
     if (!isReconnection) {
+      this.logger.log(
+        `[DEBUG] Calling notifyAgentsAboutVisitor for customer ${customer._id}, widget ${widget._id}, domain ${payload.domain}`,
+      );
       await this.visitorStateService.notifyAgentsAboutVisitor(
         customer,
         widget,
         payload.domain,
         VisitorEventType.CONNECT,
+      );
+      this.logger.log(
+        `[DEBUG] Completed notifyAgentsAboutVisitor call for customer ${customer._id}`,
+      );
+    } else {
+      this.logger.log(
+        `[DEBUG] Skipping visitor notification for customer ${customer._id} - this is a reconnection`,
       );
     }
 
@@ -1611,22 +1689,36 @@ export class ChatGateway
     agentSocketId: string,
     customerId: string,
   ) {
-    // Fix for "Cannot read properties of undefined (reading 'get')" error
-    let agentClient;
-    if (this.server.sockets && this.server.sockets.sockets) {
-      agentClient = this.server.sockets.sockets.get(agentSocketId);
+    // Remove agent from chat room
+    try {
+      const agentSockets = await this.server.in(agentSocketId).fetchSockets();
+      if (agentSockets.length > 0) {
+        const agentClient = agentSockets[0];
+        await agentClient.leave(`chatSession:${chatSessionId}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error removing agent socket ${agentSocketId} from chat room: ${error.message}`,
+      );
     }
-    if (agentClient) agentClient.leave(`chatSession:${chatSessionId}`);
 
+    // Remove customer from chat room
     const customerSocketId =
       await this.redisService.getSocketIdByCustomerId(customerId);
     if (customerSocketId) {
-      // Fix for "Cannot read properties of undefined (reading 'get')" error
-      let customerClient;
-      if (this.server.sockets && this.server.sockets.sockets) {
-        customerClient = this.server.sockets.sockets.get(customerSocketId);
+      try {
+        const customerSockets = await this.server
+          .in(customerSocketId)
+          .fetchSockets();
+        if (customerSockets.length > 0) {
+          const customerClient = customerSockets[0];
+          await customerClient.leave(`chatSession:${chatSessionId}`);
+        }
+      } catch (error) {
+        this.logger.error(
+          `Error removing customer socket ${customerSocketId} from chat room: ${error.message}`,
+        );
       }
-      if (customerClient) customerClient.leave(`chatSession:${chatSessionId}`);
     }
   }
 

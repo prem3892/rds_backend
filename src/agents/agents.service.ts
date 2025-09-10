@@ -99,6 +99,10 @@ export class AgentsService {
       .exec();
   }
 
+  /**
+   * Find agent profile by user ID.
+   * Note: Departments are populated here
+   */
   async findAgentProfileByUserId(
     userId: string | Types.ObjectId,
   ): Promise<AgentProfileDocument | null> {
@@ -440,9 +444,13 @@ export class AgentsService {
         return [];
       }
 
+      this.logger.debug(
+        `Found agent ${agent.userId} with departments ${agent.departmentIds}`,
+      );
+
       // Get all widgets that have at least one department matching the agent's departments
       const widgets = await this.widgetsService.findWidgetsByDepartments(
-        agent.departmentIds.map((dept) => dept.toString()),
+        agent.departmentIds.map((dept) => dept._id.toString()),
       );
 
       this.logger.debug(

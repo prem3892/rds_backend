@@ -94,6 +94,10 @@ export class VisitorStateService {
       const stateKey = this.getVisitorStateKey(widgetId, domain);
       const redis = this.redisService.getClient();
 
+      this.logger.log(
+        `[DEBUG] Updating visitor state - Key: ${stateKey}, CustomerId: ${customerId}, EventType: ${eventType}`,
+      );
+
       // Get current state
       const currentStateStr = await redis.hget(stateKey, customerId);
       let currentState: VisitorState | null = null;
@@ -101,11 +105,18 @@ export class VisitorStateService {
       if (currentStateStr) {
         try {
           currentState = JSON.parse(currentStateStr);
+          this.logger.log(
+            `[DEBUG] Found existing visitor state for ${customerId}`,
+          );
         } catch (error) {
           this.logger.warn(
             `Failed to parse existing visitor state for ${customerId}: ${error.message}`,
           );
         }
+      } else {
+        this.logger.log(
+          `[DEBUG] No existing visitor state found for ${customerId}`,
+        );
       }
 
       // Create updated state
@@ -137,6 +148,10 @@ export class VisitorStateService {
       await redis.hset(stateKey, customerId, JSON.stringify(updatedState));
       await redis.expire(stateKey, this.redisTtlSeconds);
 
+      this.logger.log(
+        `[DEBUG] Successfully stored visitor state in Redis - Key: ${stateKey}, TTL: ${this.redisTtlSeconds}s`,
+      );
+
       // Track activity for delta updates
       if (this.deltaUpdateEnabled) {
         const activityKey = this.getVisitorActivityKey(
@@ -156,10 +171,17 @@ export class VisitorStateService {
           'EX',
           this.redisTtlSeconds,
         );
+        this.logger.log(
+          `[DEBUG] Stored visitor activity change - Key: ${activityKey}`,
+        );
+      } else {
+        this.logger.log(
+          `[DEBUG] Delta updates disabled, skipping activity tracking`,
+        );
       }
 
-      this.logger.debug(
-        `Updated visitor state for ${customerId} on widget ${widgetId} (${eventType}) payload ${JSON.stringify(updatedState)}}`,
+      this.logger.log(
+        `[DEBUG] Updated visitor state for ${customerId} on widget ${widgetId} (${eventType}) - State: ${JSON.stringify(updatedState)}`,
       );
 
       return updatedState;
@@ -262,14 +284,27 @@ export class VisitorStateService {
       for (const widget of widgets) {
         // For simplicity, we'll use a default domain or get from widget
         // In a real implementation, you might need to handle multiple domains per widget
-        const domains = widget.allowedDomains || ['*'];
+        this.logger.debug(`Using widget ${JSON.stringify(widget)}`);
+        const domains = widget.domains || ['*'];
+
+        this.logger.debug(
+          `Getting visitors for widget ${widget._id} with domains ${domains.join(
+            ', ',
+          )}`,
+        );
 
         for (const domain of domains) {
           const stateKey = this.getVisitorStateKey(
             widget._id.toString(),
             domain,
           );
+
+          this.logger.debug(
+            `Fetching visitor state for widget ${widget._id}, domain ${domain}, state key ${stateKey}`,
+          );
+
           const visitorData = await redis.hgetall(stateKey);
+          this.logger.debug(`Visitor data ${JSON.stringify(visitorData)}`);
 
           for (const [customerId, stateStr] of Object.entries(visitorData)) {
             try {
@@ -431,6 +466,10 @@ export class VisitorStateService {
     eventType: VisitorEventType,
   ): Promise<void> {
     try {
+      this.logger.log(
+        `[DEBUG] Starting visitor notification - Customer: ${customer._id}, Widget: ${widget._id}, Domain: ${domain}, EventType: ${eventType}`,
+      );
+
       if (!this.server) {
         this.logger.warn(
           'Socket.IO server not available for visitor notifications',
@@ -464,10 +503,18 @@ export class VisitorStateService {
         return;
       }
 
+      this.logger.log(
+        `[DEBUG] Successfully updated visitor state for ${customer._id}`,
+      );
+
       // Get eligible agents for this widget and domain
       const eligibleAgents = await this.agentsService.getEligibleOnlineAgents(
         widget._id,
         domain,
+      );
+
+      this.logger.log(
+        `[DEBUG] Found ${eligibleAgents.length} eligible agents for widget ${widget._id} and domain ${domain}`,
       );
 
       if (eligibleAgents.length === 0) {
