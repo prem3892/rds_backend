@@ -46,7 +46,7 @@ export class ChatNotificationService {
     this.server = server;
   }
 
-  @Cron(CronExpression.EVERY_10_MINUTES) // Configurable
+  @Cron(CronExpression.EVERY_5_MINUTES) // Configurable
   async handleUnattendedChatNotifications() {
     this.logger.debug('Running unattended chat notification job...');
     const pendingSessions =
