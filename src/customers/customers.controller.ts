@@ -51,7 +51,7 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Get()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   @ApiOperation({
     summary: 'Get paginated list of blocked customers (Admin only)',
     description:
