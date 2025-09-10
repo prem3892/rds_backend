@@ -51,6 +51,7 @@ import { AppointmentDocument } from 'src/schemas/appointment.schema';
 import { AgentProfileDocument } from 'src/schemas/agent-profile.schema';
 import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
 import { VisitorStateService } from './services/visitor-state/visitor-state.service';
+import { FingerprintUtil } from '../shared/utils/fingerprint.util';
 
 interface AuthenticatedSocket extends Socket {
   user?: JwtPayload; // For agents
@@ -1002,8 +1003,8 @@ export class ChatGateway
 
     if (!payload.widgetId || !Types.ObjectId.isValid(payload.widgetId))
       throw new WsException('Invalid widgetId.');
-    if (!payload.fingerprint)
-      throw new WsException('Fingerprint or customerId required.');
+    if (!payload.browserInfo)
+      throw new WsException('Browser information is required.');
 
     const widget = await this.widgetsService.findByIdPublic(payload.widgetId);
     if (!widget || !widget.isEnabled) {
@@ -1014,14 +1015,25 @@ export class ChatGateway
     //   throw new WsException('Domain not authorized for this widget.');
     // }
 
+    // Generate server-side fingerprint instead of trusting client
+    const serverFingerprint = FingerprintUtil.generateFingerprint(
+      payload.browserInfo,
+      payload.domain,
+    );
+
+    this.logger.debug(
+      `Generated server-side fingerprint: ${serverFingerprint} for domain: ${payload.domain}`,
+    );
+
     const customer = await this.customersService.createOrUpdateCustomer({
       widgetId: new Types.ObjectId(payload.widgetId),
-      fingerprint: payload.fingerprint,
+      fingerprint: serverFingerprint, // Use server-generated fingerprint
       customerId: payload.customerId,
       metadata: {
         browserInfo: payload.browserInfo,
         currentPageUrl: payload.currentPageUrl,
         initialDomain: payload.domain,
+        clientFingerprint: payload.fingerprint, // Store client fingerprint for reference
       },
     });
 
@@ -1037,7 +1049,7 @@ export class ChatGateway
     );
     client.join(`customer:${customer._id.toString()}`);
     this.logger.log(
-      `Customer ${customer._id} (fingerprint: ${payload.fingerprint}) connected for widget ${payload.widgetId} with socket ${client.id}`,
+      `Customer ${customer._id} (server-fingerprint: ${serverFingerprint}) connected for widget ${payload.widgetId} with socket ${client.id}`,
     );
 
     // Check if this is a reconnection during grace period

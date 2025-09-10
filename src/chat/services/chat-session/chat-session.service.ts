@@ -427,12 +427,14 @@ export class ChatSessionService {
     const now = new Date();
     const agentObjectId =
       typeof agentId === 'string' ? new Types.ObjectId(agentId) : agentId;
+    const sessionObjectId =
+      typeof sessionId === 'string' ? new Types.ObjectId(sessionId) : sessionId;
 
     // Update the agent history to mark the agent as inactive
     const updatedSession = await this.chatSessionModel
       .findOneAndUpdate(
         {
-          _id: sessionId,
+          _id: sessionObjectId,
           status: ChatSessionStatus.ACTIVE,
           agentId: agentObjectId,
           'agentHistory.agentId': agentObjectId,
@@ -480,15 +482,17 @@ export class ChatSessionService {
   ): Promise<ChatSessionDocument[]> {
     const inactivityThreshold = new Date(Date.now() - inactivityThresholdMs);
 
-    return this.chatSessionModel
-      .find({
-        status: ChatSessionStatus.ACTIVE,
-        agentId: { $ne: null },
-        agentLastSeen: { $lt: inactivityThreshold },
-      })
-      .populate('agentId')
-      .populate('customerId')
-      .exec();
+    return (
+      this.chatSessionModel
+        .find({
+          status: ChatSessionStatus.ACTIVE,
+          agentId: { $ne: null },
+          agentLastSeen: { $lt: inactivityThreshold },
+        })
+        // .populate('agentId')
+        .populate('customerId')
+        .exec()
+    );
   }
 
   async findAllPaginated(queryDto: GetChatSessionsQueryDto): Promise<{
