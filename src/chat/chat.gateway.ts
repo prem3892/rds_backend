@@ -373,6 +373,7 @@ export class ChatGateway
         this.logger.debug(
           `[handleCustomerDisconnect] No active sessions found for customer ${customerId}`,
         );
+      } else {
       }
 
       for (const session of sessions) {
@@ -1621,34 +1622,34 @@ export class ChatGateway
       });
   }
 
-  @SubscribeMessage('agent:mark_messages_read')
-  async handleAgentMarkMessagesRead(
-    @MessageBody()
-    data: { chatSessionId: string; lastMessageTimestamp?: string },
-    @ConnectedSocket() client: AuthenticatedSocket,
-  ) {
-    if (!client.user) throw new WsException('Agent not authenticated.');
-    if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
-      throw new WsException('Invalid chatSessionId');
+  // @SubscribeMessage('agent:mark_messages_read')
+  // async handleAgentMarkMessagesRead(
+  //   @MessageBody()
+  //   data: { chatSessionId: string; lastMessageTimestamp?: string },
+  //   @ConnectedSocket() client: AuthenticatedSocket,
+  // ) {
+  //   if (!client.user) throw new WsException('Agent not authenticated.');
+  //   if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
+  //     throw new WsException('Invalid chatSessionId');
 
-    const upToTimestamp = data.lastMessageTimestamp
-      ? new Date(data.lastMessageTimestamp)
-      : new Date();
-    if (isNaN(upToTimestamp.getTime()))
-      throw new WsException('Invalid lastMessageTimestamp.');
+  //   const upToTimestamp = data.lastMessageTimestamp
+  //     ? new Date(data.lastMessageTimestamp)
+  //     : new Date();
+  //   if (isNaN(upToTimestamp.getTime()))
+  //     throw new WsException('Invalid lastMessageTimestamp.');
 
-    await this.chatMessageService.markMessagesAsReadByAgent(
-      data.chatSessionId,
-      upToTimestamp,
-    );
-    this.server
-      .to(`chatSession:${data.chatSessionId}`)
-      .except(client.id)
-      .emit('server:messages_read_by_agent', {
-        chatSessionId: data.chatSessionId,
-        upToTimestamp: upToTimestamp,
-      });
-  }
+  //   await this.chatMessageService.markMessagesAsReadByAgent(
+  //     data.chatSessionId,
+  //     upToTimestamp,
+  //   );
+  //   this.server
+  //     .to(`chatSession:${data.chatSessionId}`)
+  //     .except(client.id)
+  //     .emit('server:messages_read_by_agent', {
+  //       chatSessionId: data.chatSessionId,
+  //       upToTimestamp: upToTimestamp,
+  //     });
+  // }
 
   @SubscribeMessage('agent:mark_messages_read')
   async handleAgentMessageSeen(
