@@ -265,64 +265,187 @@ export class ChatGateway
     client: AuthenticatedSocket,
     customerId: string,
   ) {
-    await this.redisService.removeCustomerSocketMapping(client.id, customerId);
-    client.leave(`customer:${customerId}`);
+    this.logger.log(
+      `Starting customer disconnect handling for customer ${customerId} with socket ${client.id}`,
+    );
+    this.logger.debug(
+      `[handleCustomerDisconnect] Initial state - customerId: ${customerId}, socketId: ${client.id}`,
+    );
 
-    // Get customer details for visitor notification
-    const customer = await this.customersService.findById(customerId);
-
-    // Immediately notify agents about visitor disconnection
-    if (customer) {
-      const widget = await this.widgetsService.findById(customer.widgetId);
-      if (widget) {
-        const domain = customer.metadata?.initialDomain || 'unknown';
-        await this.visitorStateService.notifyAgentsAboutVisitor(
-          customer,
-          widget,
-          domain,
-          VisitorEventType.DISCONNECT,
-        );
-
-        // Set grace period timer for potential visitor reconnection
-        await this.redisService.set(
-          `visitor_grace_period:${customerId}`,
-          JSON.stringify({ customerId, widgetId: widget._id, domain }),
-          this.visitorGracePeriodMs / 1000, // TTL in seconds
-        );
-      }
-    }
-
-    // Find active/pending chats for this customer
-    const sessions =
-      await this.chatSessionService.getSessionsForCustomerReconnect(
-        new Types.ObjectId(customerId),
+    try {
+      // Remove socket mapping and leave room
+      this.logger.debug(
+        `[handleCustomerDisconnect] Removing socket mapping for customer ${customerId}`,
+      );
+      await this.redisService.removeCustomerSocketMapping(
+        client.id,
+        customerId,
+      );
+      client.leave(`customer:${customerId}`);
+      this.logger.debug(
+        `[handleCustomerDisconnect] Socket ${client.id} removed from customer:${customerId} room`,
       );
 
-    for (const session of sessions) {
-      await this.chatSessionService.updateCustomerLastSeen(session._id);
-      if (session.agentId) {
-        this.server
-          .to(`agent:${session.agentId.toString()}`)
-          .emit('server:customer_disconnected_from_chat', {
+      // Get customer details for visitor notification
+      this.logger.debug(
+        `[handleCustomerDisconnect] Fetching customer details for ${customerId}`,
+      );
+      const customer = await this.customersService.findById(customerId);
+
+      if (!customer) {
+        this.logger.warn(
+          `[handleCustomerDisconnect] Customer ${customerId} not found in database`,
+        );
+      } else {
+        this.logger.debug(
+          `[handleCustomerDisconnect] Customer found - name: ${customer.name}, widgetId: ${customer.widgetId}`,
+        );
+      }
+
+      // Immediately notify agents about visitor disconnection
+      if (customer) {
+        this.logger.debug(
+          `[handleCustomerDisconnect] Processing visitor notification for customer ${customerId}`,
+        );
+        const widget = await this.widgetsService.findById(customer.widgetId);
+
+        if (!widget) {
+          this.logger.warn(
+            `[handleCustomerDisconnect] Widget ${customer.widgetId} not found for customer ${customerId}`,
+          );
+        } else {
+          this.logger.debug(
+            `[handleCustomerDisconnect] Widget found - id: ${widget._id}, name: ${widget.name}`,
+          );
+
+          const domain = customer.metadata?.initialDomain || 'unknown';
+          this.logger.debug(
+            `[handleCustomerDisconnect] Notifying agents about visitor disconnect - domain: ${domain}`,
+          );
+
+          await this.visitorStateService.notifyAgentsAboutVisitor(
+            customer,
+            widget,
+            domain,
+            VisitorEventType.DISCONNECT,
+          );
+          this.logger.log(
+            `Visitor disconnect notification sent for customer ${customerId} on domain ${domain}`,
+          );
+
+          // Set grace period timer for potential visitor reconnection
+          const graceKey = `visitor_grace_period:${customerId}`;
+          const graceData = JSON.stringify({
+            customerId,
+            widgetId: widget._id,
+            domain,
+          });
+
+          this.logger.debug(
+            `[handleCustomerDisconnect] Setting grace period timer - key: ${graceKey}, ttl: ${this.visitorGracePeriodMs / 1000}s`,
+          );
+
+          await this.redisService.set(
+            graceKey,
+            graceData,
+            this.visitorGracePeriodMs / 1000, // TTL in seconds
+          );
+          this.logger.log(
+            `Grace period timer set for customer ${customerId} (${this.visitorGracePeriodMs}ms)`,
+          );
+        }
+      }
+
+      // Find active/pending chats for this customer
+      this.logger.debug(
+        `[handleCustomerDisconnect] Fetching active sessions for customer ${customerId}`,
+      );
+      const sessions =
+        await this.chatSessionService.getSessionsForCustomerReconnect(
+          new Types.ObjectId(customerId),
+        );
+
+      this.logger.log(
+        `Found ${sessions.length} active/pending sessions for customer ${customerId}`,
+      );
+
+      if (sessions.length === 0) {
+        this.logger.debug(
+          `[handleCustomerDisconnect] No active sessions found for customer ${customerId}`,
+        );
+      }
+
+      for (const session of sessions) {
+        this.logger.debug(
+          `[handleCustomerDisconnect] Processing session ${session._id} - status: ${session.status}, agentId: ${session.agentId}`,
+        );
+
+        // Update customer last seen timestamp
+        await this.chatSessionService.updateCustomerLastSeen(session._id);
+        this.logger.debug(
+          `[handleCustomerDisconnect] Updated last seen timestamp for session ${session._id}`,
+        );
+
+        // Notify agent if assigned
+        if (session.agentId) {
+          const agentRoom = `agent:${session.agentId.toString()}`;
+          const notificationData = {
             chatSessionId: session._id.toString(),
             customerName: customer?.name || 'Customer',
-          });
+          };
+
+          this.logger.debug(
+            `[handleCustomerDisconnect] Notifying agent ${session.agentId} in room ${agentRoom}`,
+          );
+
+          this.server
+            .to(agentRoom)
+            .emit('server:customer_disconnected_from_chat', notificationData);
+
+          this.logger.log(
+            `Agent ${session.agentId} notified of customer ${customerId} disconnect from session ${session._id}`,
+          );
+        } else {
+          this.logger.debug(
+            `[handleCustomerDisconnect] No agent assigned to session ${session._id}`,
+          );
+        }
+
+        // Start timer for customer reconnect
+        const reconnectKey = `${REDIS_CUSTOMER_RECONNECT_PENDING_PREFIX}${session._id.toString()}`;
+        const reconnectTtl = this.customerReconnectTimeoutMs / 1000;
+
+        this.logger.debug(
+          `[handleCustomerDisconnect] Setting reconnect timer - key: ${reconnectKey}, ttl: ${reconnectTtl}s`,
+        );
+
+        await this.redisService.set(
+          reconnectKey,
+          customerId,
+          reconnectTtl, // TTL in seconds
+        );
+
+        this.scheduleCustomerReconnectTimeout(
+          session._id.toString(),
+          customerId,
+          this.customerReconnectTimeoutMs,
+          this.customerAbandonTimeoutMs,
+        );
+
+        this.logger.log(
+          `Customer ${customerId} disconnected from session ${session._id}. Reconnect timer started (${this.customerReconnectTimeoutMs}ms timeout, ${this.customerAbandonTimeoutMs}ms abandon timeout).`,
+        );
       }
-      // Start timer for customer reconnect
-      await this.redisService.set(
-        `${REDIS_CUSTOMER_RECONNECT_PENDING_PREFIX}${session._id.toString()}`,
-        customerId,
-        this.customerReconnectTimeoutMs / 1000, // TTL in seconds
-      );
-      this.scheduleCustomerReconnectTimeout(
-        session._id.toString(),
-        customerId,
-        this.customerReconnectTimeoutMs,
-        this.customerAbandonTimeoutMs,
-      );
+
       this.logger.log(
-        `Customer ${customerId} disconnected from session ${session._id}. Reconnect timer started.`,
+        `Customer disconnect handling completed for customer ${customerId}. Processed ${sessions.length} sessions.`,
       );
+    } catch (error) {
+      this.logger.error(
+        `Error handling customer disconnect for ${customerId}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
     }
   }
 
