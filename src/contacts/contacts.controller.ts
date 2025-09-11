@@ -28,7 +28,9 @@ import { ContactResponseDto } from './dto/contact-responses.dto';
 import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../shared/guards/roles.guard';
 import { Roles } from '../shared/decorators/roles.decorator';
+import { GetUser } from '../shared/decorators/get-user.decorator';
 import { UserRole } from '../shared/constants/enums';
+import { Types } from 'mongoose';
 import {
   ErrorResponseDto,
   UnauthorizedResponseDto,
@@ -72,8 +74,15 @@ export class ContactsController {
     description: 'Customer not found',
     type: NotFoundResponseDto,
   })
-  create(@Body() createContactDto: CreateContactDto) {
-    return this.contactsService.create(createContactDto);
+  create(
+    @Body() createContactDto: CreateContactDto,
+    @GetUser()
+    user: { sub: string; email: string; role: UserRole; type: string },
+  ) {
+    return this.contactsService.create(
+      createContactDto,
+      new Types.ObjectId(user.sub),
+    );
   }
 
   @Get()
@@ -100,8 +109,15 @@ export class ContactsController {
     description: 'Agent or Admin role required',
     type: ForbiddenResponseDto,
   })
-  findAll(@Query() queryDto: GetContactsDto) {
-    return this.contactsService.findAll(queryDto);
+  findAll(
+    @Query() queryDto: GetContactsDto,
+    @GetUser()
+    user: { sub: string; email: string; role: UserRole; type: string },
+  ) {
+    return this.contactsService.findAll(queryDto, {
+      _id: new Types.ObjectId(user.sub),
+      role: user.role,
+    });
   }
 
   @Get(':id')
@@ -137,8 +153,15 @@ export class ContactsController {
     description: 'Contact not found',
     type: NotFoundResponseDto,
   })
-  findOne(@Param('id') id: string) {
-    return this.contactsService.findOne(id);
+  findOne(
+    @Param('id') id: string,
+    @GetUser()
+    user: { sub: string; email: string; role: UserRole; type: string },
+  ) {
+    return this.contactsService.findOne(id, {
+      _id: new Types.ObjectId(user.sub),
+      role: user.role,
+    });
   }
 
   @Patch(':id')
@@ -174,8 +197,16 @@ export class ContactsController {
     description: 'Contact not found',
     type: NotFoundResponseDto,
   })
-  update(@Param('id') id: string, @Body() updateContactDto: UpdateContactDto) {
-    return this.contactsService.update(id, updateContactDto);
+  update(
+    @Param('id') id: string,
+    @Body() updateContactDto: UpdateContactDto,
+    @GetUser()
+    user: { sub: string; email: string; role: UserRole; type: string },
+  ) {
+    return this.contactsService.update(id, updateContactDto, {
+      _id: new Types.ObjectId(user.sub),
+      role: user.role,
+    });
   }
 
   @Delete(':id')
@@ -210,8 +241,15 @@ export class ContactsController {
     description: 'Contact not found',
     type: NotFoundResponseDto,
   })
-  async remove(@Param('id') id: string) {
-    await this.contactsService.remove(id);
+  async remove(
+    @Param('id') id: string,
+    @GetUser()
+    user: { sub: string; email: string; role: UserRole; type: string },
+  ) {
+    await this.contactsService.remove(id, {
+      _id: new Types.ObjectId(user.sub),
+      role: user.role,
+    });
     return { message: 'Contact deleted successfully' };
   }
 
@@ -243,7 +281,14 @@ export class ContactsController {
     description: 'Agent or Admin role required',
     type: ForbiddenResponseDto,
   })
-  findByCustomer(@Param('customerId') customerId: string) {
-    return this.contactsService.findByCustomer(customerId);
+  findByCustomer(
+    @Param('customerId') customerId: string,
+    @GetUser()
+    user: { sub: string; email: string; role: UserRole; type: string },
+  ) {
+    return this.contactsService.findByCustomer(customerId, {
+      _id: new Types.ObjectId(user.sub),
+      role: user.role,
+    });
   }
 }

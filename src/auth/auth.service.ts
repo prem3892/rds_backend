@@ -18,6 +18,7 @@ import { UserDocument } from 'src/schemas/user.schema';
 import { AgentsService } from 'src/agents/agents.service';
 import { Types } from 'mongoose';
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AuthService {
@@ -275,7 +276,7 @@ export class AuthService {
 
     // Create reset link
     const appDomain = this.configService.get<string>('appDomain');
-    const resetLink = `http://${appDomain}/reset-password?token=${resetToken}`;
+    const resetLink = `${appDomain}/reset-password?token=${resetToken}`;
 
     // Send email
     return this.mailerService.sendResetPasswordEmail(user.email, {
@@ -296,11 +297,42 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired reset token');
     }
 
+    // Hash the password manually since we need to use updateUser to clear token fields
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
     // Update password and clear reset token
     await this.usersService.updateUser(user._id, {
-      password: newPassword,
+      password: hashedPassword,
       passwordResetToken: undefined,
       passwordResetExpires: undefined,
+    });
+
+    return true;
+  }
+
+  async changePassword(
+    userId: string,
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<boolean> {
+    // Find the user with password included for validation
+    const user = await this.usersService.findOne({ _id: userId });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Validate the old password
+    const isOldPasswordValid = await user.validatePassword(oldPassword);
+    if (!isOldPasswordValid) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    // Hash the new password manually since we need to use updateUser
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update the password
+    await this.usersService.updateUser(user._id, {
+      password: hashedNewPassword,
     });
 
     return true;

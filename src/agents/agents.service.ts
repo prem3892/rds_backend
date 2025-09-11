@@ -93,6 +93,10 @@ export class AgentsService {
   async findAgentProfileById(
     agentId: string | Types.ObjectId,
   ): Promise<AgentProfileDocument | null> {
+    // handle the string agentId as a Types.ObjectId if provided as a string
+    this.logger.log(`Finding agent profile for agent ID ${agentId}`);
+    if (typeof agentId === 'string') agentId = new Types.ObjectId(agentId);
+
     return this.agentProfileModel
       .findById(agentId)
       .populate('departmentIds')
@@ -107,9 +111,12 @@ export class AgentsService {
     userId: string | Types.ObjectId,
   ): Promise<AgentProfileDocument | null> {
     // handle the string userId as a Types.ObjectId
+    this.logger.log(`Finding agent profile for user ID ${userId}`);
     let _id: Types.ObjectId;
     if (typeof userId === 'string') _id = new Types.ObjectId(userId);
     else _id = userId;
+
+    this.logger.debug(`Converted userId to Types.ObjectId: ${_id}`);
 
     return this.agentProfileModel
       .findOne({ userId: _id })
@@ -180,13 +187,19 @@ export class AgentsService {
   }
 
   async updateAgentProfileByUserId(
-    agentUserId: string,
+    agentUserId: string | Types.ObjectId,
     updateDto: UpdateAgentProfileDto,
     isAdminUpdate: boolean = false, // to distinguish admin updates from agent's own
   ): Promise<AgentProfileDocument> {
+    this.logger.log(`Updating agent profile for user ID ${agentUserId}:`, updateDto);
+
+    if (typeof agentUserId === 'string') agentUserId = new Types.ObjectId(agentUserId);
+
     const agentProfile = await this.agentProfileModel
       .findOne({ userId: agentUserId })
       .exec();
+
+    this.logger.log(`Found agent profile for user ID ${agentUserId}:`, agentProfile);
     if (!agentProfile) {
       throw new NotFoundException(
         `Agent profile for user ID ${agentUserId} not found.`,
@@ -211,6 +224,10 @@ export class AgentsService {
 
     if (updateDto.domainAccess)
       agentProfile.domainAccess = updateDto.domainAccess;
+
+    this.logger.log(
+      `Updating agent profile for user ID ${agentUserId} with DTO: ${JSON.stringify(updateDto)}`,
+    );
     if (typeof updateDto.isOnline === 'boolean') {
       agentProfile.isOnline = updateDto.isOnline;
       if (updateDto.isOnline === false || updateDto.isOnline === true) {
@@ -243,7 +260,7 @@ export class AgentsService {
     updateDto: UpdateAgentProfileDto,
     isAdminUpdate: boolean = false, // to distinguish admin updates from agent's own
   ): Promise<AgentProfileDocument> {
-    const agentProfile = await this.agentProfileModel.findById(agentId).exec();
+    const agentProfile = await this.findAgentProfileById(agentId);
     if (!agentProfile) {
       throw new NotFoundException(
         `Agent profile for user ID ${agentId} not found.`,
@@ -268,6 +285,11 @@ export class AgentsService {
 
     if (updateDto.domainAccess)
       agentProfile.domainAccess = updateDto.domainAccess;
+
+    this.logger.debug(
+      `Updating agent profile for user ID ${agentId} with DTO: ${JSON.stringify(updateDto)}`,
+    );
+
     if (typeof updateDto.isOnline === 'boolean') {
       agentProfile.isOnline = updateDto.isOnline;
       if (updateDto.isOnline === false || updateDto.isOnline === true) {
@@ -505,9 +527,12 @@ export class AgentsService {
     try {
       savedMessage = await cannedMessage.save();
     } catch (error) {
-      if (error.code === 11000 && error.keyPattern?.title) {
+      if (
+        error.code === 11000 &&
+        (error.keyPattern?.title || error.keyPattern?.adminId)
+      ) {
         throw new BadRequestException(
-          `A canned message with the title "${createDto.title}" already exists. Please choose a different title.`,
+          `A canned message with the title "${createDto.title}" already exists for this admin. Please choose a different title.`,
         );
       }
       throw error;
@@ -757,9 +782,12 @@ export class AgentsService {
     try {
       updatedMessage = await cannedMessage.save();
     } catch (error) {
-      if (error.code === 11000 && error.keyPattern?.title) {
+      if (
+        error.code === 11000 &&
+        (error.keyPattern?.title || error.keyPattern?.adminId)
+      ) {
         throw new BadRequestException(
-          `A canned message with the title "${updateDto.title}" already exists. Please choose a different title.`,
+          `A canned message with the title "${updateDto.title}" already exists for this admin. Please choose a different title.`,
         );
       }
       throw error;

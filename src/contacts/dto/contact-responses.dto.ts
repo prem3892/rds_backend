@@ -63,6 +63,35 @@ export class ContactResponseDto {
   };
 
   @ApiProperty({
+    description: 'Agent who created this contact',
+    type: 'object',
+    properties: {
+      _id: {
+        type: 'string',
+        example: '507f1f77bcf86cd799439011',
+      },
+      firstName: {
+        type: 'string',
+        example: 'John',
+      },
+      lastName: {
+        type: 'string',
+        example: 'Doe',
+      },
+      email: {
+        type: 'string',
+        example: 'agent@example.com',
+      },
+    },
+  })
+  createdBy: {
+    _id: Types.ObjectId;
+    firstName: string;
+    lastName: string;
+    email: string;
+  };
+
+  @ApiProperty({
     description: 'Contact creation date',
     example: '2024-01-15T10:30:00.000Z',
   })

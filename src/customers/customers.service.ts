@@ -191,16 +191,16 @@ export class CustomersService {
   }
 
   /**
-   * Get blocked customers that the user has access to (Admin only) with pagination
+   * Get blocked customers that the user has access to (Admin and Agent) with pagination
    */
   async getBlockedCustomers(
     userId: Types.ObjectId,
     userRole: UserRole,
     queryDto: GetBlockedCustomersDto,
   ): Promise<PaginatedResponseDto<CustomerDocument>> {
-    if (userRole !== UserRole.ADMIN) {
+    if (userRole !== UserRole.ADMIN && userRole !== UserRole.AGENT) {
       throw new ForbiddenException(
-        'Only admins can view the blocked customers list',
+        'Only admins and agents can view the blocked customers list',
       );
     }
 
