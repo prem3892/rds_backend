@@ -273,17 +273,38 @@ export class ChatGateway
     );
 
     try {
-      // Remove socket mapping and leave room
-      this.logger.debug(
-        `[handleCustomerDisconnect] Removing socket mapping for customer ${customerId}`,
-      );
-      await this.redisService.removeCustomerSocketMapping(
+      // Use the new multi-socket removal method
+      await this.redisService.removeCustomerSocketMappingMulti(
         client.id,
         customerId,
       );
+
+      // Check if customer still has other connected sockets
+      const hasOtherSockets =
+        await this.redisService.hasCustomerSockets(customerId);
+      const remainingSocketCount =
+        await this.redisService.getCustomerSocketCount(customerId);
+
+      this.logger.log(
+        `Customer ${customerId} disconnected socket ${client.id}. Remaining sockets: ${remainingSocketCount}`,
+      );
+
+      // Always remove this socket from the room
       client.leave(`customer:${customerId}`);
       this.logger.debug(
         `[handleCustomerDisconnect] Socket ${client.id} removed from customer:${customerId} room`,
+      );
+
+      // Only proceed with full disconnect logic if customer has no remaining sockets
+      if (hasOtherSockets) {
+        this.logger.log(
+          `Customer ${customerId} still has ${remainingSocketCount} active socket(s). Not triggering disconnect logic. Socket ${client.id} removed.`,
+        );
+        return; // Exit early - customer is still connected on other devices
+      }
+
+      this.logger.log(
+        `Customer ${customerId} has no remaining sockets. Proceeding with full disconnect logic.`,
       );
 
       // Get customer details for visitor notification
@@ -1380,13 +1401,17 @@ export class ChatGateway
     }
 
     client.customerId = customer._id.toString();
-    await this.redisService.mapSocketIdToCustomerId(
+    await this.redisService.mapSocketIdToCustomerIdMulti(
       client.id,
       customer._id.toString(),
     );
     client.join(`customer:${customer._id.toString()}`);
+
+    const socketCount = await this.redisService.getCustomerSocketCount(
+      customer._id.toString(),
+    );
     this.logger.log(
-      `Customer ${customer._id} (server-fingerprint: ${serverFingerprint}) connected for widget ${payload.widgetId} with socket ${client.id}`,
+      `Customer ${customer._id} (server-fingerprint: ${serverFingerprint}) connected for widget ${payload.widgetId} with socket ${client.id}. Total sockets: ${socketCount}`,
     );
 
     // Check if this is a reconnection during grace period
@@ -1847,7 +1872,7 @@ export class ChatGateway
       });
   }
 
-  // --- Customer Typing Events (Unchanged) ---
+  // --- Customer Typing Events (Multi-Socket Support) ---
   @SubscribeMessage('customer:typing_start')
   async handleCustomerTypingStart(
     @MessageBody() data: { chatSessionId: string },
@@ -1857,16 +1882,35 @@ export class ChatGateway
     if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
       throw new WsException('Invalid chatSessionId');
 
+    const customerId = client.customerId;
+
+    // Get all customer sockets to exclude ALL of them from the typing notification
+    const allCustomerSockets =
+      await this.redisService.getAllSocketsForCustomer(customerId);
+
     this.logger.debug(
-      `Customer ${client.customerId} started typing in chat ${data.chatSessionId}`,
+      `Customer ${customerId} started typing in chat ${data.chatSessionId} from socket ${client.id}. Excluding ${allCustomerSockets.length} customer socket(s).`,
     );
 
+    // Emit typing start to chat session, but exclude ALL customer sockets
+    // This ensures the customer doesn't see their own typing indicator on any device
     this.server
       .to(`chatSession:${data.chatSessionId}`)
-      .except(client.id)
+      .except(allCustomerSockets)
       .emit('server:customer_typing_start', {
         chatSessionId: data.chatSessionId,
-        customerId: client.customerId,
+        customerId: customerId,
+        triggeredBySocket: client.id,
+      });
+
+    // Optionally, send acknowledgment to ALL customer sockets
+    // This lets all customer devices know that typing started from one of their devices
+    this.server
+      .to(`customer:${customerId}`)
+      .emit('server:customer_typing_start_ack', {
+        chatSessionId: data.chatSessionId,
+        triggeredBySocket: client.id,
+        totalCustomerSockets: allCustomerSockets.length,
       });
   }
 
@@ -1879,16 +1923,33 @@ export class ChatGateway
     if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
       throw new WsException('Invalid chatSessionId');
 
+    const customerId = client.customerId;
+
+    // Get all customer sockets to exclude ALL of them from the typing notification
+    const allCustomerSockets =
+      await this.redisService.getAllSocketsForCustomer(customerId);
+
     this.logger.debug(
-      `Customer ${client.customerId} stopped typing in chat ${data.chatSessionId}`,
+      `Customer ${customerId} stopped typing in chat ${data.chatSessionId} from socket ${client.id}. Excluding ${allCustomerSockets.length} customer socket(s).`,
     );
 
+    // Emit typing stop to chat session, but exclude ALL customer sockets
     this.server
       .to(`chatSession:${data.chatSessionId}`)
-      .except(client.id)
+      .except(allCustomerSockets)
       .emit('server:customer_typing_stop', {
         chatSessionId: data.chatSessionId,
-        customerId: client.customerId,
+        customerId: customerId,
+        triggeredBySocket: client.id,
+      });
+
+    // Optionally, send acknowledgment to ALL customer sockets
+    this.server
+      .to(`customer:${customerId}`)
+      .emit('server:customer_typing_stop_ack', {
+        chatSessionId: data.chatSessionId,
+        triggeredBySocket: client.id,
+        totalCustomerSockets: allCustomerSockets.length,
       });
   }
 
@@ -1902,6 +1963,7 @@ export class ChatGateway
     if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
       throw new WsException('Invalid chatSessionId');
 
+    const customerId = client.customerId;
     const upToTimestamp = data.lastMessageTimestamp
       ? new Date(data.lastMessageTimestamp)
       : new Date();
@@ -1912,12 +1974,35 @@ export class ChatGateway
       data.chatSessionId,
       upToTimestamp,
     );
+
+    // Get all customer sockets to exclude ALL of them from the read notification
+    const allCustomerSockets =
+      await this.redisService.getAllSocketsForCustomer(customerId);
+
+    this.logger.debug(
+      `Customer ${customerId} marked messages as read in chat ${data.chatSessionId} from socket ${client.id}. Excluding ${allCustomerSockets.length} customer socket(s).`,
+    );
+
+    // Emit read status to chat session, but exclude ALL customer sockets
+    // This ensures the customer doesn't get read notifications on their other devices
     this.server
       .to(`chatSession:${data.chatSessionId}`)
-      .except(client.id)
+      .except(allCustomerSockets)
       .emit('server:messages_read_by_customer', {
         chatSessionId: data.chatSessionId,
         upToTimestamp: upToTimestamp,
+        triggeredBySocket: client.id,
+      });
+
+    // Send acknowledgment to ALL customer sockets
+    // This syncs the read status across all customer devices
+    this.server
+      .to(`customer:${customerId}`)
+      .emit('server:messages_read_by_customer_ack', {
+        chatSessionId: data.chatSessionId,
+        upToTimestamp: upToTimestamp,
+        triggeredBySocket: client.id,
+        totalCustomerSockets: allCustomerSockets.length,
       });
   }
 

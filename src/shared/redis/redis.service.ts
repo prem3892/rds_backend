@@ -7,6 +7,7 @@ import {
   REDIS_SOCKET_AGENT_PREFIX,
   REDIS_SOCKET_CUSTOMER_PREFIX,
   REDIS_AGENT_SOCKETS_PREFIX,
+  REDIS_CUSTOMER_SOCKETS_PREFIX,
 } from '../constants/enums';
 
 @Injectable()
@@ -210,6 +211,131 @@ export class RedisService implements OnModuleDestroy {
       );
     }
     await this.redisClient.del(`${REDIS_SOCKET_CUSTOMER_PREFIX}${socketId}`);
+  }
+
+  // Multi-Socket Support Methods for Customers
+
+  /**
+   * Add a socket to a customer's socket set (supports multiple devices)
+   */
+  async addCustomerSocket(customerId: string, socketId: string): Promise<void> {
+    this.logger.log(`Adding socket ${socketId} to customer ${customerId}`);
+
+    // Add to the customer's socket set
+    await this.redisClient.sadd(
+      `${REDIS_CUSTOMER_SOCKETS_PREFIX}${customerId}`,
+      socketId,
+    );
+
+    // Maintain the socket-to-customer mapping
+    await this.redisClient.set(
+      `${REDIS_SOCKET_CUSTOMER_PREFIX}${socketId}`,
+      customerId,
+    );
+
+    const socketCount = await this.getCustomerSocketCount(customerId);
+    this.logger.log(
+      `Customer ${customerId} now has ${socketCount} connected socket(s)`,
+    );
+  }
+
+  /**
+   * Remove a specific socket from a customer's socket set
+   */
+  async removeCustomerSocket(
+    customerId: string,
+    socketId: string,
+  ): Promise<void> {
+    this.logger.log(`Removing socket ${socketId} from customer ${customerId}`);
+
+    // Remove from the customer's socket set
+    await this.redisClient.srem(
+      `${REDIS_CUSTOMER_SOCKETS_PREFIX}${customerId}`,
+      socketId,
+    );
+
+    // Remove the socket-to-customer mapping
+    await this.redisClient.del(`${REDIS_SOCKET_CUSTOMER_PREFIX}${socketId}`);
+
+    const socketCount = await this.getCustomerSocketCount(customerId);
+    this.logger.log(
+      `Customer ${customerId} now has ${socketCount} connected socket(s)`,
+    );
+
+    // Clean up empty sets
+    if (socketCount === 0) {
+      await this.redisClient.del(
+        `${REDIS_CUSTOMER_SOCKETS_PREFIX}${customerId}`,
+      );
+      this.logger.log(`Cleaned up empty socket set for customer ${customerId}`);
+    }
+  }
+
+  /**
+   * Get all socket IDs for a specific customer
+   */
+  async getAllSocketsForCustomer(customerId: string): Promise<string[]> {
+    const sockets = await this.redisClient.smembers(
+      `${REDIS_CUSTOMER_SOCKETS_PREFIX}${customerId}`,
+    );
+    this.logger.debug(
+      `Customer ${customerId} has sockets: [${sockets.join(', ')}]`,
+    );
+    return sockets;
+  }
+
+  /**
+   * Get the count of connected sockets for a customer
+   */
+  async getCustomerSocketCount(customerId: string): Promise<number> {
+    const count = await this.redisClient.scard(
+      `${REDIS_CUSTOMER_SOCKETS_PREFIX}${customerId}`,
+    );
+    return count;
+  }
+
+  /**
+   * Check if a customer has any connected sockets
+   */
+  async hasCustomerSockets(customerId: string): Promise<boolean> {
+    const count = await this.getCustomerSocketCount(customerId);
+    return count > 0;
+  }
+
+  /**
+   * Enhanced customer socket mapping that supports multiple sockets
+   * This replaces the old mapSocketIdToCustomerId for new multi-socket flow
+   */
+  async mapSocketIdToCustomerIdMulti(
+    socketId: string,
+    customerId: string,
+  ): Promise<void> {
+    this.logger.log(
+      `Mapping socket ${socketId} to customer ${customerId} (multi-socket mode)`,
+    );
+    await this.addCustomerSocket(customerId, socketId);
+  }
+
+  /**
+   * Enhanced customer socket removal that supports multiple sockets
+   * This replaces the old removeCustomerSocketMapping for new multi-socket flow
+   */
+  async removeCustomerSocketMappingMulti(
+    socketId: string,
+    customerId?: string,
+  ): Promise<void> {
+    const currentCustomerId =
+      customerId || (await this.getCustomerIdBySocketId(socketId));
+    if (currentCustomerId) {
+      this.logger.log(
+        `Removing socket ${socketId} from customer ${currentCustomerId} (multi-socket mode)`,
+      );
+      await this.removeCustomerSocket(currentCustomerId, socketId);
+    } else {
+      this.logger.warn(
+        `No customer found for socket ${socketId} during removal`,
+      );
+    }
   }
 
   // Generic key-value operations if needed
