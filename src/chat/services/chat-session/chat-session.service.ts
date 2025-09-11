@@ -325,6 +325,40 @@ export class ChatSessionService {
       .exec();
   }
 
+  async getPendingSessionsForAgent(
+    agentId: string,
+  ): Promise<ChatSessionDocument[]> {
+    this.logger.log(`Getting pending sessions for agent ${agentId}`);
+
+    // Get agent's accessible widgets based on department assignments
+    const accessibleWidgets =
+      await this.agentsService.getAgentAccessibleWidgets(agentId);
+
+    if (!accessibleWidgets || accessibleWidgets.length === 0) {
+      this.logger.debug(`No accessible widgets found for agent ${agentId}`);
+      return [];
+    }
+
+    const widgetIds = accessibleWidgets.map(
+      (widget) => new Types.ObjectId(widget._id),
+    );
+
+    this.logger.debug(
+      `Agent ${agentId} has access to ${widgetIds.length} widgets: ${widgetIds.map((id) => id.toString()).join(', ')}`,
+    );
+
+    return this.chatSessionModel
+      .find({
+        widgetId: { $in: widgetIds },
+        status: ChatSessionStatus.PENDING_ASSIGNMENT,
+      })
+      .populate('widgetId', 'name')
+      .populate('customerId', 'name email metadata')
+      .populate('departmentId', 'name')
+      .sort({ initiatedAt: 1 }) // Oldest first - they need attention first
+      .exec();
+  }
+
   async getPendingAssignmentSessions(
     firstAlertThresholdMs: number,
     subsequentAlertIntervalMs: number,

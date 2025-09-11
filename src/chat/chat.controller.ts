@@ -127,6 +127,35 @@ export class ChatController {
     return result;
   }
 
+  @Get('sessions/pending')
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get pending chat sessions for current user',
+    description:
+      'Retrieve all pending chat sessions that the currently authenticated agent can access based on their department assignments. Only shows sessions with PENDING_ASSIGNMENT status from widgets the agent has access to.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Pending chat sessions retrieved successfully',
+    type: [ChatSessionResponseDto],
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent or Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  async getPendingSessions(@AuthenticatedUser() user: JwtPayload) {
+    this.logger.debug(`Getting pending sessions for ${user.email}`);
+    const sessions = await this.chatSessionService.getPendingSessionsForAgent(
+      user.sub,
+    );
+    this.logger.debug(`${sessions.length} pending sessions found`);
+    return sessions;
+  }
+
   // Admin/Agent: View messages for a specific historic/active chat, paginated
   @Get('sessions/:sessionId/messages')
   @Roles(UserRole.ADMIN, UserRole.AGENT)
