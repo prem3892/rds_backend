@@ -1766,44 +1766,130 @@ export class ChatGateway
     };
   }
 
-  // --- Common Events (Typing, Read Receipts) ---
-  @SubscribeMessage('customer:typing_start')
+  // --- Agent Typing Events (Multi-Socket Support) ---
   @SubscribeMessage('agent:typing_start')
-  async handleTypingStart(
+  async handleAgentTypingStart(
     @MessageBody() data: { chatSessionId: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    this.logger.debug(
-      `[handleTypingStart] <customer|agent>:typing_start emiited by clients with payload`,
-    );
+    if (!client.user) throw new WsException('Agent not authenticated.');
     if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
       throw new WsException('Invalid chatSessionId');
-    const eventName = client.user
-      ? 'server:agent_typing_start'
-      : 'server:customer_typing_start';
-    this.logger.debug(`[handleTypingStart] final eventName: ${eventName}`);
+
+    const agentUserId = client.user.sub;
+
+    // Get all agent sockets to exclude ALL of them from the typing notification
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+
+    this.logger.debug(
+      `Agent ${agentUserId} started typing in chat ${data.chatSessionId} from socket ${client.id}. Excluding ${allAgentSockets.length} agent socket(s).`,
+    );
+
+    // Emit typing start to chat session, but exclude ALL agent sockets
+    // This ensures the agent doesn't see their own typing indicator on any device
+    this.server
+      .to(`chatSession:${data.chatSessionId}`)
+      .except(allAgentSockets)
+      .emit('server:agent_typing_start', {
+        chatSessionId: data.chatSessionId,
+        agentId: agentUserId,
+        triggeredBySocket: client.id,
+      });
+
+    // Optionally, send acknowledgment to ALL agent sockets
+    // This lets all agent devices know that typing started from one of their devices
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit('server:agent_typing_start_ack', {
+        chatSessionId: data.chatSessionId,
+        triggeredBySocket: client.id,
+        totalAgentSockets: allAgentSockets.length,
+      });
+  }
+
+  @SubscribeMessage('agent:typing_stop')
+  async handleAgentTypingStop(
+    @MessageBody() data: { chatSessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    if (!client.user) throw new WsException('Agent not authenticated.');
+    if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
+      throw new WsException('Invalid chatSessionId');
+
+    const agentUserId = client.user.sub;
+
+    // Get all agent sockets to exclude ALL of them from the typing notification
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+
+    this.logger.debug(
+      `Agent ${agentUserId} stopped typing in chat ${data.chatSessionId} from socket ${client.id}. Excluding ${allAgentSockets.length} agent socket(s).`,
+    );
+
+    // Emit typing stop to chat session, but exclude ALL agent sockets
+    this.server
+      .to(`chatSession:${data.chatSessionId}`)
+      .except(allAgentSockets)
+      .emit('server:agent_typing_stop', {
+        chatSessionId: data.chatSessionId,
+        agentId: agentUserId,
+        triggeredBySocket: client.id,
+      });
+
+    // Optionally, send acknowledgment to ALL agent sockets
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit('server:agent_typing_stop_ack', {
+        chatSessionId: data.chatSessionId,
+        triggeredBySocket: client.id,
+        totalAgentSockets: allAgentSockets.length,
+      });
+  }
+
+  // --- Customer Typing Events (Unchanged) ---
+  @SubscribeMessage('customer:typing_start')
+  async handleCustomerTypingStart(
+    @MessageBody() data: { chatSessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    if (!client.customerId) throw new WsException('Customer not identified.');
+    if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
+      throw new WsException('Invalid chatSessionId');
+
+    this.logger.debug(
+      `Customer ${client.customerId} started typing in chat ${data.chatSessionId}`,
+    );
 
     this.server
       .to(`chatSession:${data.chatSessionId}`)
       .except(client.id)
-      .emit(eventName, { chatSessionId: data.chatSessionId });
+      .emit('server:customer_typing_start', {
+        chatSessionId: data.chatSessionId,
+        customerId: client.customerId,
+      });
   }
 
   @SubscribeMessage('customer:typing_stop')
-  @SubscribeMessage('agent:typing_stop')
-  async handleTypingStop(
+  async handleCustomerTypingStop(
     @MessageBody() data: { chatSessionId: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    if (!client.customerId) throw new WsException('Customer not identified.');
     if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
       throw new WsException('Invalid chatSessionId');
-    const eventName = client.user
-      ? 'server:agent_typing_stop'
-      : 'server:customer_typing_stop';
+
+    this.logger.debug(
+      `Customer ${client.customerId} stopped typing in chat ${data.chatSessionId}`,
+    );
+
     this.server
       .to(`chatSession:${data.chatSessionId}`)
       .except(client.id)
-      .emit(eventName, { chatSessionId: data.chatSessionId });
+      .emit('server:customer_typing_stop', {
+        chatSessionId: data.chatSessionId,
+        customerId: client.customerId,
+      });
   }
 
   @SubscribeMessage('customer:mark_messages_read')
@@ -1876,7 +1962,17 @@ export class ChatGateway
     if (!data.messageId || !Types.ObjectId.isValid(data.messageId))
       throw new WsException('Invalid messageId');
 
+    const agentUserId = client.user.sub;
     const now = new Date();
+
+    // Get all agent sockets for multi-socket support
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+    const socketCount = allAgentSockets.length;
+
+    this.logger.log(
+      `Agent ${agentUserId} marking messages as read in chat ${data.chatSessionId} from socket ${client.id}. Total agent sockets: ${socketCount}`,
+    );
 
     // Mark the message as read by agent
     await this.chatMessageService.markMessagesAsReadByAgent(
@@ -1888,14 +1984,41 @@ export class ChatGateway
     await this.chatSessionService.updateAgentLastSeen(data.chatSessionId, now);
 
     // Notify the customer that the agent has seen the message
+    // Exclude ALL agent sockets to prevent the agent from seeing their own read receipt
     this.server
       .to(`chatSession:${data.chatSessionId}`)
-      .except(client.id)
+      .except(allAgentSockets)
       .emit('server:message_seen_by_agent', {
         chatSessionId: data.chatSessionId,
         messageId: data.messageId,
         timestamp: now,
+        agentId: agentUserId,
       });
+
+    // Prepare acknowledgment data with multi-socket context
+    const acknowledgmentData = {
+      event: 'server:messages_read_ack',
+      data: {
+        chatSessionId: data.chatSessionId,
+        messageId: data.messageId,
+        timestamp: now,
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+      },
+    };
+
+    // Broadcast read acknowledgment to ALL agent's sockets
+    // This ensures all agent devices know that messages were marked as read
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
+    this.logger.debug(
+      `Messages read acknowledgment broadcasted to ${socketCount} agent socket(s) for agent ${agentUserId}`,
+    );
+
+    // Return acknowledgment to the triggering socket (traditional response)
+    return acknowledgmentData;
   }
 
   @SubscribeMessage('customer:mark_messages_read')
@@ -1942,9 +2065,6 @@ export class ChatGateway
     payload: { chatSessionId: string; date: string; notes?: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ): Promise<{ event: string; data: any }> {
-    this.logger.debug(
-      `[handleAgentBookAppointment]: agent:book_appointment emitted by agent with payload ${JSON.stringify(payload)}`,
-    );
     if (
       !client.user ||
       (client.user.role !== UserRole.AGENT &&
@@ -1958,6 +2078,21 @@ export class ChatGateway
       !Types.ObjectId.isValid(payload.chatSessionId)
     )
       throw new WsException('Invalid chatSessionId');
+
+    const agentUserId = client.user.sub;
+
+    // Get all agent sockets for multi-socket support
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+    const socketCount = allAgentSockets.length;
+
+    this.logger.log(
+      `Agent ${agentUserId} booking appointment in chat ${payload.chatSessionId} from socket ${client.id}. Total agent sockets: ${socketCount}`,
+    );
+
+    this.logger.debug(
+      `[handleAgentBookAppointment]: agent:book_appointment emitted by agent with payload ${JSON.stringify(payload)}`,
+    );
 
     const chatSession = await this.chatSessionService.findById(
       payload.chatSessionId,
@@ -1977,15 +2112,9 @@ export class ChatGateway
       );
     }
 
-    //this.logger.debug("[handleAgentBookAppointment] Fetching the session using chatSessionId")
-
-    // if (!payload.customerId || !Types.ObjectId.isValid(payload.customerId))
-    //   throw new WsException('Invalid customerId');
-
     // Get agent profile from client.user.sub
-    const agent = await this.agentsService.findAgentProfileByUserId(
-      client.user.sub,
-    );
+    const agent =
+      await this.agentsService.findAgentProfileByUserId(agentUserId);
     if (!agent) throw new WsException('Agent not found.');
 
     const appointmentData: CreateAppointmentDto = {
@@ -2006,7 +2135,7 @@ export class ChatGateway
       `[handleAgentBookAppointment]: appointment created ${JSON.stringify(appointment)}`,
     );
 
-    // Notify customer
+    // Notify customer about the appointment
     this.server
       .to(`customer:${chatSession.customerId.toString()}`)
       .emit('server:appointment_booked_notification', appointment);
@@ -2026,10 +2155,30 @@ export class ChatGateway
       .to(`chatSession:${payload.chatSessionId}`)
       .emit('server:new_message', systemMessage);
 
+    // Prepare acknowledgment data with multi-socket context
+    const acknowledgmentData = {
+      event: 'server:appointment_booked_ack',
+      data: {
+        appointment: appointment.toObject(),
+        chatSessionId: payload.chatSessionId,
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+        bookedAt: new Date(),
+      },
+    };
+
+    // Broadcast appointment booked acknowledgment to ALL agent's sockets
+    // This ensures all agent devices know that an appointment was booked
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
     this.logger.log(
-      `Agent ${agent._id} booked appointment ${appointment._id} for customer ${chatSession.customerId.toString()} in session ${payload.chatSessionId}}.`,
+      `Agent ${agent._id} booked appointment ${appointment._id} for customer ${chatSession.customerId.toString()} in session ${payload.chatSessionId} from socket ${client.id}. Broadcasted to ${socketCount} socket(s).`,
     );
-    return { event: 'server:appointment_booked_ack', data: appointment };
+
+    // Return acknowledgment to the triggering socket (traditional response)
+    return acknowledgmentData;
   }
 
   // --- Helper Methods ---
