@@ -48,6 +48,7 @@ import { AllExceptionsFilter } from 'src/shared/filters/all-exceptions.filter';
 import { AppointmentsService } from 'src/appointments/appointments.service';
 import { UsersService } from '../users/users.service';
 import { CreateAppointmentDto } from 'src/appointments/dto/create-appointment.dto';
+import { IpExtractorUtil } from '../shared/utils/ip-extractor.util';
 import { AppointmentDocument } from 'src/schemas/appointment.schema';
 import { AgentProfileDocument } from 'src/schemas/agent-profile.schema';
 import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
@@ -1538,6 +1539,13 @@ export class ChatGateway
     //   throw new WsException('Domain not authorized for this widget.');
     // }
 
+    // Extract IP information from Cloudflare headers
+    const ipInfo = IpExtractorUtil.extractIpInfo(client);
+
+    this.logger.debug(
+      `Extracted IP info: ${JSON.stringify(ipInfo)} for domain: ${payload.domain}`,
+    );
+
     // Generate server-side fingerprint instead of trusting client
     const serverFingerprint = FingerprintUtil.generateFingerprint(
       payload.browserInfo,
@@ -1557,6 +1565,16 @@ export class ChatGateway
         currentPageUrl: payload.currentPageUrl,
         initialDomain: payload.domain,
         clientFingerprint: payload.fingerprint, // Store client fingerprint for reference
+        ipInfo: {
+          clientIp: ipInfo.clientIp,
+          country: ipInfo.country,
+          city: ipInfo.city,
+          cfRay: ipInfo.cfRay,
+          isCloudflare: ipInfo.isCloudflare,
+          proxyChain: ipInfo.proxyChain,
+          timestamp: new Date(),
+          isPrivate: IpExtractorUtil.isPrivateIp(ipInfo.clientIp),
+        },
       },
     });
 
@@ -1576,7 +1594,7 @@ export class ChatGateway
       customer._id.toString(),
     );
     this.logger.log(
-      `Customer ${customer._id} (server-fingerprint: ${serverFingerprint}) connected for widget ${payload.widgetId} with socket ${client.id}. Total sockets: ${socketCount}`,
+      `Customer ${customer._id} (server-fingerprint: ${serverFingerprint}) connected for widget ${payload.widgetId} with socket ${client.id}. IP: ${ipInfo.clientIp}${ipInfo.country ? ` (${ipInfo.country}${ipInfo.city ? `, ${ipInfo.city}` : ''})` : ''} via ${ipInfo.isCloudflare ? 'Cloudflare' : 'Direct'}. Total sockets: ${socketCount}`,
     );
 
     // Check if this is a reconnection during grace period
