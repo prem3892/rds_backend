@@ -45,13 +45,83 @@ export class ChatMessageService {
       throw new BadRequestException('Invalid chat session ID format');
     }
     const skip = (page - 1) * limit;
-    return this.chatMessageModel
-      .find({ chatSessionId: new Types.ObjectId(chatSessionId) })
-      .sort({ timestamp: -1 }) // Get latest messages first for typical display
-      .skip(skip)
-      .limit(limit)
-      .exec();
-    // For infinite scroll, you might sort by timestamp: 1 and use a cursor
+
+    // Get messages with aggregation to join agent info
+    const messages = await this.chatMessageModel.aggregate([
+      {
+        $match: {
+          chatSessionId: new Types.ObjectId(chatSessionId),
+        },
+      },
+      {
+        $sort: { timestamp: -1 },
+      },
+      {
+        $skip: skip,
+      },
+      {
+        $limit: limit,
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'senderId',
+          foreignField: '_id',
+          as: 'agentUser',
+          pipeline: [{ $project: { firstName: 1, lastName: 1 } }],
+        },
+      },
+      {
+        $lookup: {
+          from: 'agentprofiles',
+          localField: 'senderId',
+          foreignField: 'userId',
+          as: 'agentProfile',
+          pipeline: [{ $project: { profilePicture: 1 } }],
+        },
+      },
+      {
+        $addFields: {
+          agentInfo: {
+            $cond: {
+              if: { $eq: ['$senderType', 'AGENT'] },
+              then: {
+                $let: {
+                  vars: {
+                    user: { $arrayElemAt: ['$agentUser', 0] },
+                    profile: { $arrayElemAt: ['$agentProfile', 0] },
+                  },
+                  in: {
+                    fullName: {
+                      $trim: {
+                        input: {
+                          $concat: [
+                            { $ifNull: ['$$user.firstName', ''] },
+                            ' ',
+                            { $ifNull: ['$$user.lastName', ''] },
+                          ],
+                        },
+                      },
+                    },
+                    profilePicture: '$$profile.profilePicture',
+                  },
+                },
+              },
+              else: '$$REMOVE',
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          agentUser: 0,
+          agentProfile: 0,
+        },
+      },
+    ]);
+
+    // Convert back to Mongoose documents
+    return messages.map((msg) => new this.chatMessageModel(msg));
   }
 
   async markMessagesAsReadByAgent(

@@ -47,6 +47,23 @@ export class ChatMessageResponseDto {
   };
 
   @ApiProperty({
+    description: 'Agent information (only for agent messages)',
+    type: 'object',
+    properties: {
+      fullName: { type: 'string', example: 'John Smith' },
+      profilePicture: {
+        type: 'string',
+        example: '/uploads/profiles/agent-123.jpg',
+      },
+    },
+    nullable: true,
+  })
+  agentInfo?: {
+    fullName?: string;
+    profilePicture?: string;
+  };
+
+  @ApiProperty({
     description: 'Message timestamp',
     example: '2024-01-15T10:30:00.000Z',
   })
@@ -162,7 +179,7 @@ export class ChatSessionResponseDto {
   @ApiProperty({
     description: 'Session end timestamp',
     example: '2024-01-15T11:30:00.000Z',
-    required: false,
+    nullable: true,
   })
   endedAt?: string;
 

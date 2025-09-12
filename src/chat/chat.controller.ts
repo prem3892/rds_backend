@@ -23,6 +23,7 @@ import {
 } from '@nestjs/swagger';
 import { ChatMessageService } from './services/chat-message/chat-message.service';
 import { ChatSessionService } from './services/chat-session/chat-session.service';
+import { AgentsService } from '../agents/agents.service';
 import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../shared/guards/roles.guard';
 import { Roles } from '../shared/decorators/roles.decorator';
@@ -55,6 +56,7 @@ export class ChatController {
   constructor(
     private readonly chatMessageService: ChatMessageService,
     private readonly chatSessionService: ChatSessionService,
+    private readonly agentsService: AgentsService,
   ) {}
 
   @Get('sessions')
@@ -132,7 +134,7 @@ export class ChatController {
   @ApiOperation({
     summary: 'Get pending chat sessions for current user',
     description:
-      'Retrieve all pending chat sessions that the currently authenticated agent can access based on their department assignments. Only shows sessions with PENDING_ASSIGNMENT status from widgets the agent has access to.',
+      'Retrieve all pending chat sessions that the currently authenticated agent can access based on their department assignments. Only shows sessions with PENDING_ASSIGNMENT status from widgets the agent has access to. Agent must be online and within shift to access pending sessions.',
   })
   @ApiResponse({
     status: 200,
@@ -147,12 +149,43 @@ export class ChatController {
     description: 'Agent or Admin role required',
     type: ForbiddenResponseDto,
   })
+  @ApiBadRequestResponse({
+    description: 'Agent is not available (offline or outside shift hours)',
+    type: ErrorResponseDto,
+  })
   async getPendingSessions(@AuthenticatedUser() user: JwtPayload) {
     this.logger.debug(`Getting pending sessions for ${user.email}`);
+
+    // Check if agent is currently available (online and within shift)
+    const availability = await this.agentsService.isAgentCurrentlyAvailable(
+      user.sub,
+    );
+
+    if (!availability.isAvailable) {
+      let errorMessage = 'Agent is not available to view pending sessions';
+
+      if (!availability.isOnline) {
+        errorMessage = 'Agent must be online to view pending sessions';
+      } else if (!availability.isWithinShift) {
+        errorMessage =
+          'Agent is outside shift hours and cannot view pending sessions';
+        if (availability.nextAvailableTime) {
+          errorMessage += `. Next available time: ${availability.nextAvailableTime.toISOString()}`;
+        }
+      }
+
+      this.logger.warn(
+        `Agent ${user.email} attempted to access pending sessions but is not available: ${errorMessage}`,
+      );
+      throw new BadRequestException(errorMessage);
+    }
+
     const sessions = await this.chatSessionService.getPendingSessionsForAgent(
       user.sub,
     );
-    this.logger.debug(`${sessions.length} pending sessions found`);
+    this.logger.debug(
+      `${sessions.length} pending sessions found for available agent ${user.email}`,
+    );
     return sessions;
   }
 
