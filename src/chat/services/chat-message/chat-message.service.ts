@@ -87,4 +87,61 @@ export class ChatMessageService {
       .updateMany(filter, { $set: { readByCustomer: true } })
       .exec();
   }
+
+  /**
+   * Get all messages for a chat session (for transcript purposes)
+   * @param chatSessionId - The chat session ID
+   * @returns All messages for the session ordered by timestamp
+   */
+  async getAllMessagesForSession(
+    chatSessionId: string,
+  ): Promise<ChatMessageDocument[]> {
+    if (!Types.ObjectId.isValid(chatSessionId)) {
+      throw new BadRequestException('Invalid chat session ID format');
+    }
+
+    return this.chatMessageModel
+      .find({ chatSessionId: new Types.ObjectId(chatSessionId) })
+      .sort({ timestamp: 1 }) // Chronological order for transcript
+      .exec();
+  }
+
+  /**
+   * Get the last message for a chat session
+   * @param chatSessionId - The chat session ID
+   * @returns The last message for the session or null if no messages exist
+   */
+  async getLastMessageForSession(
+    chatSessionId: string,
+  ): Promise<ChatMessageDocument | null> {
+    if (!Types.ObjectId.isValid(chatSessionId)) {
+      throw new BadRequestException('Invalid chat session ID format');
+    }
+
+    return this.chatMessageModel
+      .findOne({ chatSessionId: new Types.ObjectId(chatSessionId) })
+      .sort({ timestamp: -1 }) // Get the most recent message
+      .exec();
+  }
+
+  /**
+   * Get the last non-system message for a chat session
+   * @param chatSessionId - The chat session ID
+   * @returns The last non-system message for the session or null if no non-system messages exist
+   */
+  async getLastNonSystemMessageForSession(
+    chatSessionId: string,
+  ): Promise<ChatMessageDocument | null> {
+    if (!Types.ObjectId.isValid(chatSessionId)) {
+      throw new BadRequestException('Invalid chat session ID format');
+    }
+
+    return this.chatMessageModel
+      .findOne({
+        chatSessionId: new Types.ObjectId(chatSessionId),
+        senderType: { $ne: ChatMessageSenderType.SYSTEM },
+      })
+      .sort({ timestamp: -1 }) // Get the most recent non-system message
+      .exec();
+  }
 }

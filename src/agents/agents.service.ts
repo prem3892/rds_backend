@@ -26,6 +26,7 @@ import { UserRole } from '../shared/constants/enums';
 import { DepartmentsService } from 'src/departments/departments.service';
 import { ChatSessionService } from 'src/chat/services/chat-session/chat-session.service';
 import { WidgetsService } from 'src/widgets/widgets.service';
+import { CustomersService } from 'src/customers/customers.service';
 import { ShiftService } from '../shared/services/shift.service';
 
 @Injectable()
@@ -42,6 +43,8 @@ export class AgentsService {
     @Inject(forwardRef(() => ChatSessionService))
     private readonly chatSessionService: ChatSessionService,
     private readonly widgetsService: WidgetsService,
+    @Inject(forwardRef(() => CustomersService))
+    private readonly customersService: CustomersService,
     private readonly shiftService: ShiftService,
   ) {}
 
@@ -191,15 +194,22 @@ export class AgentsService {
     updateDto: UpdateAgentProfileDto,
     isAdminUpdate: boolean = false, // to distinguish admin updates from agent's own
   ): Promise<AgentProfileDocument> {
-    this.logger.log(`Updating agent profile for user ID ${agentUserId}:`, updateDto);
+    this.logger.log(
+      `Updating agent profile for user ID ${agentUserId}:`,
+      updateDto,
+    );
 
-    if (typeof agentUserId === 'string') agentUserId = new Types.ObjectId(agentUserId);
+    if (typeof agentUserId === 'string')
+      agentUserId = new Types.ObjectId(agentUserId);
 
     const agentProfile = await this.agentProfileModel
       .findOne({ userId: agentUserId })
       .exec();
 
-    this.logger.log(`Found agent profile for user ID ${agentUserId}:`, agentProfile);
+    this.logger.log(
+      `Found agent profile for user ID ${agentUserId}:`,
+      agentProfile,
+    );
     if (!agentProfile) {
       throw new NotFoundException(
         `Agent profile for user ID ${agentUserId} not found.`,
@@ -486,6 +496,84 @@ export class AgentsService {
         error.stack,
       );
       return [];
+    }
+  }
+
+  /**
+   * Check if an agent can access a specific customer based on widget permissions
+   */
+  async canAgentAccessCustomer(
+    agentUserId: string,
+    customerId: string,
+  ): Promise<{
+    canAccess: boolean;
+    reason?: string;
+    widget?: any;
+    customer?: any;
+  }> {
+    try {
+      // 1. Get agent profile
+      const agentProfile = await this.findAgentProfileByUserId(agentUserId);
+      if (!agentProfile) {
+        return { canAccess: false, reason: 'Agent profile not found' };
+      }
+
+      // 2. Get customer and their widget
+      const customer = await this.customersService.findById(customerId);
+      if (!customer) {
+        return { canAccess: false, reason: 'Customer not found' };
+      }
+
+      if (customer.isBlocked) {
+        return { canAccess: false, reason: 'Customer is blocked', customer };
+      }
+
+      // 3. Get widget
+      const widget = await this.widgetsService.findById(customer.widgetId);
+      if (!widget) {
+        return { canAccess: false, reason: 'Widget not found', customer };
+      }
+
+      // 4. Check department overlap
+      const hasDepartmentMatch = agentProfile.departmentIds.some(
+        (agentDeptId) =>
+          widget.departmentIds.some(
+            (widgetDeptId) =>
+              agentDeptId.toString() === widgetDeptId.toString(),
+          ),
+      );
+
+      if (!hasDepartmentMatch) {
+        return {
+          canAccess: false,
+          reason: 'No department access',
+          widget,
+          customer,
+        };
+      }
+
+      // 5. Check domain access
+      const customerDomain = customer.metadata?.initialDomain || 'unknown';
+      const hasDomainAccess =
+        agentProfile.domainAccess.includes('*') ||
+        agentProfile.domainAccess.includes(customerDomain);
+
+      if (!hasDomainAccess) {
+        return {
+          canAccess: false,
+          reason: 'No domain access',
+          widget,
+          customer,
+        };
+      }
+
+      return { canAccess: true, widget, customer };
+    } catch (error) {
+      this.logger.error(
+        `Error validating agent access for agent ${agentUserId} and customer ${customerId}: ${error.message}`,
+        error.stack,
+      );
+      return { canAccess: false, reason: `Validation error: ${error.message}` };
     }
   }
 

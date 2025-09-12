@@ -244,6 +244,51 @@ export class ChatNotificationService {
   }
 
   /**
+   * Notify agent about customer inactivity
+   * @param session The chat session where customer became inactive
+   */
+  async notifyAgentAboutCustomerInactivity(session: ChatSessionDocument) {
+    try {
+      if (!this.server) {
+        this.logger.warn(
+          'Socket.IO server not available for agent notifications',
+        );
+        return;
+      }
+
+      const agentId = session.agentId?.toString();
+      if (!agentId) {
+        this.logger.warn(
+          `No agent assigned to session ${session._id} for customer inactivity notification`,
+        );
+        return;
+      }
+
+      // Get customer name for the notification
+      const customer = session.customerId as any;
+      const customerName = customer?.name || customer?.email || 'Customer';
+
+      // Send notification to the assigned agent
+      this.server.to(`agent:${agentId}`).emit('server:customer_inactive', {
+        chatSessionId: session._id.toString(),
+        message: `${customerName} has been inactive and the chat session has ended.`,
+        customerId: session.customerId.toString(),
+        customerName,
+        sessionStatus: session.status,
+      });
+
+      this.logger.log(
+        `Notified agent ${agentId} about customer inactivity in session ${session._id}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to notify agent about customer inactivity: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
    * Notify available agents about a pending chat that needs reassignment
    * @param session The chat session that needs a new agent
    */

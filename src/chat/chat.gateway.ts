@@ -39,6 +39,7 @@ import {
 } from '../shared/constants/enums';
 import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { InitiateChatDto } from './dto/initiate-chat.dto';
+import { AgentInitiateChatDto } from './dto/agent-initiate-chat.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { ConnectWidgetDto } from './dto/connect-widget.dto';
 import { Types } from 'mongoose';
@@ -655,6 +656,170 @@ export class ChatGateway
       event: 'server:authenticated',
       data: { userId: jwtPayload.sub, role: jwtPayload.role },
     };
+  }
+
+  @SubscribeMessage('agent:initiate_chat')
+  async handleAgentInitiateChat(
+    @MessageBody() payload: AgentInitiateChatDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ): Promise<{ event: string; data: any }> {
+    this.logger.debug(
+      `agent:initiate_chat emitted by agent with data ${JSON.stringify(payload)}`,
+    );
+
+    // 1. Authentication check
+    if (!client.user) {
+      this.logger.error(
+        `[handleAgentInitiateChat] Agent not authenticated ${JSON.stringify(client)}`,
+      );
+      throw new WsException('Agent not authenticated.');
+    }
+
+    const agentUserId = client.user.sub;
+
+    // Get all agent sockets for multi-socket support
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+    const socketCount = allAgentSockets.length;
+
+    this.logger.log(
+      `Agent ${agentUserId} attempting to initiate chat with customer ${payload.customerId} from socket ${client.id}. Total agent sockets: ${socketCount}`,
+    );
+
+    // 2. Get agent profile and check concurrent chat limits
+    const agentProfile =
+      await this.agentsService.findAgentProfileByUserIdOrFail(agentUserId);
+
+    const activeChats = await this.chatSessionService.countActiveChatsForAgent(
+      new Types.ObjectId(agentUserId),
+    );
+
+    if (activeChats >= agentProfile.maxConcurrentChats) {
+      this.logger.warn(
+        `Agent ${agentUserId} attempted to initiate chat but reached max concurrent chats (${agentProfile.maxConcurrentChats}).`,
+      );
+      throw new WsException(
+        `Maximum concurrent chats limit reached (${agentProfile.maxConcurrentChats}).`,
+      );
+    }
+
+    // 3. Widget access validation
+    const accessCheck = await this.agentsService.canAgentAccessCustomer(
+      agentUserId,
+      payload.customerId,
+    );
+
+    if (!accessCheck.canAccess) {
+      this.logger.warn(
+        `Agent ${agentUserId} access denied for customer ${payload.customerId}: ${accessCheck.reason}`,
+      );
+      throw new WsException(`Access denied: ${accessCheck.reason}`);
+    }
+
+    const { customer, widget } = accessCheck;
+
+    // 4. Check for existing active sessions
+    const existingSession =
+      await this.chatSessionService.findActiveSessionForCustomer(
+        payload.customerId,
+      );
+
+    if (existingSession) {
+      this.logger.warn(
+        `Agent ${agentUserId} attempted to initiate chat with customer ${payload.customerId} who already has active session ${existingSession._id}`,
+      );
+      throw new WsException('Customer already has an active chat session.');
+    }
+
+    // 5. Create new chat session with agent pre-assigned
+    const chatSession = await this.chatSessionService.initiateAgentChat(
+      payload.customerId,
+      agentUserId,
+      widget,
+      customer,
+    );
+
+    this.logger.log(
+      `Agent ${agentUserId} successfully created chat session ${chatSession._id} with customer ${payload.customerId}`,
+    );
+
+    // 6. Join agent to chat session room
+    client.join(`chatSession:${chatSession._id.toString()}`);
+
+    // Join all agent sockets to the chat session room for multi-socket support
+    for (const socketId of allAgentSockets) {
+      const socket = this.server.sockets.sockets.get(socketId);
+      if (socket) {
+        socket.join(`chatSession:${chatSession._id.toString()}`);
+      }
+    }
+
+    // 7. Create and send initial message from agent
+    const initialMessage = await this.chatMessageService.createMessage({
+      chatSessionId: chatSession._id,
+      senderId: new Types.ObjectId(agentUserId),
+      senderType: ChatMessageSenderType.AGENT,
+      messageType: ChatMessageType.TEXT,
+      content: { text: payload.initialMessage },
+    });
+
+    this.logger.debug(
+      '[handleAgentInitiateChat]: sending initial message to session room',
+      initialMessage,
+    );
+
+    // Broadcast the message to the chat session room
+    this.server
+      .to(`chatSession:${chatSession._id.toString()}`)
+      .emit('server:new_message', initialMessage);
+
+    // 8. Notify customer about agent-initiated chat
+    const agentUser = await this.usersService.findById(agentUserId);
+    const agentName = agentUser ? agentUser.firstName : 'Agent';
+
+    this.server
+      .to(`customer:${payload.customerId}`)
+      .emit('server:agent_initiated_chat', {
+        chatSessionId: chatSession._id.toString(),
+        agentName,
+        agentId: agentUserId,
+        initialMessage: payload.initialMessage,
+        widget: {
+          id: widget._id.toString(),
+          name: widget.name,
+          welcomeMessage: widget.welcomeMessage,
+        },
+        session: chatSession,
+      });
+
+    // 9. Prepare acknowledgment data
+    const acknowledgmentData = {
+      event: 'server:initiate_chat_ack',
+      data: {
+        chatSessionId: chatSession._id.toString(),
+        status: 'CREATED',
+        customer: {
+          id: customer._id.toString(),
+          name: customer.name,
+          email: customer.email,
+        },
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+        initiatedAt: new Date(),
+      },
+    };
+
+    // Broadcast acknowledgment to ALL agent's sockets
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
+    this.logger.log(
+      `Agent ${agentUserId} successfully initiated chat session ${chatSession._id} with customer ${payload.customerId} from socket ${client.id}. Broadcasted to ${socketCount} socket(s).`,
+    );
+
+    // Return acknowledgment to the triggering socket
+    return acknowledgmentData;
   }
 
   @SubscribeMessage('agent:set_online_status')

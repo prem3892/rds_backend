@@ -13,6 +13,7 @@ import {
   AdminVerificationTemplateData,
   WelcomeTemplateData,
   AppointmentConfirmationTemplateData,
+  ChatTranscriptTemplateData,
 } from './interfaces/template-data.interface';
 
 // Import templates
@@ -21,6 +22,7 @@ import { accountVerificationTemplate } from './templates/account-verification.te
 import { adminVerificationTemplate } from './templates/admin-verification.template';
 import { welcomeTemplate } from './templates/welcome.template';
 import { appointmentConfirmationTemplate } from './templates/appointment-confirmation.template';
+import { chatTranscriptTemplate } from './templates/chat-transcript.template';
 
 @Injectable()
 export class MailerService {
@@ -93,6 +95,15 @@ export class MailerService {
         'appointment-confirmation',
         Handlebars.compile(appointmentConfirmationTemplate),
       );
+      this.templates.set(
+        'chat-transcript',
+        Handlebars.compile(chatTranscriptTemplate),
+      );
+
+      // Register Handlebars helpers
+      Handlebars.registerHelper('eq', function (a, b) {
+        return a === b;
+      });
 
       this.logger.log('Email templates compiled successfully');
     } catch (error) {
@@ -218,6 +229,18 @@ export class MailerService {
       to,
       subject: 'Appointment Confirmation',
       template: 'appointment-confirmation',
+      context: data,
+    });
+  }
+
+  async sendChatTranscriptEmail(
+    to: string,
+    data: ChatTranscriptTemplateData,
+  ): Promise<boolean> {
+    return this.sendTemplateMail({
+      to,
+      subject: `🚨 Agent Inactivity Alert - Chat Session ${data.sessionId} Ended`,
+      template: 'chat-transcript',
       context: data,
     });
   }

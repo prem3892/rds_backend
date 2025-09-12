@@ -48,6 +48,10 @@ export default () => ({
       process.env.AGENT_INACTIVITY_THRESHOLD_MS || '180000',
       10,
     ), // 3 mins
+    customerInactivityThresholdMs: parseInt(
+      process.env.CUSTOMER_INACTIVITY_THRESHOLD_MS || '600000',
+      10,
+    ), // 10 mins
     visitorGracePeriodMs: parseInt(
       process.env.VISITOR_GRACE_PERIOD_MS || '30000',
       10,
