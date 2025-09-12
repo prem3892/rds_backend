@@ -93,6 +93,75 @@ export class AgentsController {
     return this.agentsService.getAllAgentProfilesWithUserDetails(adminUser.sub);
   }
 
+  @Get(':agentId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get agent profile by ID (Admin only)',
+    description:
+      'Retrieve a specific agent profile with associated user details by agent ID. Only accessible by administrators.',
+  })
+  @ApiParam({
+    name: 'agentId',
+    description: 'The unique identifier of the agent',
+    type: 'string',
+    example: '507f1f77bcf86cd799439011',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Agent profile retrieved successfully',
+    type: AgentProfileResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid agent ID format',
+    type: ErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Agent profile not found',
+    type: NotFoundResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  async getAgentById(
+    @Param('agentId') agentId: string,
+    @AuthenticatedUser() adminUser: JwtPayload,
+  ) {
+    if (!Types.ObjectId.isValid(agentId)) {
+      throw new BadRequestException('Invalid agent ID format');
+    }
+
+    const agentProfile = await this.agentsService.findAgentProfileById(agentId);
+    if (!agentProfile) {
+      throw new NotFoundException(`Agent profile with ID ${agentId} not found`);
+    }
+
+    // Get the userId from the agent profile
+    const userId = agentProfile.userId;
+    if (!userId) {
+      throw new BadRequestException(
+        'This agent profile is not associated with a user',
+      );
+    }
+
+    // Get user details to return combined response
+    const userDetails = await this.usersService.findById(userId);
+    return {
+      ...agentProfile.toObject(),
+      user: userDetails
+        ? {
+            email: userDetails.email,
+            firstName: userDetails.firstName,
+            lastName: userDetails.lastName,
+          }
+        : null,
+    };
+  }
+
   @Get('me/profile')
   @Roles(UserRole.AGENT, UserRole.ADMIN)
   @ApiOperation({
@@ -210,8 +279,6 @@ export class AgentsController {
       }
     }
 
-
-
     // Handle USER schema fields (firstName, lastName, email) - only for admins
     if (user.role === UserRole.ADMIN) {
       const userUpdatePayload: UpdateUserDto = {};
@@ -225,8 +292,6 @@ export class AgentsController {
         await this.usersService.update(user.sub, userUpdatePayload);
       }
     }
-
-
 
     // Handle AGENT PROFILE schema fields
     const agentProfileUpdatePayload: UpdateAgentProfileDto = { ...updateDto };
@@ -244,12 +309,11 @@ export class AgentsController {
         allowedAgentFields.profilePicture = updateDto.profilePicture;
 
       // Update with only allowed fields
-      const updatedProfile = await this.agentsService.updateAgentProfileByUserId(
-        user.sub,
-        allowedAgentFields,
-      );
-
-
+      const updatedProfile =
+        await this.agentsService.updateAgentProfileByUserId(
+          user.sub,
+          allowedAgentFields,
+        );
 
       const userDetails = await this.usersService.findById(user.sub);
       return {
@@ -264,15 +328,11 @@ export class AgentsController {
       };
     }
 
-
-
     // For admins, allow all fields
     const updatedProfile = await this.agentsService.updateAgentProfileByUserId(
       user.sub,
       agentProfileUpdatePayload,
     );
-
-
 
     const userDetails = await this.usersService.findById(user.sub);
     return {
@@ -339,7 +399,6 @@ export class AgentsController {
     if (!existingAgentProfile) {
       throw new NotFoundException(`Agent profile with ID ${agentId} not found`);
     }
-
 
     // Check if the current admin is the one who created this agent profile
     if (
