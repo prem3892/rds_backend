@@ -26,6 +26,7 @@ import { RolesGuard } from 'src/auth/roles.guard';
 import { Roles } from 'src/shared/decorators/roles.decorator';
 import { UserRole } from 'src/shared/constants/enums';
 import { VisitorStateService } from './services/visitor-state/visitor-state.service';
+import { AgentsService } from '../agents/agents.service';
 import {
   VisitorListResponse,
   VisitorSyncResponse,
@@ -53,7 +54,10 @@ import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 export class VisitorTrackingController {
   private readonly logger = new Logger(VisitorTrackingController.name);
 
-  constructor(private readonly visitorStateService: VisitorStateService) {}
+  constructor(
+    private readonly visitorStateService: VisitorStateService,
+    private readonly agentsService: AgentsService,
+  ) {}
 
   /**
    * Get current visitor state for agent's accessible widgets
@@ -64,7 +68,7 @@ export class VisitorTrackingController {
   @ApiOperation({
     summary: 'Get current visitors for agent',
     description:
-      'Retrieve current visitor state for widgets accessible to the authenticated agent',
+      'Retrieve current visitor state for widgets accessible to the authenticated agent. Returns empty array if agent is offline or outside shift hours.',
   })
   @ApiQuery({
     name: 'since',
@@ -131,6 +135,25 @@ export class VisitorTrackingController {
           'Invalid since date format',
           HttpStatus.BAD_REQUEST,
         );
+      }
+
+      // Check if agent is currently available (online and within shift)
+      const availability =
+        await this.agentsService.isAgentCurrentlyAvailable(agentId);
+
+      if (!availability.isAvailable) {
+        this.logger.debug(
+          `Agent ${agentId} is not available (online: ${availability.isOnline}, within shift: ${availability.isWithinShift}). Returning empty visitor list.`,
+        );
+
+        // Return empty result when agent is not available
+        return {
+          visitors: [],
+          totalCount: 0,
+          hasMore: false,
+          nextCursor: undefined,
+          lastSync: new Date(),
+        };
       }
 
       const result = await this.visitorStateService.getVisitorsForAgent(
