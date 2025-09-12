@@ -1,6 +1,8 @@
 import {
   Controller,
   Get,
+  Post,
+  Body,
   Param,
   Query,
   UseGuards,
@@ -8,6 +10,8 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,22 +20,31 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiQuery,
+  ApiBody,
   ApiBadRequestResponse,
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiCreatedResponse,
 } from '@nestjs/swagger';
 import { ChatMessageService } from './services/chat-message/chat-message.service';
 import { ChatSessionService } from './services/chat-session/chat-session.service';
 import { AgentsService } from '../agents/agents.service';
+import { CustomersService } from '../customers/customers.service';
+import { WidgetsService } from '../widgets/widgets.service';
+import { RedisService } from '../shared/redis/redis.service';
+import { UsersService } from '../users/users.service';
+import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
+import { ChatGateway } from './chat.gateway';
 import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../shared/guards/roles.guard';
 import { Roles } from '../shared/decorators/roles.decorator';
-import { UserRole } from '../shared/constants/enums';
+import { UserRole, ChatSessionStatus } from '../shared/constants/enums';
 import { AuthenticatedUser } from '../shared/decorators/user.decorator';
 import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { GetMessagesQueryDto } from './dto/get-messages.dto';
 import { GetChatSessionsQueryDto } from './dto/get-chat-session.dto';
+import { InitiateChatApiDto } from './dto/initiate-chat-api.dto';
 import {
   ChatSessionResponseDto,
   ChatMessageResponseDto,
@@ -57,6 +70,15 @@ export class ChatController {
     private readonly chatMessageService: ChatMessageService,
     private readonly chatSessionService: ChatSessionService,
     private readonly agentsService: AgentsService,
+    private readonly customersService: CustomersService,
+    private readonly widgetsService: WidgetsService,
+    private readonly redisService: RedisService,
+    @Inject(forwardRef(() => UsersService))
+    private readonly usersService: UsersService,
+    @Inject(forwardRef(() => ChatNotificationService))
+    private readonly chatNotificationService: ChatNotificationService,
+    @Inject(forwardRef(() => ChatGateway))
+    private readonly chatGateway: ChatGateway,
   ) {}
 
   @Get('sessions')
@@ -244,5 +266,238 @@ export class ChatController {
       limit,
       page,
     );
+  }
+
+  @Post('initiate')
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @ApiOperation({
+    summary: 'Initiate chat with customer',
+    description:
+      'Create a new chat session with a customer. The agent will be automatically assigned to the session and joined to the WebSocket room. Customer will be notified about the agent-initiated chat.',
+  })
+  @ApiBody({
+    type: InitiateChatApiDto,
+    description: 'Customer ID to initiate chat with',
+  })
+  @ApiCreatedResponse({
+    description: 'Chat session created successfully',
+    type: ChatSessionResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent or Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid customer ID, agent at max concurrent chats, customer already has active session, or agent lacks access',
+    type: ErrorResponseDto,
+  })
+  async initiateChat(
+    @Body(new ValidationPipe({ transform: true })) body: InitiateChatApiDto,
+    @AuthenticatedUser() user: JwtPayload,
+  ) {
+    this.logger.log(
+      `Agent ${user.email} (${user.sub}) initiating chat with customer ${body.customerId}`,
+    );
+
+    // Validate customer ID format
+    if (!Types.ObjectId.isValid(body.customerId)) {
+      throw new BadRequestException('Invalid customer ID format');
+    }
+
+    const agentUserId = user.sub;
+
+    // Get agent profile and check concurrent chat limits
+    const agentProfile =
+      await this.agentsService.findAgentProfileByUserIdOrFail(agentUserId);
+
+    const activeChats = await this.chatSessionService.countActiveChatsForAgent(
+      new Types.ObjectId(agentUserId),
+    );
+
+    if (activeChats >= agentProfile.maxConcurrentChats) {
+      this.logger.warn(
+        `Agent ${agentUserId} attempted to initiate chat but reached max concurrent chats (${agentProfile.maxConcurrentChats}).`,
+      );
+      throw new BadRequestException(
+        `Maximum concurrent chats limit reached (${agentProfile.maxConcurrentChats}).`,
+      );
+    }
+
+    // Widget access validation
+    const accessCheck = await this.agentsService.canAgentAccessCustomer(
+      agentUserId,
+      body.customerId,
+    );
+
+    if (!accessCheck.canAccess) {
+      this.logger.warn(
+        `Agent ${agentUserId} access denied for customer ${body.customerId}: ${accessCheck.reason}`,
+      );
+      throw new ForbiddenException(`Access denied: ${accessCheck.reason}`);
+    }
+
+    const { customer, widget } = accessCheck;
+
+    // Check for existing active sessions
+    const existingSession =
+      await this.chatSessionService.findActiveSessionForCustomer(
+        body.customerId,
+      );
+
+    if (existingSession) {
+      this.logger.warn(
+        `Agent ${agentUserId} attempted to initiate chat with customer ${body.customerId} who already has active session ${existingSession._id}`,
+      );
+      throw new BadRequestException(
+        'Customer already has an active chat session.',
+      );
+    }
+
+    // Create new chat session with agent pre-assigned
+    const chatSession = await this.chatSessionService.initiateAgentChat(
+      body.customerId,
+      agentUserId,
+      widget,
+      customer,
+    );
+
+    this.logger.log(
+      `Agent ${agentUserId} successfully created chat session ${chatSession._id} with customer ${body.customerId}`,
+    );
+
+    // Handle WebSocket room joining for all agent sockets
+    try {
+      const allAgentSockets =
+        await this.redisService.getAllSocketsForAgent(agentUserId);
+
+      if (allAgentSockets.length > 0) {
+        this.logger.log(
+          `Joining ${allAgentSockets.length} agent sockets to session room for session ${chatSession._id}`,
+        );
+
+        // Join all agent sockets to the chat session room
+        for (const socketId of allAgentSockets) {
+          try {
+            const sockets = await this.chatGateway.server
+              .in(socketId)
+              .fetchSockets();
+            if (sockets.length > 0) {
+              const agentSocket = sockets[0]; // Should only be one socket with this ID
+              await agentSocket.join(
+                `chatSession:${chatSession._id.toString()}`,
+              );
+              this.logger.debug(
+                `Socket ${socketId} joined room chatSession:${chatSession._id.toString()}`,
+              );
+            } else {
+              this.logger.warn(
+                `Socket ${socketId} not found in server for agent ${agentUserId}`,
+              );
+            }
+          } catch (error) {
+            this.logger.error(
+              `Error joining socket ${socketId} to session room: ${error.message}`,
+            );
+          }
+        }
+      } else {
+        this.logger.warn(
+          `Agent ${agentUserId} has no active WebSocket connections. Session created but agent won't receive real-time updates until they connect.`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error joining agent sockets to session room: ${error.message}`,
+        error.stack,
+      );
+      // Don't fail the API call, just log the error
+    }
+
+    // Join customer to chat session room if they are online
+    try {
+      const customerSockets = await this.redisService.getAllSocketsForCustomer(
+        body.customerId,
+      );
+      if (customerSockets.length > 0) {
+        this.logger.log(
+          `Joining customer ${body.customerId} to chat session ${chatSession._id} room. Customer has ${customerSockets.length} active socket(s).`,
+        );
+
+        // Join all customer sockets to the chat session room
+        for (const socketId of customerSockets) {
+          const socket = this.chatGateway.server.sockets.sockets.get(socketId);
+          if (socket) {
+            socket.join(`chatSession:${chatSession._id.toString()}`);
+            this.logger.debug(
+              `Customer socket ${socketId} joined chat session room`,
+            );
+          }
+        }
+      } else {
+        this.logger.log(
+          `Customer ${body.customerId} is not currently online. They will join the chat session room when they connect.`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error joining customer sockets to session room: ${error.message}`,
+        error.stack,
+      );
+      // Don't fail the API call, just log the error
+    }
+
+    // Notify customer about agent-initiated chat
+    try {
+      const agentUser = await this.usersService.findById(agentUserId);
+      const agentName = agentUser ? agentUser.firstName : 'Agent';
+
+      this.chatGateway.server
+        .to(`customer:${body.customerId}`)
+        .emit('server:agent_initiated_chat', {
+          chatSessionId: chatSession._id.toString(),
+          agentName,
+          agentId: agentUserId,
+          widget: {
+            id: widget._id.toString(),
+            name: widget.name,
+            welcomeMessage: widget.welcomeMessage,
+          },
+          session: chatSession,
+        });
+
+      this.logger.log(
+        `Customer ${body.customerId} notified about agent-initiated chat from ${agentName}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error notifying customer about agent-initiated chat: ${error.message}`,
+        error.stack,
+      );
+      // Don't fail the API call, just log the error
+    }
+
+    // Return the created session
+    return {
+      chatSessionId: chatSession._id.toString(),
+      status: chatSession.status,
+      customer: {
+        id: customer._id.toString(),
+        name: customer.name,
+        email: customer.email,
+      },
+      widget: {
+        id: widget._id.toString(),
+        name: widget.name,
+        welcomeMessage: widget.welcomeMessage,
+      },
+      createdAt: chatSession.initiatedAt,
+      message:
+        'Chat session created successfully. You can now send messages using WebSocket events.',
+    };
   }
 }

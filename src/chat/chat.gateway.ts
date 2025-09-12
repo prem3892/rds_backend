@@ -774,7 +774,32 @@ export class ChatGateway
       .to(`chatSession:${chatSession._id.toString()}`)
       .emit('server:new_message', initialMessage);
 
-    // 8. Notify customer about agent-initiated chat
+    // 8. Join customer to chat session room if they are online
+    const customerSockets = await this.redisService.getAllSocketsForCustomer(
+      payload.customerId,
+    );
+    if (customerSockets.length > 0) {
+      this.logger.log(
+        `Joining customer ${payload.customerId} to chat session ${chatSession._id} room. Customer has ${customerSockets.length} active socket(s).`,
+      );
+
+      // Join all customer sockets to the chat session room
+      for (const socketId of customerSockets) {
+        const socket = this.server.sockets.sockets.get(socketId);
+        if (socket) {
+          socket.join(`chatSession:${chatSession._id.toString()}`);
+          this.logger.debug(
+            `Customer socket ${socketId} joined chat session room`,
+          );
+        }
+      }
+    } else {
+      this.logger.log(
+        `Customer ${payload.customerId} is not currently online. They will join the chat session room when they connect.`,
+      );
+    }
+
+    // 9. Notify customer about agent-initiated chat
     const agentUser = await this.usersService.findById(agentUserId);
     const agentName = agentUser ? agentUser.firstName : 'Agent';
 
@@ -793,7 +818,7 @@ export class ChatGateway
         session: chatSession,
       });
 
-    // 9. Prepare acknowledgment data
+    // 10. Prepare acknowledgment data
     const acknowledgmentData = {
       event: 'server:initiate_chat_ack',
       data: {
