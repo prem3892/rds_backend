@@ -427,4 +427,66 @@ export class JobsService {
       throw error;
     }
   }
+
+  /**
+   * Scheduled job that runs every 10 minutes to check if agents are within their shift hours
+   * If an agent is online but outside their shift hours, they will be marked as offline
+   */
+  @Cron('0 */10 * * * *') // Every 10 minutes
+  async checkAgentShiftStatus() {
+    this.logger.debug('Running scheduled job: checkAgentShiftStatus');
+
+    try {
+      // Get all online agents
+      const onlineAgents = await this.agentsService.getAllOnlineAgents();
+
+      if (onlineAgents.length === 0) {
+        this.logger.debug('No online agents found');
+        return;
+      }
+
+      this.logger.debug(
+        `Checking shift status for ${onlineAgents.length} online agents`,
+      );
+
+      let agentsSetOffline = 0;
+
+      // Check each online agent's shift status
+      for (const agent of onlineAgents) {
+        try {
+          const userId = agent.userId.toString();
+          const availability =
+            await this.agentsService.isAgentCurrentlyAvailable(userId);
+
+          // If agent is online but not within shift, set them offline
+          if (availability.isOnline && !availability.isWithinShift) {
+            this.logger.log(
+              `Agent ${userId} is online but outside shift hours. Setting offline.`,
+            );
+
+            await this.agentsService.setOnlineStatus(userId, false);
+            agentsSetOffline++;
+
+            this.logger.log(
+              `Agent ${userId} has been set offline due to being outside shift hours`,
+            );
+          }
+        } catch (error) {
+          this.logger.error(
+            `Error checking shift status for agent ${agent.userId}: ${error.message}`,
+            error.stack,
+          );
+        }
+      }
+
+      this.logger.log(
+        `Shift status check completed. ${agentsSetOffline} agents were set offline due to being outside shift hours`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error in checkAgentShiftStatus job: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
 }

@@ -931,4 +931,14 @@ export class AgentsService {
       `Deleted canned message ${messageId} by agent ${agentUserId}`,
     );
   }
+
+  /**
+   * Get all online agents
+   */
+  async getAllOnlineAgents(): Promise<AgentProfileDocument[]> {
+    return this.agentProfileModel
+      .find({ isOnline: true })
+      .populate('departmentIds')
+      .exec();
+  }
 }
