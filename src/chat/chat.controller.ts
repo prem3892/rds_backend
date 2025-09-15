@@ -430,11 +430,22 @@ export class ChatController {
 
         // Join all customer sockets to the chat session room
         for (const socketId of customerSockets) {
-          const socket = this.chatGateway.server.sockets.sockets.get(socketId);
-          if (socket) {
-            socket.join(`chatSession:${chatSession._id.toString()}`);
+          // const socket = this.chatGateway.server.sockets.sockets.get(socketId);
+          // if (socket) {
+          //   socket.join(`chatSession:${chatSession._id.toString()}`);
+          //   this.logger.debug(
+          //     `Customer socket ${socketId} joined chat session room`,
+          //   );
+          // }
+
+          const sockets = await this.chatGateway.server
+            .in(socketId)
+            .fetchSockets();
+          if (sockets.length > 0) {
+            const customerSocket = sockets[0];
+            customerSocket.join(`chatSession:${chatSession._id.toString()}`);
             this.logger.debug(
-              `Customer socket ${socketId} joined chat session room`,
+              `Customer socket ${socketId} joined room chatSession:${chatSession._id.toString()}`,
             );
           }
         }

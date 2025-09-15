@@ -374,7 +374,59 @@ export function generateWidgetScript(
             this.currentChatSession = { chatSessionId: data.chatSessionId };
             this.showChatInterface();
           });
-    
+
+          this.socket.on('server:agent_initiated_chat', (data) => {
+            console.log('Agent initiated chat:', data);
+            
+            // Set up the chat session
+            this.currentChatSession = { 
+              chatSessionId: data.chatSessionId,
+              agentId: data.agentId,
+              agentName: data.agentName
+            };
+            
+            // Show the chat interface
+            this.showChatInterface();
+            
+            // Update agent status with the agent's name
+            if (data.agentName) {
+              this.showAgentStatus(\`Chatting with \${data.agentName}\`);
+            }
+            
+            // Display the initial message from the agent if provided
+            if (data.initialMessage) {
+              this.displayMessage({
+                _id: \`agent_init_\${Date.now()}\`, // Generate a temporary ID
+                senderType: 'agent',
+                messageContent: { 
+                  text: data.initialMessage, 
+                  type: 'text'
+                },
+                timestamp: new Date().toISOString(),
+                readByAgent: true // Agent messages are considered read by default
+              });
+            }
+            
+            // Display welcome message from widget if available and different from initial message
+            if (data.widget && data.widget.welcomeMessage && data.widget.welcomeMessage !== data.initialMessage) {
+              this.displayMessage({
+                _id: \`welcome_\${Date.now()}\`, // Generate a temporary ID
+                senderType: 'system',
+                messageContent: { 
+                  text: data.widget.welcomeMessage, 
+                  type: 'text'
+                },
+                timestamp: new Date().toISOString(),
+                readByAgent: true
+              });
+            }
+            
+            // If the chat window is minimized, show notification
+            if (this.isMinimized) {
+              this.incrementUnreadCount();
+            }
+          });
+
           this.socket.on('server:new_message', (message) => {
             console.log('Received server:new_message:', message);
             
