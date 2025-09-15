@@ -64,8 +64,8 @@ export class ChatSession {
   @Prop()
   agentLastSeen?: Date;
 
-  @Prop({ required: true, trim: true })
-  initialMessage: string;
+  @Prop({ trim: true })
+  initialMessage?: string;
 
   @Prop({ required: true })
   domain: string;
