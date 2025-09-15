@@ -1,4 +1,5 @@
 import { FingerprintUtil, BrowserInfo } from './fingerprint.util';
+import { IpInfo } from './ip-extractor.util';
 
 describe('FingerprintUtil', () => {
   const mockBrowserInfo: BrowserInfo = {
@@ -109,6 +110,99 @@ describe('FingerprintUtil', () => {
       );
 
       expect(fingerprint1).toBe(fingerprint2);
+    });
+
+    it('should generate different fingerprints when IP info is included', () => {
+      const mockIpInfo: IpInfo = {
+        clientIp: '192.168.1.1',
+        country: 'US',
+        city: 'New York',
+        isCloudflare: true,
+        cfRay: 'test-ray-123',
+        proxyChain: [],
+      };
+
+      const fingerprintWithoutIp = FingerprintUtil.generateFingerprint(
+        mockBrowserInfo,
+        'example.com',
+      );
+      const fingerprintWithIp = FingerprintUtil.generateFingerprint(
+        mockBrowserInfo,
+        'example.com',
+        mockIpInfo,
+      );
+
+      expect(fingerprintWithoutIp).not.toBe(fingerprintWithIp);
+    });
+
+    it('should generate consistent fingerprints with same IP info', () => {
+      const mockIpInfo: IpInfo = {
+        clientIp: '192.168.1.1',
+        country: 'US',
+        city: 'New York',
+        isCloudflare: true,
+        cfRay: 'test-ray-123',
+        proxyChain: [],
+      };
+
+      const fingerprint1 = FingerprintUtil.generateFingerprint(
+        mockBrowserInfo,
+        'example.com',
+        mockIpInfo,
+      );
+      const fingerprint2 = FingerprintUtil.generateFingerprint(
+        mockBrowserInfo,
+        'example.com',
+        mockIpInfo,
+      );
+
+      expect(fingerprint1).toBe(fingerprint2);
+    });
+
+    it('should generate different fingerprints for different IP addresses', () => {
+      const ipInfo1: IpInfo = {
+        clientIp: '192.168.1.1',
+        country: 'US',
+        isCloudflare: false,
+        proxyChain: [],
+      };
+      const ipInfo2: IpInfo = {
+        clientIp: '192.168.1.2',
+        country: 'US',
+        isCloudflare: false,
+        proxyChain: [],
+      };
+
+      const fingerprint1 = FingerprintUtil.generateFingerprint(
+        mockBrowserInfo,
+        'example.com',
+        ipInfo1,
+      );
+      const fingerprint2 = FingerprintUtil.generateFingerprint(
+        mockBrowserInfo,
+        'example.com',
+        ipInfo2,
+      );
+
+      expect(fingerprint1).not.toBe(fingerprint2);
+    });
+
+    it('should handle partial IP info gracefully', () => {
+      const partialIpInfo: IpInfo = {
+        clientIp: '192.168.1.1',
+        isCloudflare: false,
+        proxyChain: [],
+        // country and city are undefined
+      };
+
+      const fingerprint = FingerprintUtil.generateFingerprint(
+        mockBrowserInfo,
+        'example.com',
+        partialIpInfo,
+      );
+
+      expect(fingerprint).toHaveLength(64);
+      expect(FingerprintUtil.isValidFingerprint(fingerprint)).toBe(true);
     });
   });
 

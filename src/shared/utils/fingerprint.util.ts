@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { IpInfo } from './ip-extractor.util';
 
 export interface BrowserInfo {
   userAgent?: string;
@@ -16,13 +17,18 @@ export interface BrowserInfo {
 
 export class FingerprintUtil {
   /**
-   * Generate a unique fingerprint based on browser information and domain
+   * Generate a unique fingerprint based on browser information, domain, and IP info
    * @param browserInfo Browser information object
    * @param domain The domain where the widget is loaded
+   * @param ipInfo Optional IP information for enhanced fingerprinting
    * @returns A unique SHA-256 hash as fingerprint
    */
-  static generateFingerprint(browserInfo: BrowserInfo, domain: string): string {
-    // Create a consistent string from browser info and domain
+  static generateFingerprint(
+    browserInfo: BrowserInfo,
+    domain: string,
+    ipInfo?: IpInfo,
+  ): string {
+    // Create a consistent string from browser info, domain, and IP info
     const fingerprintData = {
       domain: domain.toLowerCase().trim(),
       userAgent: browserInfo.userAgent || '',
@@ -37,6 +43,11 @@ export class FingerprintUtil {
         : '',
       canvas: browserInfo.canvas || '',
       webgl: browserInfo.webgl || '',
+      // Include IP information if provided
+      clientIp: ipInfo?.clientIp || '',
+      country: ipInfo?.country || '',
+      city: ipInfo?.city || '',
+      isCloudflare: ipInfo?.isCloudflare || false,
     };
 
     // Create a deterministic string from the fingerprint data

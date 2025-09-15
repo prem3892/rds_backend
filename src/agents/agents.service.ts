@@ -344,6 +344,23 @@ export class AgentsService {
         `Agent profile for user ID ${agentUserId} not found.`,
       );
     }
+
+    // If trying to go online, check if agent is within shift
+    if (isOnline) {
+      const availabilityStatus =
+        await this.isAgentCurrentlyAvailable(agentUserId);
+
+      if (!availabilityStatus.isWithinShift) {
+        const nextAvailableMessage = availabilityStatus.nextAvailableTime
+          ? ` Your next available time is ${availabilityStatus.nextAvailableTime.toLocaleString()}.`
+          : ' Please check your shift schedule.';
+
+        throw new ForbiddenException(
+          `Cannot go online outside of shift hours.${nextAvailableMessage}`,
+        );
+      }
+    }
+
     agentProfile.isOnline = isOnline;
     agentProfile.lastSeen = new Date();
     return agentProfile.save();

@@ -168,6 +168,23 @@ export class ChatGateway
     );
 
     if (!hasOtherSockets) {
+      // Get current agent profile to check if they were online before disconnection
+      const currentAgentProfile =
+        await this.agentsService.findAgentProfileByUserId(agentId);
+      const wasOnlineBeforeDisconnect = currentAgentProfile?.isOnline || false;
+
+      // Store the previous online status in Redis for potential reconnection
+      if (wasOnlineBeforeDisconnect) {
+        await this.redisService.set(
+          `agent_was_online:${agentId}`,
+          'true',
+          3600, // Store for 1 hour
+        );
+        this.logger.log(
+          `Agent ${agentId} was online before disconnect. Storing previous state for reconnection.`,
+        );
+      }
+
       // Agent has no more connected sockets, mark as offline
       const agentProfile = await this.agentsService.setOnlineStatus(
         agentId,
@@ -651,6 +668,45 @@ export class ChatGateway
       this.logger.log(
         `Agent ${jwtPayload.sub} socket ${client.id} joined ${joinedActiveSessionsCount} existing active chat session(s)`,
       );
+    }
+
+    // Check if agent was online before disconnection and restore status if within shift
+    const wasOnlineBeforeDisconnect = await this.redisService.get(
+      `agent_was_online:${jwtPayload.sub}`,
+    );
+    if (wasOnlineBeforeDisconnect === 'true') {
+      try {
+        // Check if agent is currently within shift
+        const availabilityStatus =
+          await this.agentsService.isAgentCurrentlyAvailable(jwtPayload.sub);
+
+        if (availabilityStatus.isWithinShift) {
+          // Restore online status
+          const agentProfile = await this.agentsService.setOnlineStatus(
+            jwtPayload.sub,
+            true,
+          );
+          client.join('online_agents');
+          this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
+
+          this.logger.log(
+            `Agent ${jwtPayload.sub} reconnected and restored to online status (within shift).`,
+          );
+        } else {
+          this.logger.log(
+            `Agent ${jwtPayload.sub} was online before disconnect but is now outside shift hours. Not restoring online status.`,
+          );
+        }
+
+        // Clear the stored state regardless of whether we restored or not
+        await this.redisService.del(`agent_was_online:${jwtPayload.sub}`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to restore online status for agent ${jwtPayload.sub}: ${error.message}`,
+        );
+        // Clear the stored state even if restoration failed
+        await this.redisService.del(`agent_was_online:${jwtPayload.sub}`);
+      }
     }
 
     return {
@@ -1575,6 +1631,7 @@ export class ChatGateway
     const serverFingerprint = FingerprintUtil.generateFingerprint(
       payload.browserInfo,
       payload.domain,
+      ipInfo,
     );
 
     this.logger.debug(
