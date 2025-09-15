@@ -272,7 +272,8 @@ export class ChatSessionService {
       agentHistory: [
         {
           agentId: agentObjectId,
-          assignedAt: now,
+          joinedAt: now,
+          isActive: true,
         },
       ],
     });
