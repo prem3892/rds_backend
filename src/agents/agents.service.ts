@@ -383,15 +383,16 @@ export class AgentsService {
       `Got widget ${JSON.stringify(widget)} for widgetId ${widgetId}`,
     );
 
-    // Find all online agents first
+    // Find all online agents from the same organization as the widget
     const onlineAgents = await this.agentProfileModel
       .find({
         isOnline: true, // First check: agent must be online
+        adminId: widget.createdBy, // CRITICAL: Only agents from the same organization
       })
       .exec();
 
     this.logger.debug(
-      `Found ${onlineAgents.length} online agents for widget ${widgetId} and details are ${onlineAgents}`,
+      `Found ${onlineAgents.length} online agents from organization ${widget.createdBy} for widget ${widgetId}`,
     );
 
     // Filter agents by department match and domain access
@@ -439,7 +440,7 @@ export class AgentsService {
     }
 
     this.logger.log(
-      `Found ${eligibleAgents.length} eligible agents for widget ${widgetId} and domain ${domain}`,
+      `Found ${eligibleAgents.length} eligible agents from organization ${widget.createdBy} for widget ${widgetId} and domain ${domain}`,
     );
     return eligibleAgents;
   }

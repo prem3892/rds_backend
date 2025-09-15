@@ -194,7 +194,10 @@ export class ChatGateway
         `Agent ${agentId} marked as offline (no remaining sockets).`,
       );
       client.leave(`agent:${agentId}`);
-      client.leave('online_agents');
+      // Leave organization-specific online agents room
+      if (agentProfile?.adminId) {
+        client.leave(`online_agents:${agentProfile.adminId.toString()}`);
+      }
       this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
 
       const activeSessions =
@@ -234,7 +237,12 @@ export class ChatGateway
       );
       // Just remove this socket from the rooms, but don't change online status
       client.leave(`agent:${agentId}`);
-      client.leave('online_agents');
+      // Leave organization-specific online agents room
+      const agentProfile =
+        await this.agentsService.findAgentProfileByUserId(agentId);
+      if (agentProfile?.adminId) {
+        client.leave(`online_agents:${agentProfile.adminId.toString()}`);
+      }
     }
   }
 
@@ -686,7 +694,10 @@ export class ChatGateway
             jwtPayload.sub,
             true,
           );
-          client.join('online_agents');
+          // Join organization-specific online agents room
+          if (agentProfile?.adminId) {
+            client.join(`online_agents:${agentProfile.adminId.toString()}`);
+          }
           this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
 
           this.logger.log(
@@ -928,17 +939,25 @@ export class ChatGateway
     );
 
     // Manage room membership for ALL agent's sockets
+    const organizationRoom = agentProfile?.adminId
+      ? `online_agents:${agentProfile.adminId.toString()}`
+      : null;
+
     for (const socketId of allAgentSockets) {
       try {
         const sockets = await this.server.in(socketId).fetchSockets();
         if (sockets.length > 0) {
           const agentSocket = sockets[0]; // Should only be one socket with this ID
-          if (data.isOnline) {
-            await agentSocket.join('online_agents');
-            this.logger.debug(`Socket ${socketId} joined 'online_agents' room`);
-          } else {
-            await agentSocket.leave('online_agents');
-            this.logger.debug(`Socket ${socketId} left 'online_agents' room`);
+          if (data.isOnline && organizationRoom) {
+            await agentSocket.join(organizationRoom);
+            this.logger.debug(
+              `Socket ${socketId} joined '${organizationRoom}' room`,
+            );
+          } else if (!data.isOnline && organizationRoom) {
+            await agentSocket.leave(organizationRoom);
+            this.logger.debug(
+              `Socket ${socketId} left '${organizationRoom}' room`,
+            );
           }
         } else {
           this.logger.warn(
@@ -1203,18 +1222,24 @@ export class ChatGateway
           },
         });
 
-      // Emit to other agents that the chat is taken
+      // Emit to other agents in the same organization that the chat is taken
       // Exclude ALL of the accepting agent's sockets, not just the triggering one
       let excludeSocketIds = allAgentSockets;
-      this.server
-        .to('online_agents')
-        .except(excludeSocketIds)
-        .emit('server:chat_taken_or_resolved', {
-          chatSessionId: session._id.toString(),
-          acceptedByAgent: agentUser
-            ? `${agentUser.firstName} ${agentUser.lastName}`
-            : 'Support Agent',
-        });
+      const organizationRoom = agentProfile?.adminId
+        ? `online_agents:${agentProfile.adminId.toString()}`
+        : null;
+
+      if (organizationRoom) {
+        this.server
+          .to(organizationRoom)
+          .except(excludeSocketIds)
+          .emit('server:chat_taken_or_resolved', {
+            chatSessionId: session._id.toString(),
+            acceptedByAgent: agentUser
+              ? `${agentUser.firstName} ${agentUser.lastName}`
+              : 'Support Agent',
+          });
+      }
 
       // System message to chat room
       const systemMessage = await this.chatMessageService.createMessage({
@@ -1510,6 +1535,10 @@ export class ChatGateway
       data.chatSessionId,
     );
 
+    // Get agent profile for organization information
+    const agentProfile =
+      await this.agentsService.findAgentProfileByUserIdOrFail(agentUserId);
+
     // Get all sockets for this agent for multi-socket support
     const allAgentSockets =
       await this.redisService.getAllSocketsForAgent(agentUserId);
@@ -1566,15 +1595,21 @@ export class ChatGateway
       .to(`agent:${agentUserId}`)
       .emit(acknowledgmentData.event, acknowledgmentData.data);
 
-    // Emit to other agents that the chat is resolved (similar to chat_taken_or_resolved)
+    // Emit to other agents in the same organization that the chat is resolved
     // Exclude ALL of the resolving agent's sockets, not just the triggering one
-    this.server
-      .to('online_agents')
-      .except(allAgentSockets)
-      .emit('server:chat_taken_or_resolved', {
-        chatSessionId: session._id.toString(),
-        status: 'resolved',
-      });
+    const organizationRoom = agentProfile?.adminId
+      ? `online_agents:${agentProfile.adminId.toString()}`
+      : null;
+
+    if (organizationRoom) {
+      this.server
+        .to(organizationRoom)
+        .except(allAgentSockets)
+        .emit('server:chat_taken_or_resolved', {
+          chatSessionId: session._id.toString(),
+          status: 'resolved',
+        });
+    }
 
     // Participants remain in the room for resolved chats, unlike ended chats, unless specified otherwise.
     // For now, assume they stay for a bit or until explicitly left.
