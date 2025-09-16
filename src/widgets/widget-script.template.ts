@@ -363,9 +363,9 @@ export function generateWidgetScript(
             
             if (data.activeSession) {
               // Temporary disabling history feature
-              //this.currentChatSession = data.activeSession;
-              //this.showChatInterface();
-              //this.loadChatHistory();
+              this.currentChatSession = data.activeSession;
+              this.showChatInterface();
+              this.loadChatHistory();
             }
           });
     
@@ -996,7 +996,7 @@ export function generateWidgetScript(
         async loadChatHistory() {
           if (this.currentChatSession?.chatSessionId) {
             try {
-              const response = await fetch(\`\${API_BASE}/chat/sessions/\${this.currentChatSession.chatSessionId}/messages\`);
+              const response = await fetch(\`\${API_BASE}/public/chat/sessions/\${this.currentChatSession.chatSessionId}/messages\`);
               if (!response.ok) throw new Error('Failed to fetch history');
               const messages = await response.json();
               

@@ -119,7 +119,7 @@ export class AgentsService {
     if (typeof userId === 'string') _id = new Types.ObjectId(userId);
     else _id = userId;
 
-    this.logger.debug(`Converted userId to Types.ObjectId: ${_id}`);
+    this.logger.debug(`Convertedd userId to Types.ObjectId: ${_id}`);
 
     return this.agentProfileModel
       .findOne({ userId: _id })

@@ -23,6 +23,7 @@ import { ChatMessageService } from './services/chat-message/chat-message.service
 import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
 import { VisitorStateService } from './services/visitor-state/visitor-state.service';
 import { VisitorTrackingController } from './visitor-tracking.controller';
+import { PublicChatController } from './public-chat.controller';
 
 @Module({
   imports: [
@@ -47,7 +48,11 @@ import { VisitorTrackingController } from './visitor-tracking.controller';
     ChatNotificationService,
     VisitorStateService,
   ],
-  controllers: [ChatController, VisitorTrackingController],
+  controllers: [
+    ChatController,
+    VisitorTrackingController,
+    PublicChatController,
+  ],
   exports: [
     ChatSessionService,
     ChatMessageService,

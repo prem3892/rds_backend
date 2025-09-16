@@ -238,9 +238,13 @@ export class MailerService {
     to: string,
     data: ChatTranscriptTemplateData,
   ): Promise<boolean> {
+    const inactivityTypeLabel =
+      data.inactivityType === 'agent' ? 'Agent' : 'Customer';
+    const subject = `🚨 ${inactivityTypeLabel} Inactivity Alert - Chat Session ${data.sessionId} Ended`;
+
     return this.sendTemplateMail({
       to,
-      subject: `🚨 Agent Inactivity Alert - Chat Session ${data.sessionId} Ended`,
+      subject,
       template: 'chat-transcript',
       context: data,
     });

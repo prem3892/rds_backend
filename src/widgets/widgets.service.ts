@@ -40,16 +40,13 @@ export class WidgetsService {
     createWidgetDto: CreateWidgetDto,
     adminId: Types.ObjectId,
   ): Promise<WidgetDocument> {
-    if (
-      createWidgetDto.departmentIds &&
-      createWidgetDto.departmentIds.length > 0
-    ) {
+    let departmentIds = createWidgetDto.departmentIds;
+
+    if (departmentIds && departmentIds.length > 0) {
       // Only validate departments that belong to the same admin
       const departments = await this.departmentsService.findAllByAdmin(adminId);
       const adminDepartmentIds = departments.map((dept) => dept._id.toString());
-      const requestedDepartmentIds = createWidgetDto.departmentIds.map((id) =>
-        id.toString(),
-      );
+      const requestedDepartmentIds = departmentIds.map((id) => id.toString());
 
       const invalidDepartments = requestedDepartmentIds.filter(
         (id) => !adminDepartmentIds.includes(id),
@@ -60,10 +57,16 @@ export class WidgetsService {
           'One or more department IDs are invalid or do not belong to you.',
         );
       }
+    } else {
+      // No departments provided, assign default department
+      const defaultDepartment =
+        await this.departmentsService.findOrCreateDefaultDepartment(adminId);
+      departmentIds = [defaultDepartment._id];
     }
 
     const newWidget = new this.widgetModel({
       ...createWidgetDto,
+      departmentIds,
       createdBy: adminId,
     });
     newWidget.injectableScriptUrl = this.generateInjectableScriptUrl(
