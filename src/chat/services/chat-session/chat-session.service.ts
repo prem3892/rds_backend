@@ -51,8 +51,18 @@ export class ChatSessionService {
    */
   async findById(
     id: string | Types.ObjectId,
-    options: { populateCustomer?: boolean } = {},
+    options: {
+      populateCustomer?: boolean;
+      populateWidget?: boolean;
+      populateDepartment?: boolean;
+    } = {},
   ): Promise<ChatSessionDocument | null> {
+    const {
+      populateCustomer = false,
+      populateWidget = true,
+      populateDepartment = true,
+    } = options;
+
     let _id: Types.ObjectId;
 
     // convert the string to ObjectId if necessary
@@ -60,14 +70,22 @@ export class ChatSessionService {
       _id = new Types.ObjectId(id); // Convert string to ObjectId
     else _id = id;
 
-    const query = this.chatSessionModel
-      .findById(id)
-      .populate('widgetId')
-      .populate('departmentId');
+    const query = this.chatSessionModel.findById(id);
+    // .populate('widgetId')
+    //.populate('departmentId');
+
+    // Optionally populate widget
+    if (populateWidget) {
+      query.populate('widgetId');
+    }
 
     // Optionally populate customerId based on the parameter
-    if (options.populateCustomer) {
+    if (populateCustomer) {
       query.populate('customerId');
+    }
+
+    if (populateDepartment) {
+      query.populate('departmentId');
     }
 
     return query.exec();
@@ -200,6 +218,74 @@ export class ChatSessionService {
   }
 
   /**
+   * Check if customer has any active chat sessions
+   */
+  async findActiveSessionForCustomer(
+    customerId: string,
+  ): Promise<ChatSessionDocument | null> {
+    return this.chatSessionModel
+      .findOne({
+        customerId: new Types.ObjectId(customerId),
+        status: {
+          $in: [
+            ChatSessionStatus.PENDING_ASSIGNMENT,
+            ChatSessionStatus.ACTIVE,
+            ChatSessionStatus.PENDING_AGENT_RECONNECT,
+          ],
+        },
+      })
+      .exec();
+  }
+
+  /**
+   * Create a new chat session initiated by an agent
+   */
+  async initiateAgentChat(
+    customerId: string,
+    agentId: string,
+    widget: any,
+    customer: any,
+  ): Promise<ChatSessionDocument> {
+    const customerObjectId = new Types.ObjectId(customerId);
+    const agentObjectId = new Types.ObjectId(agentId);
+    const now = new Date();
+
+    // Get customer's domain from metadata
+    const domain = customer.metadata?.initialDomain || 'unknown';
+
+    // Use the first department from the widget as default
+    const departmentId =
+      widget.departmentIds && widget.departmentIds.length > 0
+        ? widget.departmentIds[0]
+        : null;
+
+    const newSession = new this.chatSessionModel({
+      customerId: customerObjectId,
+      widgetId: widget._id,
+      departmentId,
+      agentId: agentObjectId,
+      status: ChatSessionStatus.ACTIVE, // Agent-initiated sessions start as ACTIVE
+      domain,
+      initiatedAt: now,
+      acceptedAt: now, // Agent immediately accepts their own initiated chat
+      agentLastSeen: now,
+      agentHistory: [
+        {
+          agentId: agentObjectId,
+          joinedAt: now,
+          isActive: true,
+        },
+      ],
+    });
+
+    const savedSession = await newSession.save();
+
+    return this.findByIdOrFail(savedSession._id, {
+      populateCustomer: true,
+    });
+  }
+
+  /**
    *
    * @param chatSessionId
    * @param agentId
@@ -325,6 +411,40 @@ export class ChatSessionService {
       .exec();
   }
 
+  async getPendingSessionsForAgent(
+    agentId: string,
+  ): Promise<ChatSessionDocument[]> {
+    this.logger.log(`Getting pending sessions for agent ${agentId}`);
+
+    // Get agent's accessible widgets based on department assignments
+    const accessibleWidgets =
+      await this.agentsService.getAgentAccessibleWidgets(agentId);
+
+    if (!accessibleWidgets || accessibleWidgets.length === 0) {
+      this.logger.debug(`No accessible widgets found for agent ${agentId}`);
+      return [];
+    }
+
+    const widgetIds = accessibleWidgets.map(
+      (widget) => new Types.ObjectId(widget._id),
+    );
+
+    this.logger.debug(
+      `Agent ${agentId} has access to ${widgetIds.length} widgets: ${widgetIds.map((id) => id.toString()).join(', ')}`,
+    );
+
+    return this.chatSessionModel
+      .find({
+        widgetId: { $in: widgetIds },
+        status: ChatSessionStatus.PENDING_ASSIGNMENT,
+      })
+      .populate('widgetId', 'name')
+      .populate('customerId', 'name email metadata')
+      .populate('departmentId', 'name')
+      .sort({ initiatedAt: 1 }) // Oldest first - they need attention first
+      .exec();
+  }
+
   async getPendingAssignmentSessions(
     firstAlertThresholdMs: number,
     subsequentAlertIntervalMs: number,
@@ -427,12 +547,14 @@ export class ChatSessionService {
     const now = new Date();
     const agentObjectId =
       typeof agentId === 'string' ? new Types.ObjectId(agentId) : agentId;
+    const sessionObjectId =
+      typeof sessionId === 'string' ? new Types.ObjectId(sessionId) : sessionId;
 
     // Update the agent history to mark the agent as inactive
     const updatedSession = await this.chatSessionModel
       .findOneAndUpdate(
         {
-          _id: sessionId,
+          _id: sessionObjectId,
           status: ChatSessionStatus.ACTIVE,
           agentId: agentObjectId,
           'agentHistory.agentId': agentObjectId,
@@ -480,15 +602,96 @@ export class ChatSessionService {
   ): Promise<ChatSessionDocument[]> {
     const inactivityThreshold = new Date(Date.now() - inactivityThresholdMs);
 
+    return (
+      this.chatSessionModel
+        .find({
+          status: ChatSessionStatus.ACTIVE,
+          agentId: { $ne: null },
+          agentLastSeen: { $lt: inactivityThreshold },
+        })
+        // .populate('agentId')
+        .populate('customerId')
+        .exec()
+    );
+  }
+
+  /**
+   * Find active chat sessions where the customer has been inactive for a specified duration
+   * @param inactivityThresholdMs The threshold in milliseconds for customer inactivity
+   * @returns Array of chat sessions with inactive customers
+   */
+  async findSessionsWithInactiveCustomers(
+    inactivityThresholdMs: number,
+  ): Promise<ChatSessionDocument[]> {
+    const inactivityThreshold = new Date(Date.now() - inactivityThresholdMs);
+
     return this.chatSessionModel
       .find({
         status: ChatSessionStatus.ACTIVE,
-        agentId: { $ne: null },
-        agentLastSeen: { $lt: inactivityThreshold },
+        customerId: { $ne: null },
+        customerLastSeen: { $lt: inactivityThreshold },
       })
-      .populate('agentId')
       .populate('customerId')
       .exec();
+  }
+
+  /**
+   * Find all active chat sessions
+   * @returns Array of all active chat sessions
+   */
+  async findAllActiveSessions(): Promise<ChatSessionDocument[]> {
+    return this.chatSessionModel
+      .find({
+        status: ChatSessionStatus.ACTIVE,
+      })
+      .populate('customerId')
+      .exec();
+  }
+
+  /**
+   * Marks a customer as inactive in a chat session and updates the session status
+   * @param sessionId The chat session ID
+   * @returns The updated chat session
+   */
+  async markCustomerInactive(
+    sessionId: string | Types.ObjectId,
+  ): Promise<ChatSessionDocument> {
+    const now = new Date();
+    const sessionObjectId =
+      typeof sessionId === 'string' ? new Types.ObjectId(sessionId) : sessionId;
+
+    // Update the session to mark customer as inactive
+    const updatedSession = await this.chatSessionModel
+      .findOneAndUpdate(
+        {
+          _id: sessionObjectId,
+          status: ChatSessionStatus.ACTIVE,
+        },
+        {
+          $set: {
+            status: ChatSessionStatus.ABANDONED_BY_CUSTOMER,
+            endedAt: now,
+          },
+        },
+        {
+          new: true,
+        },
+      )
+      .populate('widgetId')
+      .populate('customerId')
+      .populate('departmentId')
+      .exec();
+
+    if (!updatedSession) {
+      throw new NotFoundException(
+        `Chat session with ID ${sessionId} not found or is not active.`,
+      );
+    }
+
+    this.logger.log(
+      `Customer marked as inactive in chat session ${sessionId}. Session status updated to ABANDONED_BY_CUSTOMER.`,
+    );
+    return updatedSession;
   }
 
   async findAllPaginated(queryDto: GetChatSessionsQueryDto): Promise<{

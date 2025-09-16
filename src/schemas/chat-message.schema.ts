@@ -43,6 +43,19 @@ export class ChatMessage {
 
   @Prop({ default: false })
   readByCustomer: boolean;
+
+  // Virtual field
+  agentInfo?: {
+    fullName?: string;
+    profilePicture?: string;
+  };
 }
 
 export const ChatMessageSchema = SchemaFactory.createForClass(ChatMessage);
+
+// Virtual field for agent information - populated manually in service
+ChatMessageSchema.virtual('agentInfo');
+
+// Ensure virtual fields are included in JSON output
+ChatMessageSchema.set('toJSON', { virtuals: true });
+ChatMessageSchema.set('toObject', { virtuals: true });

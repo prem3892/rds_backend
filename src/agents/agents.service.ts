@@ -26,6 +26,7 @@ import { UserRole } from '../shared/constants/enums';
 import { DepartmentsService } from 'src/departments/departments.service';
 import { ChatSessionService } from 'src/chat/services/chat-session/chat-session.service';
 import { WidgetsService } from 'src/widgets/widgets.service';
+import { CustomersService } from 'src/customers/customers.service';
 import { ShiftService } from '../shared/services/shift.service';
 
 @Injectable()
@@ -42,6 +43,8 @@ export class AgentsService {
     @Inject(forwardRef(() => ChatSessionService))
     private readonly chatSessionService: ChatSessionService,
     private readonly widgetsService: WidgetsService,
+    @Inject(forwardRef(() => CustomersService))
+    private readonly customersService: CustomersService,
     private readonly shiftService: ShiftService,
   ) {}
 
@@ -103,6 +106,10 @@ export class AgentsService {
       .exec();
   }
 
+  /**
+   * Find agent profile by user ID.
+   * Note: Departments are populated here
+   */
   async findAgentProfileByUserId(
     userId: string | Types.ObjectId,
   ): Promise<AgentProfileDocument | null> {
@@ -124,6 +131,11 @@ export class AgentsService {
     userId: string | Types.ObjectId,
   ): Promise<AgentProfileDocument> {
     const profile = await this.findAgentProfileByUserId(userId);
+
+    this.logger.debug(
+      `[findAgentProfileByUserIdOrFail] Found agent profile for user ID ${userId}:`,
+      profile,
+    );
 
     if (!profile) {
       this.logger.error(
@@ -187,15 +199,22 @@ export class AgentsService {
     updateDto: UpdateAgentProfileDto,
     isAdminUpdate: boolean = false, // to distinguish admin updates from agent's own
   ): Promise<AgentProfileDocument> {
-    this.logger.log(`Updating agent profile for user ID ${agentUserId}:`, updateDto);
+    this.logger.log(
+      `Updating agent profile for user ID ${agentUserId}:`,
+      updateDto,
+    );
 
-    if (typeof agentUserId === 'string') agentUserId = new Types.ObjectId(agentUserId);
+    if (typeof agentUserId === 'string')
+      agentUserId = new Types.ObjectId(agentUserId);
 
     const agentProfile = await this.agentProfileModel
       .findOne({ userId: agentUserId })
       .exec();
 
-    this.logger.log(`Found agent profile for user ID ${agentUserId}:`, agentProfile);
+    this.logger.log(
+      `Found agent profile for user ID ${agentUserId}:`,
+      agentProfile,
+    );
     if (!agentProfile) {
       throw new NotFoundException(
         `Agent profile for user ID ${agentUserId} not found.`,
@@ -330,6 +349,23 @@ export class AgentsService {
         `Agent profile for user ID ${agentUserId} not found.`,
       );
     }
+
+    // If trying to go online, check if agent is within shift
+    if (isOnline) {
+      const availabilityStatus =
+        await this.isAgentCurrentlyAvailable(agentUserId);
+
+      if (!availabilityStatus.isWithinShift) {
+        const nextAvailableMessage = availabilityStatus.nextAvailableTime
+          ? ` Your next available time is ${availabilityStatus.nextAvailableTime.toLocaleString()}.`
+          : ' Please check your shift schedule.';
+
+        throw new ForbiddenException(
+          `Cannot go online outside of shift hours.${nextAvailableMessage}`,
+        );
+      }
+    }
+
     agentProfile.isOnline = isOnline;
     agentProfile.lastSeen = new Date();
     return agentProfile.save();
@@ -352,15 +388,16 @@ export class AgentsService {
       `Got widget ${JSON.stringify(widget)} for widgetId ${widgetId}`,
     );
 
-    // Find all online agents first
+    // Find all online agents from the same organization as the widget
     const onlineAgents = await this.agentProfileModel
       .find({
         isOnline: true, // First check: agent must be online
+        adminId: widget.createdBy, // CRITICAL: Only agents from the same organization
       })
       .exec();
 
     this.logger.debug(
-      `Found ${onlineAgents.length} online agents for widget ${widgetId} and details are ${onlineAgents}`,
+      `Found ${onlineAgents.length} online agents from organization ${widget.createdBy} for widget ${widgetId}`,
     );
 
     // Filter agents by department match and domain access
@@ -408,7 +445,7 @@ export class AgentsService {
     }
 
     this.logger.log(
-      `Found ${eligibleAgents.length} eligible agents for widget ${widgetId} and domain ${domain}`,
+      `Found ${eligibleAgents.length} eligible agents from organization ${widget.createdBy} for widget ${widgetId} and domain ${domain}`,
     );
     return eligibleAgents;
   }
@@ -462,9 +499,13 @@ export class AgentsService {
         return [];
       }
 
+      this.logger.debug(
+        `Found agent ${agent.userId} with departments ${agent.departmentIds}`,
+      );
+
       // Get all widgets that have at least one department matching the agent's departments
       const widgets = await this.widgetsService.findWidgetsByDepartments(
-        agent.departmentIds.map((dept) => dept.toString()),
+        agent.departmentIds.map((dept) => dept._id.toString()),
       );
 
       this.logger.debug(
@@ -478,6 +519,84 @@ export class AgentsService {
         error.stack,
       );
       return [];
+    }
+  }
+
+  /**
+   * Check if an agent can access a specific customer based on widget permissions
+   */
+  async canAgentAccessCustomer(
+    agentUserId: string,
+    customerId: string,
+  ): Promise<{
+    canAccess: boolean;
+    reason?: string;
+    widget?: any;
+    customer?: any;
+  }> {
+    try {
+      // 1. Get agent profile
+      const agentProfile = await this.findAgentProfileByUserId(agentUserId);
+      if (!agentProfile) {
+        return { canAccess: false, reason: 'Agent profile not found' };
+      }
+
+      // 2. Get customer and their widget
+      const customer = await this.customersService.findById(customerId);
+      if (!customer) {
+        return { canAccess: false, reason: 'Customer not found' };
+      }
+
+      if (customer.isBlocked) {
+        return { canAccess: false, reason: 'Customer is blocked', customer };
+      }
+
+      // 3. Get widget
+      const widget = await this.widgetsService.findById(customer.widgetId);
+      if (!widget) {
+        return { canAccess: false, reason: 'Widget not found', customer };
+      }
+
+      // 4. Check department overlap
+      const hasDepartmentMatch = agentProfile.departmentIds.some(
+        (agentDeptId) =>
+          widget.departmentIds.some(
+            (widgetDeptId) =>
+              agentDeptId.toString() === widgetDeptId.toString(),
+          ),
+      );
+
+      if (!hasDepartmentMatch) {
+        return {
+          canAccess: false,
+          reason: 'No department access',
+          widget,
+          customer,
+        };
+      }
+
+      // 5. Check domain access
+      const customerDomain = customer.metadata?.initialDomain || 'unknown';
+      const hasDomainAccess =
+        agentProfile.domainAccess.includes('*') ||
+        agentProfile.domainAccess.includes(customerDomain);
+
+      if (!hasDomainAccess) {
+        return {
+          canAccess: false,
+          reason: 'No domain access',
+          widget,
+          customer,
+        };
+      }
+
+      return { canAccess: true, widget, customer };
+    } catch (error) {
+      this.logger.error(
+        `Error validating agent access for agent ${agentUserId} and customer ${customerId}: ${error.message}`,
+        error.stack,
+      );
+      return { canAccess: false, reason: `Validation error: ${error.message}` };
     }
   }
 
@@ -566,6 +685,9 @@ export class AgentsService {
       hasPrev: boolean;
     };
   }> {
+    this.logger.debug(
+      `Getting canned messages for agent ${agentUserId} with query: ${JSON.stringify(queryDto)}`,
+    );
     const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
 
     const {
@@ -834,5 +956,15 @@ export class AgentsService {
     this.logger.log(
       `Deleted canned message ${messageId} by agent ${agentUserId}`,
     );
+  }
+
+  /**
+   * Get all online agents
+   */
+  async getAllOnlineAgents(): Promise<AgentProfileDocument[]> {
+    return this.agentProfileModel
+      .find({ isOnline: true })
+      .populate('departmentIds')
+      .exec();
   }
 }

@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { DayShiftEntry, DayShiftEntrySchema } from './shift.schema';
+import { Department, DepartmentDocument } from './department.schema';
 
 export type AgentProfileDocument = AgentProfile & Document;
 
@@ -28,7 +29,7 @@ export class AgentProfile {
     index: true,
     default: [],
   })
-  departmentIds: Types.ObjectId[];
+  departmentIds: Types.ObjectId[] | DepartmentDocument[];
 
   @Prop({ type: [String], index: true, default: [] })
   domainAccess: string[]; // Can be "*"

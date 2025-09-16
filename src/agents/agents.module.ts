@@ -14,6 +14,7 @@ import { UsersModule } from '../users/users.module'; // For updating user part l
 import { DepartmentsModule } from 'src/departments/departments.module';
 import { ChatModule } from 'src/chat/chat.module'; // For active chat counts
 import { WidgetsModule } from 'src/widgets/widgets.module'; // For widget details
+import { CustomersModule } from 'src/customers/customers.module'; // For customer access validation
 import { ShiftService } from '../shared/services/shift.service';
 
 @Module({
@@ -26,6 +27,7 @@ import { ShiftService } from '../shared/services/shift.service';
     DepartmentsModule, // To validate departmentIds
     forwardRef(() => ChatModule), // To get active chat counts
     WidgetsModule, // For widget access
+    forwardRef(() => CustomersModule), // For customer access validation
   ],
   controllers: [AgentsController],
   providers: [AgentsService, ShiftService],

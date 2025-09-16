@@ -22,18 +22,27 @@ jobs:
       - name: Docker Hub login
         uses: docker/login-action@v2
         with:
+          registry: ghcr.io
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       # 4. Build Docker image
       - name: Build Docker image
         run: |
-          docker build -t lokeshseattle/rds-backend:latest .
+          IMAGE=ghcr.io/lokeshseattle/rds-backend
+          TAG=${GITHUB_SHA::7}
+
+          echo "Building $IMAGE:$TAG and $IMAGE:latest"
+          docker build -t $IMAGE:$TAG -t $IMAGE:latest .
 
       # 5. Push Docker image to Docker Hub
       - name: Push Docker image
         run: |
-          docker push lokeshseattle/rds-backend:latest
+          IMAGE=ghcr.io/lokeshseattle/rds-backend
+          TAG=${GITHUB_SHA::7}
+
+          docker push $IMAGE:$TAG
+          docker push $IMAGE:latest
 
       # 6. SSH to EC2 and pull & restart container
       - name: Deploy on EC2
@@ -44,7 +53,12 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd /home/ubuntu/rds-chat-api
-            echo "Pull latest backend image..."
+
+            IMAGE=ghcr.io/lokeshseattle/rds-backend
+            TAG=${GITHUB_SHA::7}   # same short SHA
+
+            echo "Pulling updated image $IMAGE:$TAG..."
             docker compose pull backend
-            echo "Start/update services..."
-            docker compose up -d
+
+            echo "Recreating backend container..."
+            docker compose up -d --force-recreate --remove-orphans backend

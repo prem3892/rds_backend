@@ -63,6 +63,11 @@ export class AuthService {
     // Generate tokens
     const tokens = await this.generateTokens(validatedUser);
 
+    // Get the isOnline property from the agent profile
+    const agentProfile = await this.agentsService.findAgentProfileByUserId(
+      validatedUser._id,
+    );
+
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
@@ -75,6 +80,7 @@ export class AuthService {
         phoneNo: validatedUser.phoneNo,
         website: validatedUser.website,
         isEmailVerified: validatedUser.isEmailVerified,
+        isOnline: agentProfile?.isOnline ?? false,
       },
     };
   }
@@ -252,6 +258,16 @@ export class AuthService {
         refreshTokenExpires: undefined,
         tokenVersion: { $inc: 1 }, // Increment token version to invalidate all existing tokens
       });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async postLogoutCleanUp(userId: string): Promise<boolean> {
+    try {
+      await this.revokeRefreshToken(userId);
+      await this.agentsService.setOnlineStatus(userId, false);
       return true;
     } catch (error) {
       return false;

@@ -53,3 +53,27 @@ export interface SystemNotificationTemplateData {
   actionRequired?: boolean;
   actionLink?: string;
 }
+
+export interface ChatTranscriptTemplateData {
+  customerName: string;
+  customerEmail?: string;
+  sessionId: string;
+  chatStartTime: string;
+  chatEndTime: string;
+  inactivityReason: string;
+  inactivityType: 'agent' | 'customer';
+  agentHistory: Array<{
+    agentName: string;
+    joinedAt: string;
+    leftAt?: string;
+    duration: string;
+  }>;
+  transcript: Array<{
+    timestamp: string;
+    senderName: string;
+    senderType: 'customer' | 'agent';
+    message: string;
+  }>;
+  domain: string;
+  department: string;
+}

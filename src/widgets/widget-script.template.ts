@@ -98,6 +98,9 @@ export function generateWidgetScript(
           this.typingTimeout = null;
           this.isMinimized = true;
           this.unreadCount = 0;
+          this.messages = new Map(); // Track messages by their _id
+          this.pendingMessages = new Set(); // Track messages being sent
+          this.messageReadObserver = null; // IntersectionObserver for tracking message visibility
           
           this.init();
         }
@@ -181,16 +184,20 @@ export function generateWidgetScript(
           
           this.chatWindow.innerHTML = \`
             <!-- Header -->
-            <div class="flex items-center justify-between p-4 rounded-t-lg text-white flex-shrink-0" style="background-color: \${primaryColor}">
-              <div class="flex items-center space-x-2">
-                <div class="w-2 h-2 bg-green-400 rounded-full"></div>
-                <span class="font-medium">\${utils.escapeHtml(headerText)}</span>
+            <div class="p-4 rounded-t-lg text-white flex-shrink-0" style="background-color: \${primaryColor}">
+              <!-- Header Row -->
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center space-x-2 flex-1 justify-center">
+                  <span class="font-medium">\${utils.escapeHtml(headerText)}</span>
+                </div>
+                <button id="minimize-btn" class="text-white hover:text-gray-200 absolute top-4 right-4">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/>
+                  </svg>
+                </button>
               </div>
-              <button id="minimize-btn" class="text-white hover:text-gray-200">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/>
-                </svg>
-              </button>
+              <!-- Agent Profiles Row -->
+              <div id="agent-profiles" class="flex items-center justify-center space-x-3"></div>
             </div>
     
             <!-- Connection Status -->
@@ -351,6 +358,9 @@ export function generateWidgetScript(
             console.log('Widget initialized:', data);
             this.customerId = data.customerId;
             
+            // Update header with agent profile pictures
+            this.updateAgentProfilePictures(data.initialAgentAvailability || []);
+            
             if (data.activeSession) {
               // Temporary disabling history feature
               //this.currentChatSession = data.activeSession;
@@ -364,18 +374,87 @@ export function generateWidgetScript(
             this.currentChatSession = { chatSessionId: data.chatSessionId };
             this.showChatInterface();
           });
-    
-          this.socket.on('server:new_message', (message) => {
-            // Skip displaying customer messages as they're already displayed locally
-            if (message.senderType.toLowerCase() !== 'customer') {
+
+          this.socket.on('server:agent_initiated_chat', (data) => {
+            console.log('Agent initiated chat:', data);
+            
+            // Set up the chat session
+            this.currentChatSession = { 
+              chatSessionId: data.chatSessionId,
+              agentId: data.agentId,
+              agentName: data.agentName
+            };
+            
+            // Show the chat interface
+            this.showChatInterface();
+            
+            // Update agent status with the agent's name
+            if (data.agentName) {
+              this.showAgentStatus(\`Chatting with \${data.agentName}\`);
+            }
+            
+            // Display the initial message from the agent if provided
+            if (data.initialMessage) {
               this.displayMessage({
-                senderType: message.senderType.toLowerCase(),
-                messageContent: { text: message.content.text, type: message.messageType.toLowerCase() },
-                timestamp: message.timestamp   
+                _id: \`agent_init_\${Date.now()}\`, // Generate a temporary ID
+                senderType: 'agent',
+                messageContent: { 
+                  text: data.initialMessage, 
+                  type: 'text'
+                },
+                timestamp: new Date().toISOString(),
+                readByAgent: true // Agent messages are considered read by default
               });
-              if (this.isMinimized) {
-                this.incrementUnreadCount();
-              }
+            }
+            
+            // Display welcome message from widget if available and different from initial message
+            if (data.widget && data.widget.welcomeMessage && data.widget.welcomeMessage !== data.initialMessage) {
+              this.displayMessage({
+                _id: \`welcome_\${Date.now()}\`, // Generate a temporary ID
+                senderType: 'system',
+                messageContent: { 
+                  text: data.widget.welcomeMessage, 
+                  type: 'text'
+                },
+                timestamp: new Date().toISOString(),
+                readByAgent: true
+              });
+            }
+            
+            // If the chat window is minimized, show notification
+            if (this.isMinimized) {
+              this.incrementUnreadCount();
+            }
+          });
+
+          this.socket.on('server:new_message', (message) => {
+            console.log('Received server:new_message:', message);
+            
+            // Remove from pending messages if this was a customer message we sent
+            if (message.senderType.toLowerCase() === 'customer') {
+              this.removePendingMessage(message.content.text);
+            }
+            
+            // Display all messages from server
+            this.displayMessage({
+              _id: message._id,
+              senderType: message.senderType.toLowerCase(),
+              messageContent: { 
+                text: message.content.text, 
+                type: message.messageType.toLowerCase(),
+                url: message.content.url,
+                filename: message.content.filename,
+                mimeType: message.content.mimeType
+              },
+              timestamp: message.timestamp,
+              readByAgent: message.readByAgent || false
+            });
+            
+            // Store message reference for status updates
+            this.messages.set(message._id, message);
+            
+            if (this.isMinimized && message.senderType.toLowerCase() !== 'customer') {
+              this.incrementUnreadCount();
             }
           });
     
@@ -383,6 +462,15 @@ export function generateWidgetScript(
           this.socket.on('server:agent_typing_stop', () => this.hideTypingIndicator());
           this.socket.on('server:no_agents_available_for_request', () => this.showAgentStatus('No agents available. We\\'ll respond soon.'));
           this.socket.on('server:chat_session_pending', () => this.showAgentStatus('Looking for an available agent...'));
+          
+          // Listen for message seen by agent event
+          this.socket.on('server:message_seen_by_agent', (data) => {
+            console.log('Message seen by agent:', data);
+            this.updateMessageStatus(data.messageId, 'seen');
+          });
+          
+          // Mark agent messages as read when they become visible
+          this.setupMessageReadTracking();
           
           // Listen for agent details when chat is accepted
           this.socket.on('server:agent_details_on_accept', (data) => {
@@ -438,6 +526,85 @@ export function generateWidgetScript(
           }, 100);
         }
     
+        updateHeaderText(agentsAvailable) {
+          const headerTextElement = document.querySelector('#chat-widget-container .font-medium');
+          if (!headerTextElement) return;
+          
+          let displayText;
+          if (agentsAvailable) {
+            displayText = this.config.widgetConfig?.headerText || 'Chat with us';
+          } else {
+            displayText = this.config.widgetConfig?.offline_text || this.config.widgetConfig?.headerText || 'Chat with us';
+          }
+          
+          headerTextElement.innerHTML = utils.escapeHtml(displayText);
+        }
+    
+        updateAgentProfilePictures(agents) {
+          const profileContainer = document.getElementById('agent-profiles');
+          if (!profileContainer) return;
+          
+          // Update header text based on agent availability
+          this.updateHeaderText(agents.length > 0);
+          
+          // Clear existing profiles
+          profileContainer.innerHTML = '';
+          
+          // Show max 3 agents
+          const agentsToShow = agents.slice(0, 3);
+          
+          agentsToShow.forEach((agent, index) => {
+            // Create agent profile container (vertical stack)
+            const agentProfile = document.createElement('div');
+            agentProfile.className = 'flex flex-col items-center space-y-1';
+            
+            // Create profile picture container with relative positioning for status dot
+            const profilePicContainer = document.createElement('div');
+            profilePicContainer.className = 'relative';
+            
+            // Create profile picture
+            if (agent.profilePicture) {
+              const profileImg = document.createElement('img');
+              profileImg.src = \`\${API_BASE}\${agent.profilePicture}\`;
+              profileImg.className = 'w-12 h-12 rounded-full border-2 border-white object-cover';
+              profileImg.alt = 'Agent';
+              
+              // Add error handling for broken images
+              profileImg.onerror = function() {
+                // If image fails, show a default avatar
+                this.style.display = 'none';
+                const defaultAvatar = document.createElement('div');
+                defaultAvatar.className = 'w-8 h-8 rounded-full border-2 border-white bg-white bg-opacity-20 flex items-center justify-center';
+                defaultAvatar.innerHTML = '<span class="text-xs font-medium">A</span>';
+                profilePicContainer.insertBefore(defaultAvatar, profilePicContainer.firstChild);
+              };
+              
+              profilePicContainer.appendChild(profileImg);
+            } else {
+              // Show default avatar if no profile picture
+              const defaultAvatar = document.createElement('div');
+              defaultAvatar.className = 'w-8 h-8 rounded-full border-2 border-white bg-white bg-opacity-20 flex items-center justify-center';
+              defaultAvatar.innerHTML = '<span class="text-xs font-medium">A</span>';
+              profilePicContainer.appendChild(defaultAvatar);
+            }
+            
+            // Add green status dot at bottom right
+            const statusDot = document.createElement('div');
+            statusDot.className = 'w-2 h-2 bg-green-400 rounded-full absolute -bottom-0 -right-0';
+            profilePicContainer.appendChild(statusDot);
+            
+            agentProfile.appendChild(profilePicContainer);
+            
+            // Create name label
+            const nameLabel = document.createElement('span');
+            nameLabel.className = 'text-xs font-medium text-white opacity-90';
+            nameLabel.textContent = agent.firstName || 'Agent';
+            agentProfile.appendChild(nameLabel);
+            
+            profileContainer.appendChild(agentProfile);
+          });
+        }
+    
         initiateChat() {
           const name = document.getElementById('customer-name').value.trim();
           const email = document.getElementById('customer-email').value.trim();
@@ -460,11 +627,13 @@ export function generateWidgetScript(
           this.showChatInterface();
           this.showAgentStatus('Starting chat...');
           
-          // Display initial message locally to avoid waiting for server echo
+          // Show pending state for initial message
+          this.addPendingMessage(initialMessage);
           this.displayMessage({
             senderType: 'customer',
             messageContent: { type: 'text', text: initialMessage },
-            timestamp: new Date()
+            timestamp: new Date(),
+            isPending: true
           });
         }
     
@@ -478,11 +647,13 @@ export function generateWidgetScript(
             messageContent: { type: 'text', text: messageText }
           };
     
-          // Display message immediately for better UX
+          // Show pending message state
+          this.addPendingMessage(messageText);
           this.displayMessage({
             senderType: 'customer',
             messageContent: messageData.messageContent,
-            timestamp: new Date()
+            timestamp: new Date(),
+            isPending: true
           });
           
           this.socket.emit('customer:send_message', messageData);
@@ -501,10 +672,14 @@ export function generateWidgetScript(
           formData.append('file', file);
           formData.append('chatSessionId', this.currentChatSession.chatSessionId);
     
+          // Show uploading state
+          const uploadingText = \`Uploading \${file.name}...\`;
+          this.addPendingMessage(uploadingText);
           this.displayMessage({
             senderType: 'customer',
-            messageContent: { text: \`Uploading \${file.name}...\` },
+            messageContent: { text: uploadingText },
             timestamp: new Date(),
+            isPending: true,
             isUploading: true
           });
     
@@ -517,6 +692,9 @@ export function generateWidgetScript(
             return response.json();
           })
           .then(data => {
+            // Remove the uploading message from pending
+            this.removePendingMessage(uploadingText);
+            
             const messageData = {
               chatSessionId: this.currentChatSession.chatSessionId,
               messageContent: {
@@ -531,6 +709,10 @@ export function generateWidgetScript(
           })
           .catch(error => {
             console.error('File upload failed:', error);
+            // Remove the uploading message from pending
+            this.removePendingMessage(uploadingText);
+            
+            // Show error message
             this.displayMessage({
               senderType: 'system',
               messageContent: { text: 'File upload failed. Please try again.' },
@@ -548,8 +730,14 @@ export function generateWidgetScript(
           
           const isCustomer = message.senderType === 'customer';
           const isSystem = message.senderType === 'system';
+          const isPending = message.isPending || false;
           
           messageDiv.className = \`flex \${isCustomer ? 'justify-end' : 'justify-start'}\`;
+          
+          // Add message ID as data attribute for status updates
+          if (message._id) {
+            messageDiv.setAttribute('data-message-id', message._id);
+          }
           
           let messageContent = '';
           if (message.messageContent.text) {
@@ -571,6 +759,23 @@ export function generateWidgetScript(
             \`;
           }
           
+          // Create status indicator for customer messages
+          let statusIndicator = '';
+          if (isCustomer && !isPending) {
+            const isRead = message.readByAgent || false;
+            statusIndicator = \`
+              <div class="message-status ml-2 flex items-center">
+                <span class="text-xs text-blue-200">\${isRead ? 'Seen' : 'Sent'}</span>
+              </div>
+            \`;
+          } else if (isCustomer && isPending) {
+            statusIndicator = \`
+              <div class="message-status ml-2 flex items-center">
+                <span class="text-xs text-blue-200">Sending...</span>
+              </div>
+            \`;
+          }
+          
           messageDiv.innerHTML = \`
             <div class="max-w-xs lg:max-w-md px-3 py-2 rounded-lg \${
               isCustomer 
@@ -578,15 +783,21 @@ export function generateWidgetScript(
                 : isSystem 
                   ? 'bg-gray-100 text-gray-700 text-sm text-center w-full' 
                   : 'bg-gray-200 text-gray-900'
-            } \${message.isUploading ? 'opacity-50' : ''}">
+            } \${message.isUploading || isPending ? 'opacity-50' : ''}">
               <div>\${messageContent}</div>
-              <div class="text-xs text-right mt-1 \${isCustomer ? 'text-blue-100' : 'text-gray-500'}">
-                \${utils.formatTime(message.timestamp)}
+              <div class="text-xs text-right mt-1 \${isCustomer ? 'text-blue-100' : 'text-gray-500'} flex items-center justify-end">
+                <span>\${utils.formatTime(message.timestamp)}</span>
+                \${statusIndicator}
               </div>
             </div>
           \`;
           
           messagesContainer.appendChild(messageDiv);
+          
+          // Start observing this message for read tracking if it has an ID and is from agent
+          if (message._id && !isCustomer && this.messageReadObserver) {
+            this.messageReadObserver.observe(messageDiv);
+          }
           
           // Use the utility function to scroll to bottom
           utils.scrollToBottom(messagesContainer);
@@ -628,11 +839,129 @@ export function generateWidgetScript(
     
         hideConnectionStatus() { document.getElementById('connection-status').classList.add('hidden'); }
     
+        // Message management methods
+        addPendingMessage(messageText) {
+          this.pendingMessages.add(messageText);
+        }
+        
+        removePendingMessage(messageText) {
+          this.pendingMessages.delete(messageText);
+          // Remove pending message from UI
+          const messagesContainer = document.getElementById('messages-container');
+          const messageElements = messagesContainer.querySelectorAll('.flex');
+          
+          messageElements.forEach(element => {
+            const messageDiv = element.querySelector('div');
+            if (messageDiv && messageDiv.classList.contains('opacity-50')) {
+              const textContent = messageDiv.querySelector('div').textContent;
+              if (textContent === messageText) {
+                element.remove();
+              }
+            }
+          });
+        }
+        
+        updateMessageStatus(messageId, status) {
+          console.log('Updating message status:', messageId, status);
+          const messageElement = document.querySelector(\`[data-message-id="\${messageId}"]\`);
+          
+          if (messageElement) {
+            const statusElement = messageElement.querySelector('.message-status span');
+            if (statusElement && status === 'seen') {
+              // Update text to "Seen"
+              statusElement.textContent = 'Seen';
+            }
+            
+            // Update stored message data
+            if (this.messages.has(messageId)) {
+              const message = this.messages.get(messageId);
+              message.readByAgent = status === 'seen';
+              this.messages.set(messageId, message);
+            }
+          }
+        }
+        
+        setupMessageReadTracking() {
+          // Set up intersection observer to track when messages become visible
+          if (!window.IntersectionObserver) {
+            // Fallback for older browsers - mark messages as read when chat is opened
+            this.markVisibleMessagesAsRead();
+            return;
+          }
+          
+          const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+              if (entry.isIntersecting) {
+                const messageElement = entry.target;
+                const messageId = messageElement.getAttribute('data-message-id');
+                
+                if (messageId && !messageElement.hasAttribute('data-read-sent')) {
+                  // Check if this is an agent message (not customer message)
+                  const isAgentMessage = !messageElement.querySelector('.bg-blue-500');
+                  
+                  if (isAgentMessage && this.currentChatSession?.chatSessionId) {
+                    this.markMessageAsRead(messageId);
+                    messageElement.setAttribute('data-read-sent', 'true');
+                  }
+                }
+              }
+            });
+          }, {
+            root: document.getElementById('messages-container'),
+            threshold: 0.5 // Message is considered "seen" when 50% visible
+          });
+          
+          this.messageReadObserver = observer;
+          
+          // Observe existing messages
+          this.observeExistingMessages();
+        }
+        
+        observeExistingMessages() {
+          if (!this.messageReadObserver) return;
+          
+          const messageElements = document.querySelectorAll('[data-message-id]');
+          messageElements.forEach(element => {
+            this.messageReadObserver.observe(element);
+          });
+        }
+        
+        markMessageAsRead(messageId) {
+          if (!this.currentChatSession?.chatSessionId || !messageId) return;
+          
+          console.log('Marking message as read:', messageId);
+          this.socket.emit('customer:mark_messages_read', {
+            chatSessionId: this.currentChatSession.chatSessionId,
+            messageId: messageId
+          });
+        }
+        
+        markVisibleMessagesAsRead() {
+          // Fallback method for browsers without IntersectionObserver
+          if (!this.currentChatSession?.chatSessionId) return;
+          
+          const messageElements = document.querySelectorAll('[data-message-id]');
+          messageElements.forEach(element => {
+            const messageId = element.getAttribute('data-message-id');
+            const isAgentMessage = !element.querySelector('.bg-blue-500');
+            
+            if (messageId && isAgentMessage && !element.hasAttribute('data-read-sent')) {
+              this.markMessageAsRead(messageId);
+              element.setAttribute('data-read-sent', 'true');
+            }
+          });
+        }
+    
         toggleChat() {
           this.isMinimized = !this.isMinimized;
           this.chatWindow.classList.toggle('hidden', this.isMinimized);
           if (!this.isMinimized) {
             this.resetUnreadCount();
+            
+            // Mark visible agent messages as read when chat is opened
+            setTimeout(() => {
+              this.markVisibleMessagesAsRead();
+            }, 200);
             
             // If not in an active chat session, show customer info form directly
             if (!this.currentChatSession) {

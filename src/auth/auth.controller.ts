@@ -219,7 +219,7 @@ export class AuthController {
     type: UnauthorizedResponseDto,
   })
   async logout(@AuthenticatedUser() user: JwtPayload) {
-    await this.authService.revokeRefreshToken(user.sub);
+    await this.authService.postLogoutCleanUp(user.sub);
     return { message: 'Logout successful' };
   }
 

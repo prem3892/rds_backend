@@ -39,6 +39,7 @@ import {
 } from '../shared/constants/enums';
 import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { InitiateChatDto } from './dto/initiate-chat.dto';
+import { AgentInitiateChatDto } from './dto/agent-initiate-chat.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { ConnectWidgetDto } from './dto/connect-widget.dto';
 import { Types } from 'mongoose';
@@ -47,10 +48,12 @@ import { AllExceptionsFilter } from 'src/shared/filters/all-exceptions.filter';
 import { AppointmentsService } from 'src/appointments/appointments.service';
 import { UsersService } from '../users/users.service';
 import { CreateAppointmentDto } from 'src/appointments/dto/create-appointment.dto';
+import { IpExtractorUtil } from '../shared/utils/ip-extractor.util';
 import { AppointmentDocument } from 'src/schemas/appointment.schema';
 import { AgentProfileDocument } from 'src/schemas/agent-profile.schema';
 import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
 import { VisitorStateService } from './services/visitor-state/visitor-state.service';
+import { FingerprintUtil } from '../shared/utils/fingerprint.util';
 
 interface AuthenticatedSocket extends Socket {
   user?: JwtPayload; // For agents
@@ -152,21 +155,49 @@ export class ChatGateway
     client: AuthenticatedSocket,
     agentId: string,
   ) {
-    await this.redisService.removeAgentSocketMapping(client.id, agentId);
+    // Use the new multi-socket removal method
+    await this.redisService.removeAgentSocketMappingMulti(client.id, agentId);
 
-    // Only set offline if this was their last/only connected socket
-    // For simplicity, current model assumes one socket per agent for chat activity
-    const stillConnectedSocketId =
-      await this.redisService.getSocketIdByAgentId(agentId);
-    if (!stillConnectedSocketId || stillConnectedSocketId === client.id) {
-      // Check if it's the same socket being removed
+    // Check if agent still has other connected sockets
+    const hasOtherSockets = await this.redisService.hasAgentSockets(agentId);
+    const remainingSocketCount =
+      await this.redisService.getAgentSocketCount(agentId);
+
+    this.logger.log(
+      `Agent ${agentId} disconnected socket ${client.id}. Remaining sockets: ${remainingSocketCount}`,
+    );
+
+    if (!hasOtherSockets) {
+      // Get current agent profile to check if they were online before disconnection
+      const currentAgentProfile =
+        await this.agentsService.findAgentProfileByUserId(agentId);
+      const wasOnlineBeforeDisconnect = currentAgentProfile?.isOnline || false;
+
+      // Store the previous online status in Redis for potential reconnection
+      if (wasOnlineBeforeDisconnect) {
+        await this.redisService.set(
+          `agent_was_online:${agentId}`,
+          'true',
+          3600, // Store for 1 hour
+        );
+        this.logger.log(
+          `Agent ${agentId} was online before disconnect. Storing previous state for reconnection.`,
+        );
+      }
+
+      // Agent has no more connected sockets, mark as offline
       const agentProfile = await this.agentsService.setOnlineStatus(
         agentId,
         false,
       );
-      this.logger.log(`Agent ${agentId} marked as offline.`);
+      this.logger.log(
+        `Agent ${agentId} marked as offline (no remaining sockets).`,
+      );
       client.leave(`agent:${agentId}`);
-      client.leave('online_agents'); // Using socket.io rooms
+      // Leave organization-specific online agents room
+      if (agentProfile?.adminId) {
+        client.leave(`online_agents:${agentProfile.adminId.toString()}`);
+      }
       this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
 
       const activeSessions =
@@ -202,8 +233,16 @@ export class ChatGateway
       }
     } else {
       this.logger.log(
-        `Agent ${agentId} has other active sockets. Not marking offline. Socket ${client.id} removed.`,
+        `Agent ${agentId} still has ${remainingSocketCount} active socket(s). Not marking offline. Socket ${client.id} removed.`,
       );
+      // Just remove this socket from the rooms, but don't change online status
+      client.leave(`agent:${agentId}`);
+      // Leave organization-specific online agents room
+      const agentProfile =
+        await this.agentsService.findAgentProfileByUserId(agentId);
+      if (agentProfile?.adminId) {
+        client.leave(`online_agents:${agentProfile.adminId.toString()}`);
+      }
     }
   }
 
@@ -253,64 +292,209 @@ export class ChatGateway
     client: AuthenticatedSocket,
     customerId: string,
   ) {
-    await this.redisService.removeCustomerSocketMapping(client.id, customerId);
-    client.leave(`customer:${customerId}`);
+    this.logger.log(
+      `Starting customer disconnect handling for customer ${customerId} with socket ${client.id}`,
+    );
+    this.logger.debug(
+      `[handleCustomerDisconnect] Initial state - customerId: ${customerId}, socketId: ${client.id}`,
+    );
 
-    // Get customer details for visitor notification
-    const customer = await this.customersService.findById(customerId);
-
-    // Immediately notify agents about visitor disconnection
-    if (customer) {
-      const widget = await this.widgetsService.findById(customer.widgetId);
-      if (widget) {
-        const domain = customer.metadata?.initialDomain || 'unknown';
-        await this.visitorStateService.notifyAgentsAboutVisitor(
-          customer,
-          widget,
-          domain,
-          VisitorEventType.DISCONNECT,
-        );
-
-        // Set grace period timer for potential visitor reconnection
-        await this.redisService.set(
-          `visitor_grace_period:${customerId}`,
-          JSON.stringify({ customerId, widgetId: widget._id, domain }),
-          this.visitorGracePeriodMs / 1000, // TTL in seconds
-        );
-      }
-    }
-
-    // Find active/pending chats for this customer
-    const sessions =
-      await this.chatSessionService.getSessionsForCustomerReconnect(
-        new Types.ObjectId(customerId),
+    try {
+      // Use the new multi-socket removal method
+      await this.redisService.removeCustomerSocketMappingMulti(
+        client.id,
+        customerId,
       );
 
-    for (const session of sessions) {
-      await this.chatSessionService.updateCustomerLastSeen(session._id);
-      if (session.agentId) {
-        this.server
-          .to(`agent:${session.agentId.toString()}`)
-          .emit('server:customer_disconnected_from_chat', {
+      // Check if customer still has other connected sockets
+      const hasOtherSockets =
+        await this.redisService.hasCustomerSockets(customerId);
+      const remainingSocketCount =
+        await this.redisService.getCustomerSocketCount(customerId);
+
+      this.logger.log(
+        `Customer ${customerId} disconnected socket ${client.id}. Remaining sockets: ${remainingSocketCount}`,
+      );
+
+      // Always remove this socket from the room
+      client.leave(`customer:${customerId}`);
+      this.logger.debug(
+        `[handleCustomerDisconnect] Socket ${client.id} removed from customer:${customerId} room`,
+      );
+
+      // Only proceed with full disconnect logic if customer has no remaining sockets
+      if (hasOtherSockets) {
+        this.logger.log(
+          `Customer ${customerId} still has ${remainingSocketCount} active socket(s). Not triggering disconnect logic. Socket ${client.id} removed.`,
+        );
+        return; // Exit early - customer is still connected on other devices
+      }
+
+      this.logger.log(
+        `Customer ${customerId} has no remaining sockets. Proceeding with full disconnect logic.`,
+      );
+
+      // Get customer details for visitor notification
+      this.logger.debug(
+        `[handleCustomerDisconnect] Fetching customer details for ${customerId}`,
+      );
+      const customer = await this.customersService.findById(customerId);
+
+      if (!customer) {
+        this.logger.warn(
+          `[handleCustomerDisconnect] Customer ${customerId} not found in database`,
+        );
+      } else {
+        this.logger.debug(
+          `[handleCustomerDisconnect] Customer found - name: ${customer.name}, widgetId: ${customer.widgetId}`,
+        );
+      }
+
+      // Immediately notify agents about visitor disconnection
+      if (customer) {
+        this.logger.debug(
+          `[handleCustomerDisconnect] Processing visitor notification for customer ${customerId}`,
+        );
+        const widget = await this.widgetsService.findById(customer.widgetId);
+
+        if (!widget) {
+          this.logger.warn(
+            `[handleCustomerDisconnect] Widget ${customer.widgetId} not found for customer ${customerId}`,
+          );
+        } else {
+          this.logger.debug(
+            `[handleCustomerDisconnect] Widget found - id: ${widget._id}, name: ${widget.name}`,
+          );
+
+          const domain = customer.metadata?.initialDomain || 'unknown';
+          this.logger.debug(
+            `[handleCustomerDisconnect] Notifying agents about visitor disconnect - domain: ${domain}`,
+          );
+
+          await this.visitorStateService.notifyAgentsAboutVisitor(
+            customer,
+            widget,
+            domain,
+            VisitorEventType.DISCONNECT,
+          );
+          this.logger.log(
+            `Visitor disconnect notification sent for customer ${customerId} on domain ${domain}`,
+          );
+
+          // Set grace period timer for potential visitor reconnection
+          const graceKey = `visitor_grace_period:${customerId}`;
+          const graceData = JSON.stringify({
+            customerId,
+            widgetId: widget._id,
+            domain,
+          });
+
+          this.logger.debug(
+            `[handleCustomerDisconnect] Setting grace period timer - key: ${graceKey}, ttl: ${this.visitorGracePeriodMs / 1000}s`,
+          );
+
+          await this.redisService.set(
+            graceKey,
+            graceData,
+            this.visitorGracePeriodMs / 1000, // TTL in seconds
+          );
+          this.logger.log(
+            `Grace period timer set for customer ${customerId} (${this.visitorGracePeriodMs}ms)`,
+          );
+        }
+      }
+
+      // Find active/pending chats for this customer
+      this.logger.debug(
+        `[handleCustomerDisconnect] Fetching active sessions for customer ${customerId}`,
+      );
+      const sessions =
+        await this.chatSessionService.getSessionsForCustomerReconnect(
+          new Types.ObjectId(customerId),
+        );
+
+      this.logger.log(
+        `Found ${sessions.length} active/pending sessions for customer ${customerId}`,
+      );
+
+      if (sessions.length === 0) {
+        this.logger.debug(
+          `[handleCustomerDisconnect] No active sessions found for customer ${customerId}`,
+        );
+      } else {
+      }
+
+      for (const session of sessions) {
+        this.logger.debug(
+          `[handleCustomerDisconnect] Processing session ${session._id} - status: ${session.status}, agentId: ${session.agentId}`,
+        );
+
+        // Update customer last seen timestamp
+        await this.chatSessionService.updateCustomerLastSeen(session._id);
+        this.logger.debug(
+          `[handleCustomerDisconnect] Updated last seen timestamp for session ${session._id}`,
+        );
+
+        // Notify agent if assigned
+        if (session.agentId) {
+          const agentRoom = `agent:${session.agentId.toString()}`;
+          const notificationData = {
             chatSessionId: session._id.toString(),
             customerName: customer?.name || 'Customer',
-          });
+          };
+
+          this.logger.debug(
+            `[handleCustomerDisconnect] Notifying agent ${session.agentId} in room ${agentRoom}`,
+          );
+
+          this.server
+            .to(agentRoom)
+            .emit('server:customer_disconnected_from_chat', notificationData);
+
+          this.logger.log(
+            `Agent ${session.agentId} notified of customer ${customerId} disconnect from session ${session._id}`,
+          );
+        } else {
+          this.logger.debug(
+            `[handleCustomerDisconnect] No agent assigned to session ${session._id}`,
+          );
+        }
+
+        // Start timer for customer reconnect
+        const reconnectKey = `${REDIS_CUSTOMER_RECONNECT_PENDING_PREFIX}${session._id.toString()}`;
+        const reconnectTtl = this.customerReconnectTimeoutMs / 1000;
+
+        this.logger.debug(
+          `[handleCustomerDisconnect] Setting reconnect timer - key: ${reconnectKey}, ttl: ${reconnectTtl}s`,
+        );
+
+        await this.redisService.set(
+          reconnectKey,
+          customerId,
+          reconnectTtl, // TTL in seconds
+        );
+
+        this.scheduleCustomerReconnectTimeout(
+          session._id.toString(),
+          customerId,
+          this.customerReconnectTimeoutMs,
+          this.customerAbandonTimeoutMs,
+        );
+
+        this.logger.log(
+          `Customer ${customerId} disconnected from session ${session._id}. Reconnect timer started (${this.customerReconnectTimeoutMs}ms timeout, ${this.customerAbandonTimeoutMs}ms abandon timeout).`,
+        );
       }
-      // Start timer for customer reconnect
-      await this.redisService.set(
-        `${REDIS_CUSTOMER_RECONNECT_PENDING_PREFIX}${session._id.toString()}`,
-        customerId,
-        this.customerReconnectTimeoutMs / 1000, // TTL in seconds
-      );
-      this.scheduleCustomerReconnectTimeout(
-        session._id.toString(),
-        customerId,
-        this.customerReconnectTimeoutMs,
-        this.customerAbandonTimeoutMs,
-      );
+
       this.logger.log(
-        `Customer ${customerId} disconnected from session ${session._id}. Reconnect timer started.`,
+        `Customer disconnect handling completed for customer ${customerId}. Processed ${sessions.length} sessions.`,
       );
+    } catch (error) {
+      this.logger.error(
+        `Error handling customer disconnect for ${customerId}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
     }
   }
 
@@ -401,10 +585,17 @@ export class ChatGateway
     }
 
     client.user = jwtPayload;
-    await this.redisService.mapSocketIdToAgentId(client.id, jwtPayload.sub);
+    await this.redisService.mapSocketIdToAgentIdMulti(
+      client.id,
+      jwtPayload.sub,
+    );
     client.join(`agent:${jwtPayload.sub}`);
+
+    const socketCount = await this.redisService.getAgentSocketCount(
+      jwtPayload.sub,
+    );
     this.logger.log(
-      `Agent ${jwtPayload.sub} (${jwtPayload.email}) authenticated with socket ${client.id}`,
+      `Agent ${jwtPayload.sub} (${jwtPayload.email}) authenticated with socket ${client.id}. Total sockets: ${socketCount}`,
     );
 
     // Check for PENDING_AGENT_RECONNECT sessions for this agent
@@ -432,13 +623,19 @@ export class ChatGateway
         session.customerId.toString(),
       );
       if (customerSocketId) {
-        // Fix for "Cannot read properties of undefined (reading 'get')" error
-        let customerClient;
-        if (this.server.sockets && this.server.sockets.sockets) {
-          customerClient = this.server.sockets.sockets.get(customerSocketId);
+        try {
+          const customerSockets = await this.server
+            .in(customerSocketId)
+            .fetchSockets();
+          if (customerSockets.length > 0) {
+            const customerClient = customerSockets[0];
+            await customerClient.join(`chatSession:${session._id.toString()}`);
+          }
+        } catch (error) {
+          this.logger.error(
+            `Error adding customer socket ${customerSocketId} to chat session room: ${error.message}`,
+          );
         }
-        if (customerClient)
-          customerClient.join(`chatSession:${session._id.toString()}`);
       }
 
       this.server
@@ -453,10 +650,269 @@ export class ChatGateway
         .emit('server:chat_session_restored', updatedSession);
     }
 
+    // CRITICAL FIX: Join ALL active chat sessions for this agent
+    // This ensures new device sockets are added to existing active chat rooms
+    const activeSessions =
+      await this.chatSessionService.getActiveSessionsForAgent(jwtPayload.sub);
+
+    let joinedActiveSessionsCount = 0;
+    for (const session of activeSessions) {
+      // Skip sessions that were already handled in reconnect logic above
+      const wasReconnectSession = reconnectSessions.some(
+        (reconnectSession) =>
+          reconnectSession._id.toString() === session._id.toString(),
+      );
+
+      if (!wasReconnectSession) {
+        client.join(`chatSession:${session._id.toString()}`);
+        joinedActiveSessionsCount++;
+        this.logger.debug(
+          `Agent ${jwtPayload.sub} socket ${client.id} joined existing active session ${session._id}`,
+        );
+      }
+    }
+
+    if (joinedActiveSessionsCount > 0) {
+      this.logger.log(
+        `Agent ${jwtPayload.sub} socket ${client.id} joined ${joinedActiveSessionsCount} existing active chat session(s)`,
+      );
+    }
+
+    // Check if agent was online before disconnection and restore status if within shift
+    const wasOnlineBeforeDisconnect = await this.redisService.get(
+      `agent_was_online:${jwtPayload.sub}`,
+    );
+    if (wasOnlineBeforeDisconnect === 'true') {
+      try {
+        // Check if agent is currently within shift
+        const availabilityStatus =
+          await this.agentsService.isAgentCurrentlyAvailable(jwtPayload.sub);
+
+        if (availabilityStatus.isWithinShift) {
+          // Restore online status
+          const agentProfile = await this.agentsService.setOnlineStatus(
+            jwtPayload.sub,
+            true,
+          );
+          // Join organization-specific online agents room
+          if (agentProfile?.adminId) {
+            client.join(`online_agents:${agentProfile.adminId.toString()}`);
+          }
+          this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
+
+          this.logger.log(
+            `Agent ${jwtPayload.sub} reconnected and restored to online status (within shift).`,
+          );
+        } else {
+          this.logger.log(
+            `Agent ${jwtPayload.sub} was online before disconnect but is now outside shift hours. Not restoring online status.`,
+          );
+        }
+
+        // Clear the stored state regardless of whether we restored or not
+        await this.redisService.del(`agent_was_online:${jwtPayload.sub}`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to restore online status for agent ${jwtPayload.sub}: ${error.message}`,
+        );
+        // Clear the stored state even if restoration failed
+        await this.redisService.del(`agent_was_online:${jwtPayload.sub}`);
+      }
+    }
+
     return {
       event: 'server:authenticated',
       data: { userId: jwtPayload.sub, role: jwtPayload.role },
     };
+  }
+
+  @SubscribeMessage('agent:initiate_chat')
+  async handleAgentInitiateChat(
+    @MessageBody() payload: AgentInitiateChatDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ): Promise<{ event: string; data: any }> {
+    this.logger.debug(
+      `agent:initiate_chat emitted by agent with data ${JSON.stringify(payload)}`,
+    );
+
+    // 1. Authentication check
+    if (!client.user) {
+      this.logger.error(
+        `[handleAgentInitiateChat] Agent not authenticated ${JSON.stringify(client)}`,
+      );
+      throw new WsException('Agent not authenticated.');
+    }
+
+    const agentUserId = client.user.sub;
+
+    // Get all agent sockets for multi-socket support
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+    const socketCount = allAgentSockets.length;
+
+    this.logger.log(
+      `Agent ${agentUserId} attempting to initiate chat with customer ${payload.customerId} from socket ${client.id}. Total agent sockets: ${socketCount}`,
+    );
+
+    // 2. Get agent profile and check concurrent chat limits
+    const agentProfile =
+      await this.agentsService.findAgentProfileByUserIdOrFail(agentUserId);
+
+    const activeChats = await this.chatSessionService.countActiveChatsForAgent(
+      new Types.ObjectId(agentUserId),
+    );
+
+    if (activeChats >= agentProfile.maxConcurrentChats) {
+      this.logger.warn(
+        `Agent ${agentUserId} attempted to initiate chat but reached max concurrent chats (${agentProfile.maxConcurrentChats}).`,
+      );
+      throw new WsException(
+        `Maximum concurrent chats limit reached (${agentProfile.maxConcurrentChats}).`,
+      );
+    }
+
+    // 3. Widget access validation
+    const accessCheck = await this.agentsService.canAgentAccessCustomer(
+      agentUserId,
+      payload.customerId,
+    );
+
+    if (!accessCheck.canAccess) {
+      this.logger.warn(
+        `Agent ${agentUserId} access denied for customer ${payload.customerId}: ${accessCheck.reason}`,
+      );
+      throw new WsException(`Access denied: ${accessCheck.reason}`);
+    }
+
+    const { customer, widget } = accessCheck;
+
+    // 4. Check for existing active sessions
+    const existingSession =
+      await this.chatSessionService.findActiveSessionForCustomer(
+        payload.customerId,
+      );
+
+    if (existingSession) {
+      this.logger.warn(
+        `Agent ${agentUserId} attempted to initiate chat with customer ${payload.customerId} who already has active session ${existingSession._id}`,
+      );
+      throw new WsException('Customer already has an active chat session.');
+    }
+
+    // 5. Create new chat session with agent pre-assigned
+    const chatSession = await this.chatSessionService.initiateAgentChat(
+      payload.customerId,
+      agentUserId,
+      widget,
+      customer,
+    );
+
+    this.logger.log(
+      `Agent ${agentUserId} successfully created chat session ${chatSession._id} with customer ${payload.customerId}`,
+    );
+
+    // 6. Join agent to chat session room
+    client.join(`chatSession:${chatSession._id.toString()}`);
+
+    // Join all agent sockets to the chat session room for multi-socket support
+    for (const socketId of allAgentSockets) {
+      const socket = this.server.sockets.sockets.get(socketId);
+      if (socket) {
+        socket.join(`chatSession:${chatSession._id.toString()}`);
+      }
+    }
+
+    // 7. Create and send initial message from agent
+    const initialMessage = await this.chatMessageService.createMessage({
+      chatSessionId: chatSession._id,
+      senderId: new Types.ObjectId(agentUserId),
+      senderType: ChatMessageSenderType.AGENT,
+      messageType: ChatMessageType.TEXT,
+      content: { text: payload.initialMessage },
+    });
+
+    this.logger.debug(
+      '[handleAgentInitiateChat]: sending initial message to session room',
+      initialMessage,
+    );
+
+    // Broadcast the message to the chat session room
+    this.server
+      .to(`chatSession:${chatSession._id.toString()}`)
+      .emit('server:new_message', initialMessage);
+
+    // 8. Join customer to chat session room if they are online
+    const customerSockets = await this.redisService.getAllSocketsForCustomer(
+      payload.customerId,
+    );
+    if (customerSockets.length > 0) {
+      this.logger.log(
+        `Joining customer ${payload.customerId} to chat session ${chatSession._id} room. Customer has ${customerSockets.length} active socket(s).`,
+      );
+
+      // Join all customer sockets to the chat session room
+      for (const socketId of customerSockets) {
+        const socket = this.server.sockets.sockets.get(socketId);
+        if (socket) {
+          socket.join(`chatSession:${chatSession._id.toString()}`);
+          this.logger.debug(
+            `Customer socket ${socketId} joined chat session room`,
+          );
+        }
+      }
+    } else {
+      this.logger.log(
+        `Customer ${payload.customerId} is not currently online. They will join the chat session room when they connect.`,
+      );
+    }
+
+    // 9. Notify customer about agent-initiated chat
+    const agentUser = await this.usersService.findById(agentUserId);
+    const agentName = agentUser ? agentUser.firstName : 'Agent';
+
+    this.server
+      .to(`customer:${payload.customerId}`)
+      .emit('server:agent_initiated_chat', {
+        chatSessionId: chatSession._id.toString(),
+        agentName,
+        agentId: agentUserId,
+        initialMessage: payload.initialMessage,
+        widget: {
+          id: widget._id.toString(),
+          name: widget.name,
+          welcomeMessage: widget.welcomeMessage,
+        },
+        session: chatSession,
+      });
+
+    // 10. Prepare acknowledgment data
+    const acknowledgmentData = {
+      event: 'server:initiate_chat_ack',
+      data: {
+        chatSessionId: chatSession._id.toString(),
+        status: 'CREATED',
+        customer: {
+          id: customer._id.toString(),
+          name: customer.name,
+          email: customer.email,
+        },
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+        initiatedAt: new Date(),
+      },
+    };
+
+    // Broadcast acknowledgment to ALL agent's sockets
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
+    this.logger.log(
+      `Agent ${agentUserId} successfully initiated chat session ${chatSession._id} with customer ${payload.customerId} from socket ${client.id}. Broadcasted to ${socketCount} socket(s).`,
+    );
+
+    // Return acknowledgment to the triggering socket
+    return acknowledgmentData;
   }
 
   @SubscribeMessage('agent:set_online_status')
@@ -468,27 +924,79 @@ export class ChatGateway
     if (typeof data.isOnline !== 'boolean')
       throw new WsException('Invalid payload for online status.');
 
+    const agentId = client.user.sub;
     const agentProfile = await this.agentsService.setOnlineStatus(
-      client.user.sub,
+      agentId,
       data.isOnline,
     );
+
+    // Get all sockets for this agent
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentId);
+
     this.logger.log(
-      `Agent ${client.user.sub} set online status to ${data.isOnline}`,
+      `Agent ${agentId} set online status to ${data.isOnline} from socket ${client.id}. Broadcasting to ${allAgentSockets.length} socket(s): [${allAgentSockets.join(', ')}]`,
     );
 
-    if (data.isOnline) {
-      client.join('online_agents'); // TODO: make it unique as per business
-    } else {
-      client.leave('online_agents');
-      // Additional logic for when agent goes offline during active chats is handled in handleDisconnect
+    // Manage room membership for ALL agent's sockets
+    const organizationRoom = agentProfile?.adminId
+      ? `online_agents:${agentProfile.adminId.toString()}`
+      : null;
+
+    for (const socketId of allAgentSockets) {
+      try {
+        const sockets = await this.server.in(socketId).fetchSockets();
+        if (sockets.length > 0) {
+          const agentSocket = sockets[0]; // Should only be one socket with this ID
+          if (data.isOnline && organizationRoom) {
+            await agentSocket.join(organizationRoom);
+            this.logger.debug(
+              `Socket ${socketId} joined '${organizationRoom}' room`,
+            );
+          } else if (!data.isOnline && organizationRoom) {
+            await agentSocket.leave(organizationRoom);
+            this.logger.debug(
+              `Socket ${socketId} left '${organizationRoom}' room`,
+            );
+          }
+        } else {
+          this.logger.warn(
+            `Socket ${socketId} not found in server for agent ${agentId}`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Error managing room membership for socket ${socketId}: ${error.message}`,
+        );
+      }
     }
-    // Broadcast pool status update
+
+    // Broadcast acknowledgment to ALL agent's sockets (not just the triggering one)
+    const acknowledgmentData = {
+      event: 'server:online_status_updated',
+      data: {
+        isOnline: agentProfile.isOnline,
+        triggeredBySocket: client.id, // Optional: let client know which device triggered the change
+        totalSockets: allAgentSockets.length,
+      },
+    };
+
+    // Send to all agent's sockets via the agent room
+    this.server
+      .to(`agent:${agentId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
+    this.logger.log(
+      `Sent online status acknowledgment to all sockets for agent ${agentId}. Status: ${data.isOnline}`,
+    );
+
+    // Broadcast pool status update to other clients
     this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
 
-    return {
-      event: 'server:online_status_updated',
-      data: { isOnline: agentProfile.isOnline },
-    };
+    // Return acknowledgment to the triggering socket (this is the traditional response)
+    // Note: The triggering socket will receive this twice (once from room broadcast, once from return)
+    // but that's acceptable for backward compatibility
+    return acknowledgmentData;
   }
 
   private async broadcastAgentPoolStatusUpdateForAgent(agentProfile: any) {
@@ -558,7 +1066,7 @@ export class ChatGateway
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     this.logger.debug(
-      `agent:accept_chat emiited by agent with data ${JSON.stringify(data)}`,
+      `agent:accept_chat emitted by agent with data ${JSON.stringify(data)}`,
     );
     if (!client.user) {
       this.logger.error(
@@ -572,6 +1080,15 @@ export class ChatGateway
     }
 
     const agentUserId = client.user.sub;
+
+    // Get all sockets for this agent for multi-socket support
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+    const socketCount = allAgentSockets.length;
+
+    this.logger.log(
+      `Agent ${agentUserId} attempting to accept chat ${data.chatSessionId} from socket ${client.id}. Total agent sockets: ${socketCount}`,
+    );
 
     this.logger.debug(
       `[handleAgentAcceptChat] Fetching agent profile using ${agentUserId}`,
@@ -591,10 +1108,19 @@ export class ChatGateway
       this.logger.warn(
         `Agent ${agentUserId} attempted to accept chat ${data.chatSessionId} but reached max concurrent chats (${agentProfile.maxConcurrentChats}).`,
       );
-      client.emit('server:max_chats_reached', {
+
+      // Broadcast max chats reached to ALL agent's sockets
+      const maxChatsData = {
         chatSessionId: data.chatSessionId,
         maxChats: agentProfile.maxConcurrentChats,
-      });
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+      };
+
+      this.server
+        .to(`agent:${agentUserId}`)
+        .emit('server:max_chats_reached', maxChatsData);
+
       throw new WsException(
         `You have reached your maximum limit of ${agentProfile.maxConcurrentChats} concurrent chats.`,
       );
@@ -612,7 +1138,28 @@ export class ChatGateway
     );
 
     if (session) {
-      client.join(`chatSession:${session._id.toString()}`);
+      // Join ALL agent's sockets to the chat session room
+      for (const socketId of allAgentSockets) {
+        try {
+          const sockets = await this.server.in(socketId).fetchSockets();
+          if (sockets.length > 0) {
+            const agentSocket = sockets[0];
+            await agentSocket.join(`chatSession:${session._id.toString()}`);
+            this.logger.debug(
+              `Socket ${socketId} joined chatSession:${session._id.toString()}`,
+            );
+          } else {
+            this.logger.warn(
+              `Socket ${socketId} not found in server for agent ${agentUserId}`,
+            );
+          }
+        } catch (error) {
+          this.logger.error(
+            `Error joining socket ${socketId} to chat session room: ${error.message}`,
+          );
+        }
+      }
+
       const customerSocketId = await this.redisService.getSocketIdByCustomerId(
         session.customerId._id.toString(),
       );
@@ -646,12 +1193,22 @@ export class ChatGateway
         `[handleAgentAcceptChat] Agent user ${JSON.stringify(agentUser)}`,
       );
 
-      // server:chat_accepted_by_you (payload: ChatSession object, Customer details)
-      client.emit('server:chat_accepted_by_you', session);
+      // Prepare acceptance data with multi-socket context
+      const acceptanceData = {
+        ...session.toObject(),
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+        acceptedAt: new Date(),
+      };
+
+      // Broadcast chat acceptance to ALL agent's sockets
+      this.server
+        .to(`agent:${agentUserId}`)
+        .emit('server:chat_accepted_by_you', acceptanceData);
 
       // server:agent_details_on_accept (payload: { chatSessionId: string, agent: { name: string, avatarUrl?: string } })
       this.logger.debug(
-        `[handleAgentAcceptChat] sending acceptence knowledge to customer ${session.customerId._id.toString()}`,
+        `[handleAgentAcceptChat] sending acceptance knowledge to customer ${session.customerId._id.toString()}`,
       );
       this.server
         .to(`customer:${session.customerId._id.toString()}`)
@@ -665,13 +1222,24 @@ export class ChatGateway
           },
         });
 
-      // Emit to other agents that the chat is taken
-      this.server
-        .to('online_agents')
-        .except(client.id)
-        .emit('server:chat_taken_or_resolved', {
-          chatSessionId: session._id.toString(),
-        });
+      // Emit to other agents in the same organization that the chat is taken
+      // Exclude ALL of the accepting agent's sockets, not just the triggering one
+      let excludeSocketIds = allAgentSockets;
+      const organizationRoom = agentProfile?.adminId
+        ? `online_agents:${agentProfile.adminId.toString()}`
+        : null;
+
+      if (organizationRoom) {
+        this.server
+          .to(organizationRoom)
+          .except(excludeSocketIds)
+          .emit('server:chat_taken_or_resolved', {
+            chatSessionId: session._id.toString(),
+            acceptedByAgent: agentUser
+              ? `${agentUser.firstName} ${agentUser.lastName}`
+              : 'Support Agent',
+          });
+      }
 
       // System message to chat room
       const systemMessage = await this.chatMessageService.createMessage({
@@ -686,6 +1254,10 @@ export class ChatGateway
       this.server
         .to(`chatSession:${session._id.toString()}`)
         .emit('server:new_message', systemMessage);
+
+      this.logger.log(
+        `Chat ${data.chatSessionId} successfully accepted by agent ${agentUserId} from socket ${client.id}. Broadcasted to ${socketCount} agent socket(s).`,
+      );
     } else {
       // Chat was already accepted or status not PENDING_ASSIGNMENT
       const existingSession = await this.chatSessionService.findById(
@@ -699,18 +1271,42 @@ export class ChatGateway
         if (acceptedAgentUser)
           acceptedByAgentName = `${acceptedAgentUser.firstName} ${acceptedAgentUser.lastName}`;
       }
-      client.emit('server:chat_already_accepted', {
+
+      // Broadcast "already accepted" to ALL agent's sockets
+      const alreadyAcceptedData = {
         chatSessionId: data.chatSessionId,
         acceptedByAgentName: acceptedByAgentName,
-      });
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+      };
+
+      this.server
+        .to(`agent:${agentUserId}`)
+        .emit('server:chat_already_accepted', alreadyAcceptedData);
+
       this.logger.warn(
-        `Agent ${agentId} tried to accept chat ${data.chatSessionId}, but it was already taken or not available.`,
+        `Agent ${agentId} tried to accept chat ${data.chatSessionId}, but it was already taken or not available. Broadcasted to ${socketCount} socket(s).`,
       );
     }
-    return {
+
+    // Prepare acknowledgment data with multi-socket context
+    const acknowledgmentData = {
       event: 'server:accept_chat_ack',
-      data: { chatSessionId: data.chatSessionId, success: !!session },
+      data: {
+        chatSessionId: data.chatSessionId,
+        success: !!session,
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+      },
     };
+
+    // Send acknowledgment to ALL agent's sockets
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
+    // Return acknowledgment to the triggering socket (traditional response)
+    return acknowledgmentData;
   }
 
   @SubscribeMessage('agent:send_message')
@@ -737,18 +1333,18 @@ export class ChatGateway
       throw new WsException('Invalid message content.');
     }
 
+    const agentId = client.user.sub;
     const session = await this.chatSessionService.findByIdOrFail(
       payload.chatSessionId,
     );
 
     this.logger.debug(
-      `[handleAgentSendMessage] Fetched seesion ${JSON.stringify(session)}`,
+      `[handleAgentSendMessage] Fetched session ${JSON.stringify(session)}`,
     );
 
     // Get agent profile by user id
-    const agentProfile = await this.agentsService.findAgentProfileByUserId(
-      client.user.sub,
-    );
+    const agentProfile =
+      await this.agentsService.findAgentProfileByUserId(agentId);
     const _agentId = (agentProfile?.userId as Types.ObjectId).toString();
 
     if (
@@ -760,6 +1356,15 @@ export class ChatGateway
       );
       throw new WsException('Cannot send message to this session.');
     }
+
+    // Get all sockets for this agent for multi-socket support
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentId);
+    const socketCount = allAgentSockets.length;
+
+    this.logger.log(
+      `Agent ${agentId} sending message from socket ${client.id} to session ${payload.chatSessionId}. Total agent sockets: ${socketCount}`,
+    );
 
     // Determine messageType based on content (simplified)
     let messageType = ChatMessageType.TEXT;
@@ -775,7 +1380,7 @@ export class ChatGateway
 
     const message = await this.chatMessageService.createMessage({
       chatSessionId: session._id,
-      senderId: new Types.ObjectId(client.user.sub),
+      senderId: new Types.ObjectId(agentId),
       senderType: ChatMessageSenderType.AGENT,
       messageType: messageType,
       content: payload.messageContent,
@@ -786,13 +1391,37 @@ export class ChatGateway
     );
     await this.chatSessionService.updateAgentLastSeen(session._id);
 
+    // Broadcast the new message to the chat session (includes customer and all agent devices)
     this.server
       .to(`chatSession:${session._id.toString()}`)
       .emit('server:new_message', message);
-    return {
+
+    // Prepare acknowledgment data with multi-socket context
+    const acknowledgmentData = {
       event: 'server:message_sent_ack',
-      data: { messageId: message._id.toString(), timestamp: message.timestamp },
+      data: {
+        messageId: message._id.toString(),
+        timestamp: message.timestamp,
+        triggeredBySocket: client.id, // Let other devices know which device sent the message
+        totalAgentSockets: socketCount,
+        chatSessionId: session._id.toString(),
+      },
     };
+
+    // Send acknowledgment to ALL agent's sockets via the agent room
+    // This ensures all agent devices are notified that a message was sent
+    this.server
+      .to(`agent:${agentId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
+    this.logger.log(
+      `Message sent acknowledgment broadcasted to all ${socketCount} socket(s) for agent ${agentId}. Message ID: ${message._id}`,
+    );
+
+    // Return acknowledgment to the triggering socket (traditional response)
+    // Note: The triggering socket will receive this twice (once from room broadcast, once from return)
+    // but that's acceptable for backward compatibility and immediate feedback
+    return acknowledgmentData;
   }
 
   @SubscribeMessage('agent:end_chat')
@@ -804,12 +1433,22 @@ export class ChatGateway
     if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
       throw new WsException('Invalid chatSessionId');
 
+    const agentUserId = client.user.sub;
     const session = await this.chatSessionService.findByIdOrFail(
       data.chatSessionId,
     );
 
     const agentProfile =
-      await this.agentsService.findAgentProfileByUserIdOrFail(client.user.sub);
+      await this.agentsService.findAgentProfileByUserIdOrFail(agentUserId);
+
+    // Get all sockets for this agent for multi-socket support
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+    const socketCount = allAgentSockets.length;
+
+    this.logger.log(
+      `Agent ${agentUserId} attempting to end chat ${data.chatSessionId} from socket ${client.id}. Total agent sockets: ${socketCount}`,
+    );
 
     this.logger.debug(
       `[handleAgentEndChat] Agent profile ${JSON.stringify(agentProfile)}`,
@@ -830,10 +1469,12 @@ export class ChatGateway
       ChatSessionStatus.CLOSED_BY_AGENT,
     );
 
+    // Notify customer that agent ended the chat
     this.server
       .to(`customer:${session.customerId.toString()}`)
       .emit('server:agent_ended_chat', {
         chatSessionId: session._id.toString(),
+        reason: data.reason,
       });
 
     const systemMessageContent = `Chat ended by agent. ${data.reason ? 'Reason: ' + data.reason : ''}`;
@@ -848,19 +1489,36 @@ export class ChatGateway
       .to(`chatSession:${session._id.toString()}`)
       .emit('server:new_message', systemMessage);
 
-    // Remove participants from the room
-    this.removeParticipantsFromChatRoom(
+    // Remove participants from the room (updated for multi-socket)
+    await this.removeParticipantsFromChatRoomMulti(
       session._id.toString(),
-      client.id,
+      agentUserId,
       session.customerId.toString(),
     );
-    this.logger.log(
-      `Agent ${agentId} ended chat ${session._id}. Reason: ${data.reason || 'N/A'}`,
-    );
-    return {
+
+    // Prepare acknowledgment data with multi-socket context
+    const acknowledgmentData = {
       event: 'server:chat_ended_ack',
-      data: { chatSessionId: session._id.toString() },
+      data: {
+        chatSessionId: session._id.toString(),
+        reason: data.reason,
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+        endedAt: new Date(),
+      },
     };
+
+    // Broadcast chat ended acknowledgment to ALL agent's sockets
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
+    this.logger.log(
+      `Agent ${agentId} ended chat ${session._id} from socket ${client.id}. Reason: ${data.reason || 'N/A'}. Broadcasted to ${socketCount} socket(s).`,
+    );
+
+    // Return acknowledgment to the triggering socket (traditional response)
+    return acknowledgmentData;
   }
 
   @SubscribeMessage('agent:resolve_chat')
@@ -872,10 +1530,25 @@ export class ChatGateway
     if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
       throw new WsException('Invalid chatSessionId');
 
+    const agentUserId = client.user.sub;
     const session = await this.chatSessionService.findByIdOrFail(
       data.chatSessionId,
     );
-    if (session.agentId?.toString() !== client.user.sub) {
+
+    // Get agent profile for organization information
+    const agentProfile =
+      await this.agentsService.findAgentProfileByUserIdOrFail(agentUserId);
+
+    // Get all sockets for this agent for multi-socket support
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+    const socketCount = allAgentSockets.length;
+
+    this.logger.log(
+      `Agent ${agentUserId} attempting to resolve chat ${data.chatSessionId} from socket ${client.id}. Total agent sockets: ${socketCount}`,
+    );
+
+    if (session.agentId?.toString() !== agentUserId) {
       throw new WsException('You are not the agent for this chat.');
     }
     if (session.status === ChatSessionStatus.RESOLVED) {
@@ -886,15 +1559,18 @@ export class ChatGateway
       session._id,
       ChatSessionStatus.RESOLVED,
     );
+
+    // Notify customer that agent resolved the chat
     this.server
       .to(`customer:${session.customerId.toString()}`)
       .emit('server:agent_resolved_chat', {
         chatSessionId: session._id.toString(),
+        resolvedAt: new Date(),
       });
 
     const systemMessage = await this.chatMessageService.createMessage({
       chatSessionId: session._id,
-      senderId: new Types.ObjectId(client.user.sub),
+      senderId: new Types.ObjectId(agentUserId),
       senderType: ChatMessageSenderType.SYSTEM,
       messageType: ChatMessageType.TEXT, // Or a specific RESOLVED_NOTICE type
       content: { text: 'Chat marked as resolved by agent.' },
@@ -903,13 +1579,46 @@ export class ChatGateway
       .to(`chatSession:${session._id.toString()}`)
       .emit('server:new_message', systemMessage);
 
+    // Prepare acknowledgment data with multi-socket context
+    const acknowledgmentData = {
+      event: 'server:chat_resolved_ack',
+      data: {
+        chatSessionId: session._id.toString(),
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+        resolvedAt: new Date(),
+      },
+    };
+
+    // Broadcast chat resolved acknowledgment to ALL agent's sockets
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
+    // Emit to other agents in the same organization that the chat is resolved
+    // Exclude ALL of the resolving agent's sockets, not just the triggering one
+    const organizationRoom = agentProfile?.adminId
+      ? `online_agents:${agentProfile.adminId.toString()}`
+      : null;
+
+    if (organizationRoom) {
+      this.server
+        .to(organizationRoom)
+        .except(allAgentSockets)
+        .emit('server:chat_taken_or_resolved', {
+          chatSessionId: session._id.toString(),
+          status: 'resolved',
+        });
+    }
+
     // Participants remain in the room for resolved chats, unlike ended chats, unless specified otherwise.
     // For now, assume they stay for a bit or until explicitly left.
-    this.logger.log(`Agent ${client.user.sub} resolved chat ${session._id}.`);
-    return {
-      event: 'server:chat_resolved_ack',
-      data: { chatSessionId: session._id.toString() },
-    };
+    this.logger.log(
+      `Agent ${agentUserId} resolved chat ${session._id} from socket ${client.id}. Broadcasted to ${socketCount} socket(s).`,
+    );
+
+    // Return acknowledgment to the triggering socket (traditional response)
+    return acknowledgmentData;
   }
 
   // --- Customer Events ---
@@ -934,8 +1643,8 @@ export class ChatGateway
 
     if (!payload.widgetId || !Types.ObjectId.isValid(payload.widgetId))
       throw new WsException('Invalid widgetId.');
-    if (!payload.fingerprint)
-      throw new WsException('Fingerprint or customerId required.');
+    if (!payload.browserInfo)
+      throw new WsException('Browser information is required.');
 
     const widget = await this.widgetsService.findByIdPublic(payload.widgetId);
     if (!widget || !widget.isEnabled) {
@@ -946,14 +1655,43 @@ export class ChatGateway
     //   throw new WsException('Domain not authorized for this widget.');
     // }
 
+    // Extract IP information from Cloudflare headers
+    const ipInfo = IpExtractorUtil.extractIpInfo(client);
+
+    this.logger.debug(
+      `Extracted IP info: ${JSON.stringify(ipInfo)} for domain: ${payload.domain}`,
+    );
+
+    // Generate server-side fingerprint instead of trusting client
+    const serverFingerprint = FingerprintUtil.generateFingerprint(
+      payload.browserInfo,
+      payload.domain,
+      ipInfo,
+    );
+
+    this.logger.debug(
+      `Generated server-side fingerprint: ${serverFingerprint} for domain: ${payload.domain}`,
+    );
+
     const customer = await this.customersService.createOrUpdateCustomer({
       widgetId: new Types.ObjectId(payload.widgetId),
-      fingerprint: payload.fingerprint,
+      fingerprint: serverFingerprint, // Use server-generated fingerprint
       customerId: payload.customerId,
       metadata: {
         browserInfo: payload.browserInfo,
         currentPageUrl: payload.currentPageUrl,
         initialDomain: payload.domain,
+        clientFingerprint: payload.fingerprint, // Store client fingerprint for reference
+        ipInfo: {
+          clientIp: ipInfo.clientIp,
+          country: ipInfo.country,
+          city: ipInfo.city,
+          cfRay: ipInfo.cfRay,
+          isCloudflare: ipInfo.isCloudflare,
+          proxyChain: ipInfo.proxyChain,
+          timestamp: new Date(),
+          isPrivate: IpExtractorUtil.isPrivateIp(ipInfo.clientIp),
+        },
       },
     });
 
@@ -963,13 +1701,17 @@ export class ChatGateway
     }
 
     client.customerId = customer._id.toString();
-    await this.redisService.mapSocketIdToCustomerId(
+    await this.redisService.mapSocketIdToCustomerIdMulti(
       client.id,
       customer._id.toString(),
     );
     client.join(`customer:${customer._id.toString()}`);
+
+    const socketCount = await this.redisService.getCustomerSocketCount(
+      customer._id.toString(),
+    );
     this.logger.log(
-      `Customer ${customer._id} (fingerprint: ${payload.fingerprint}) connected for widget ${payload.widgetId} with socket ${client.id}`,
+      `Customer ${customer._id} (server-fingerprint: ${serverFingerprint}) connected for widget ${payload.widgetId} with socket ${client.id}. IP: ${ipInfo.clientIp}${ipInfo.country ? ` (${ipInfo.country}${ipInfo.city ? `, ${ipInfo.city}` : ''})` : ''} via ${ipInfo.isCloudflare ? 'Cloudflare' : 'Direct'}. Total sockets: ${socketCount}`,
     );
 
     // Check if this is a reconnection during grace period
@@ -1057,11 +1799,21 @@ export class ChatGateway
     // Notify eligible agents about new visitor (regardless of new or existing session)
     // Only notify if this is not a grace period reconnection (already handled above)
     if (!isReconnection) {
+      this.logger.log(
+        `[DEBUG] Calling notifyAgentsAboutVisitor for customer ${customer._id}, widget ${widget._id}, domain ${payload.domain}`,
+      );
       await this.visitorStateService.notifyAgentsAboutVisitor(
         customer,
         widget,
         payload.domain,
         VisitorEventType.CONNECT,
+      );
+      this.logger.log(
+        `[DEBUG] Completed notifyAgentsAboutVisitor call for customer ${customer._id}`,
+      );
+    } else {
+      this.logger.log(
+        `[DEBUG] Skipping visitor notification for customer ${customer._id} - this is a reconnection`,
       );
     }
 
@@ -1339,44 +2091,166 @@ export class ChatGateway
     };
   }
 
-  // --- Common Events (Typing, Read Receipts) ---
-  @SubscribeMessage('customer:typing_start')
+  // --- Agent Typing Events (Multi-Socket Support) ---
   @SubscribeMessage('agent:typing_start')
-  async handleTypingStart(
+  async handleAgentTypingStart(
     @MessageBody() data: { chatSessionId: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    this.logger.debug(
-      `[handleTypingStart] <customer|agent>:typing_start emiited by clients with payload`,
-    );
+    if (!client.user) throw new WsException('Agent not authenticated.');
     if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
       throw new WsException('Invalid chatSessionId');
-    const eventName = client.user
-      ? 'server:agent_typing_start'
-      : 'server:customer_typing_start';
-    this.logger.debug(`[handleTypingStart] final eventName: ${eventName}`);
 
+    const agentUserId = client.user.sub;
+
+    // Get all agent sockets to exclude ALL of them from the typing notification
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+
+    this.logger.debug(
+      `Agent ${agentUserId} started typing in chat ${data.chatSessionId} from socket ${client.id}. Excluding ${allAgentSockets.length} agent socket(s).`,
+    );
+
+    // Emit typing start to chat session, but exclude ALL agent sockets
+    // This ensures the agent doesn't see their own typing indicator on any device
     this.server
       .to(`chatSession:${data.chatSessionId}`)
-      .except(client.id)
-      .emit(eventName, { chatSessionId: data.chatSessionId });
+      .except(allAgentSockets)
+      .emit('server:agent_typing_start', {
+        chatSessionId: data.chatSessionId,
+        agentId: agentUserId,
+        triggeredBySocket: client.id,
+      });
+
+    // Optionally, send acknowledgment to ALL agent sockets
+    // This lets all agent devices know that typing started from one of their devices
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit('server:agent_typing_start_ack', {
+        chatSessionId: data.chatSessionId,
+        triggeredBySocket: client.id,
+        totalAgentSockets: allAgentSockets.length,
+      });
+  }
+
+  @SubscribeMessage('agent:typing_stop')
+  async handleAgentTypingStop(
+    @MessageBody() data: { chatSessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    if (!client.user) throw new WsException('Agent not authenticated.');
+    if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
+      throw new WsException('Invalid chatSessionId');
+
+    const agentUserId = client.user.sub;
+
+    // Get all agent sockets to exclude ALL of them from the typing notification
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+
+    this.logger.debug(
+      `Agent ${agentUserId} stopped typing in chat ${data.chatSessionId} from socket ${client.id}. Excluding ${allAgentSockets.length} agent socket(s).`,
+    );
+
+    // Emit typing stop to chat session, but exclude ALL agent sockets
+    this.server
+      .to(`chatSession:${data.chatSessionId}`)
+      .except(allAgentSockets)
+      .emit('server:agent_typing_stop', {
+        chatSessionId: data.chatSessionId,
+        agentId: agentUserId,
+        triggeredBySocket: client.id,
+      });
+
+    // Optionally, send acknowledgment to ALL agent sockets
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit('server:agent_typing_stop_ack', {
+        chatSessionId: data.chatSessionId,
+        triggeredBySocket: client.id,
+        totalAgentSockets: allAgentSockets.length,
+      });
+  }
+
+  // --- Customer Typing Events (Multi-Socket Support) ---
+  @SubscribeMessage('customer:typing_start')
+  async handleCustomerTypingStart(
+    @MessageBody() data: { chatSessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    if (!client.customerId) throw new WsException('Customer not identified.');
+    if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
+      throw new WsException('Invalid chatSessionId');
+
+    const customerId = client.customerId;
+
+    // Get all customer sockets to exclude ALL of them from the typing notification
+    const allCustomerSockets =
+      await this.redisService.getAllSocketsForCustomer(customerId);
+
+    this.logger.debug(
+      `Customer ${customerId} started typing in chat ${data.chatSessionId} from socket ${client.id}. Excluding ${allCustomerSockets.length} customer socket(s).`,
+    );
+
+    // Emit typing start to chat session, but exclude ALL customer sockets
+    // This ensures the customer doesn't see their own typing indicator on any device
+    this.server
+      .to(`chatSession:${data.chatSessionId}`)
+      .except(allCustomerSockets)
+      .emit('server:customer_typing_start', {
+        chatSessionId: data.chatSessionId,
+        customerId: customerId,
+        triggeredBySocket: client.id,
+      });
+
+    // Optionally, send acknowledgment to ALL customer sockets
+    // This lets all customer devices know that typing started from one of their devices
+    this.server
+      .to(`customer:${customerId}`)
+      .emit('server:customer_typing_start_ack', {
+        chatSessionId: data.chatSessionId,
+        triggeredBySocket: client.id,
+        totalCustomerSockets: allCustomerSockets.length,
+      });
   }
 
   @SubscribeMessage('customer:typing_stop')
-  @SubscribeMessage('agent:typing_stop')
-  async handleTypingStop(
+  async handleCustomerTypingStop(
     @MessageBody() data: { chatSessionId: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    if (!client.customerId) throw new WsException('Customer not identified.');
     if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
       throw new WsException('Invalid chatSessionId');
-    const eventName = client.user
-      ? 'server:agent_typing_stop'
-      : 'server:customer_typing_stop';
+
+    const customerId = client.customerId;
+
+    // Get all customer sockets to exclude ALL of them from the typing notification
+    const allCustomerSockets =
+      await this.redisService.getAllSocketsForCustomer(customerId);
+
+    this.logger.debug(
+      `Customer ${customerId} stopped typing in chat ${data.chatSessionId} from socket ${client.id}. Excluding ${allCustomerSockets.length} customer socket(s).`,
+    );
+
+    // Emit typing stop to chat session, but exclude ALL customer sockets
     this.server
       .to(`chatSession:${data.chatSessionId}`)
-      .except(client.id)
-      .emit(eventName, { chatSessionId: data.chatSessionId });
+      .except(allCustomerSockets)
+      .emit('server:customer_typing_stop', {
+        chatSessionId: data.chatSessionId,
+        customerId: customerId,
+        triggeredBySocket: client.id,
+      });
+
+    // Optionally, send acknowledgment to ALL customer sockets
+    this.server
+      .to(`customer:${customerId}`)
+      .emit('server:customer_typing_stop_ack', {
+        chatSessionId: data.chatSessionId,
+        triggeredBySocket: client.id,
+        totalCustomerSockets: allCustomerSockets.length,
+      });
   }
 
   @SubscribeMessage('customer:mark_messages_read')
@@ -1389,6 +2263,7 @@ export class ChatGateway
     if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
       throw new WsException('Invalid chatSessionId');
 
+    const customerId = client.customerId;
     const upToTimestamp = data.lastMessageTimestamp
       ? new Date(data.lastMessageTimestamp)
       : new Date();
@@ -1399,43 +2274,66 @@ export class ChatGateway
       data.chatSessionId,
       upToTimestamp,
     );
+
+    // Get all customer sockets to exclude ALL of them from the read notification
+    const allCustomerSockets =
+      await this.redisService.getAllSocketsForCustomer(customerId);
+
+    this.logger.debug(
+      `Customer ${customerId} marked messages as read in chat ${data.chatSessionId} from socket ${client.id}. Excluding ${allCustomerSockets.length} customer socket(s).`,
+    );
+
+    // Emit read status to chat session, but exclude ALL customer sockets
+    // This ensures the customer doesn't get read notifications on their other devices
     this.server
       .to(`chatSession:${data.chatSessionId}`)
-      .except(client.id)
+      .except(allCustomerSockets)
       .emit('server:messages_read_by_customer', {
         chatSessionId: data.chatSessionId,
         upToTimestamp: upToTimestamp,
+        triggeredBySocket: client.id,
       });
-  }
 
-  @SubscribeMessage('agent:mark_messages_read')
-  async handleAgentMarkMessagesRead(
-    @MessageBody()
-    data: { chatSessionId: string; lastMessageTimestamp?: string },
-    @ConnectedSocket() client: AuthenticatedSocket,
-  ) {
-    if (!client.user) throw new WsException('Agent not authenticated.');
-    if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
-      throw new WsException('Invalid chatSessionId');
-
-    const upToTimestamp = data.lastMessageTimestamp
-      ? new Date(data.lastMessageTimestamp)
-      : new Date();
-    if (isNaN(upToTimestamp.getTime()))
-      throw new WsException('Invalid lastMessageTimestamp.');
-
-    await this.chatMessageService.markMessagesAsReadByAgent(
-      data.chatSessionId,
-      upToTimestamp,
-    );
+    // Send acknowledgment to ALL customer sockets
+    // This syncs the read status across all customer devices
     this.server
-      .to(`chatSession:${data.chatSessionId}`)
-      .except(client.id)
-      .emit('server:messages_read_by_agent', {
+      .to(`customer:${customerId}`)
+      .emit('server:messages_read_by_customer_ack', {
         chatSessionId: data.chatSessionId,
         upToTimestamp: upToTimestamp,
+        triggeredBySocket: client.id,
+        totalCustomerSockets: allCustomerSockets.length,
       });
   }
+
+  // @SubscribeMessage('agent:mark_messages_read')
+  // async handleAgentMarkMessagesRead(
+  //   @MessageBody()
+  //   data: { chatSessionId: string; lastMessageTimestamp?: string },
+  //   @ConnectedSocket() client: AuthenticatedSocket,
+  // ) {
+  //   if (!client.user) throw new WsException('Agent not authenticated.');
+  //   if (!data.chatSessionId || !Types.ObjectId.isValid(data.chatSessionId))
+  //     throw new WsException('Invalid chatSessionId');
+
+  //   const upToTimestamp = data.lastMessageTimestamp
+  //     ? new Date(data.lastMessageTimestamp)
+  //     : new Date();
+  //   if (isNaN(upToTimestamp.getTime()))
+  //     throw new WsException('Invalid lastMessageTimestamp.');
+
+  //   await this.chatMessageService.markMessagesAsReadByAgent(
+  //     data.chatSessionId,
+  //     upToTimestamp,
+  //   );
+  //   this.server
+  //     .to(`chatSession:${data.chatSessionId}`)
+  //     .except(client.id)
+  //     .emit('server:messages_read_by_agent', {
+  //       chatSessionId: data.chatSessionId,
+  //       upToTimestamp: upToTimestamp,
+  //     });
+  // }
 
   @SubscribeMessage('agent:mark_messages_read')
   async handleAgentMessageSeen(
@@ -1449,7 +2347,17 @@ export class ChatGateway
     if (!data.messageId || !Types.ObjectId.isValid(data.messageId))
       throw new WsException('Invalid messageId');
 
+    const agentUserId = client.user.sub;
     const now = new Date();
+
+    // Get all agent sockets for multi-socket support
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+    const socketCount = allAgentSockets.length;
+
+    this.logger.log(
+      `Agent ${agentUserId} marking messages as read in chat ${data.chatSessionId} from socket ${client.id}. Total agent sockets: ${socketCount}`,
+    );
 
     // Mark the message as read by agent
     await this.chatMessageService.markMessagesAsReadByAgent(
@@ -1461,14 +2369,41 @@ export class ChatGateway
     await this.chatSessionService.updateAgentLastSeen(data.chatSessionId, now);
 
     // Notify the customer that the agent has seen the message
+    // Exclude ALL agent sockets to prevent the agent from seeing their own read receipt
     this.server
       .to(`chatSession:${data.chatSessionId}`)
-      .except(client.id)
+      .except(allAgentSockets)
       .emit('server:message_seen_by_agent', {
         chatSessionId: data.chatSessionId,
         messageId: data.messageId,
         timestamp: now,
+        agentId: agentUserId,
       });
+
+    // Prepare acknowledgment data with multi-socket context
+    const acknowledgmentData = {
+      event: 'server:messages_read_ack',
+      data: {
+        chatSessionId: data.chatSessionId,
+        messageId: data.messageId,
+        timestamp: now,
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+      },
+    };
+
+    // Broadcast read acknowledgment to ALL agent's sockets
+    // This ensures all agent devices know that messages were marked as read
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
+    this.logger.debug(
+      `Messages read acknowledgment broadcasted to ${socketCount} agent socket(s) for agent ${agentUserId}`,
+    );
+
+    // Return acknowledgment to the triggering socket (traditional response)
+    return acknowledgmentData;
   }
 
   @SubscribeMessage('customer:mark_messages_read')
@@ -1515,9 +2450,6 @@ export class ChatGateway
     payload: { chatSessionId: string; date: string; notes?: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ): Promise<{ event: string; data: any }> {
-    this.logger.debug(
-      `[handleAgentBookAppointment]: agent:book_appointment emitted by agent with payload ${JSON.stringify(payload)}`,
-    );
     if (
       !client.user ||
       (client.user.role !== UserRole.AGENT &&
@@ -1531,6 +2463,21 @@ export class ChatGateway
       !Types.ObjectId.isValid(payload.chatSessionId)
     )
       throw new WsException('Invalid chatSessionId');
+
+    const agentUserId = client.user.sub;
+
+    // Get all agent sockets for multi-socket support
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+    const socketCount = allAgentSockets.length;
+
+    this.logger.log(
+      `Agent ${agentUserId} booking appointment in chat ${payload.chatSessionId} from socket ${client.id}. Total agent sockets: ${socketCount}`,
+    );
+
+    this.logger.debug(
+      `[handleAgentBookAppointment]: agent:book_appointment emitted by agent with payload ${JSON.stringify(payload)}`,
+    );
 
     const chatSession = await this.chatSessionService.findById(
       payload.chatSessionId,
@@ -1550,15 +2497,9 @@ export class ChatGateway
       );
     }
 
-    //this.logger.debug("[handleAgentBookAppointment] Fetching the session using chatSessionId")
-
-    // if (!payload.customerId || !Types.ObjectId.isValid(payload.customerId))
-    //   throw new WsException('Invalid customerId');
-
     // Get agent profile from client.user.sub
-    const agent = await this.agentsService.findAgentProfileByUserId(
-      client.user.sub,
-    );
+    const agent =
+      await this.agentsService.findAgentProfileByUserId(agentUserId);
     if (!agent) throw new WsException('Agent not found.');
 
     const appointmentData: CreateAppointmentDto = {
@@ -1579,7 +2520,7 @@ export class ChatGateway
       `[handleAgentBookAppointment]: appointment created ${JSON.stringify(appointment)}`,
     );
 
-    // Notify customer
+    // Notify customer about the appointment
     this.server
       .to(`customer:${chatSession.customerId.toString()}`)
       .emit('server:appointment_booked_notification', appointment);
@@ -1599,10 +2540,30 @@ export class ChatGateway
       .to(`chatSession:${payload.chatSessionId}`)
       .emit('server:new_message', systemMessage);
 
+    // Prepare acknowledgment data with multi-socket context
+    const acknowledgmentData = {
+      event: 'server:appointment_booked_ack',
+      data: {
+        appointment: appointment.toObject(),
+        chatSessionId: payload.chatSessionId,
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+        bookedAt: new Date(),
+      },
+    };
+
+    // Broadcast appointment booked acknowledgment to ALL agent's sockets
+    // This ensures all agent devices know that an appointment was booked
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
     this.logger.log(
-      `Agent ${agent._id} booked appointment ${appointment._id} for customer ${chatSession.customerId.toString()} in session ${payload.chatSessionId}}.`,
+      `Agent ${agent._id} booked appointment ${appointment._id} for customer ${chatSession.customerId.toString()} in session ${payload.chatSessionId} from socket ${client.id}. Broadcasted to ${socketCount} socket(s).`,
     );
-    return { event: 'server:appointment_booked_ack', data: appointment };
+
+    // Return acknowledgment to the triggering socket (traditional response)
+    return acknowledgmentData;
   }
 
   // --- Helper Methods ---
@@ -1611,22 +2572,97 @@ export class ChatGateway
     agentSocketId: string,
     customerId: string,
   ) {
-    // Fix for "Cannot read properties of undefined (reading 'get')" error
-    let agentClient;
-    if (this.server.sockets && this.server.sockets.sockets) {
-      agentClient = this.server.sockets.sockets.get(agentSocketId);
+    // Remove agent from chat room
+    try {
+      const agentSockets = await this.server.in(agentSocketId).fetchSockets();
+      if (agentSockets.length > 0) {
+        const agentClient = agentSockets[0];
+        await agentClient.leave(`chatSession:${chatSessionId}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error removing agent socket ${agentSocketId} from chat room: ${error.message}`,
+      );
     }
-    if (agentClient) agentClient.leave(`chatSession:${chatSessionId}`);
 
+    // Remove customer from chat room
     const customerSocketId =
       await this.redisService.getSocketIdByCustomerId(customerId);
     if (customerSocketId) {
-      // Fix for "Cannot read properties of undefined (reading 'get')" error
-      let customerClient;
-      if (this.server.sockets && this.server.sockets.sockets) {
-        customerClient = this.server.sockets.sockets.get(customerSocketId);
+      try {
+        const customerSockets = await this.server
+          .in(customerSocketId)
+          .fetchSockets();
+        if (customerSockets.length > 0) {
+          const customerClient = customerSockets[0];
+          await customerClient.leave(`chatSession:${chatSessionId}`);
+        }
+      } catch (error) {
+        this.logger.error(
+          `Error removing customer socket ${customerSocketId} from chat room: ${error.message}`,
+        );
       }
-      if (customerClient) customerClient.leave(`chatSession:${chatSessionId}`);
+    }
+  }
+
+  /**
+   * Multi-socket version of removeParticipantsFromChatRoom
+   * Removes ALL agent sockets from the chat room
+   */
+  private async removeParticipantsFromChatRoomMulti(
+    chatSessionId: string,
+    agentUserId: string,
+    customerId: string,
+  ) {
+    // Remove ALL agent sockets from chat room
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+
+    this.logger.log(
+      `Removing ${allAgentSockets.length} agent socket(s) from chatSession:${chatSessionId}`,
+    );
+
+    for (const socketId of allAgentSockets) {
+      try {
+        const agentSockets = await this.server.in(socketId).fetchSockets();
+        if (agentSockets.length > 0) {
+          const agentClient = agentSockets[0];
+          await agentClient.leave(`chatSession:${chatSessionId}`);
+          this.logger.debug(
+            `Agent socket ${socketId} removed from chatSession:${chatSessionId}`,
+          );
+        } else {
+          this.logger.warn(
+            `Agent socket ${socketId} not found in server for removal from chat room`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Error removing agent socket ${socketId} from chat room: ${error.message}`,
+        );
+      }
+    }
+
+    // Remove customer from chat room
+    const customerSocketId =
+      await this.redisService.getSocketIdByCustomerId(customerId);
+    if (customerSocketId) {
+      try {
+        const customerSockets = await this.server
+          .in(customerSocketId)
+          .fetchSockets();
+        if (customerSockets.length > 0) {
+          const customerClient = customerSockets[0];
+          await customerClient.leave(`chatSession:${chatSessionId}`);
+          this.logger.debug(
+            `Customer socket ${customerSocketId} removed from chatSession:${chatSessionId}`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Error removing customer socket ${customerSocketId} from chat room: ${error.message}`,
+        );
+      }
     }
   }
 
