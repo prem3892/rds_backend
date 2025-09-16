@@ -23,6 +23,7 @@ import { adminVerificationTemplate } from './templates/admin-verification.templa
 import { welcomeTemplate } from './templates/welcome.template';
 import { appointmentConfirmationTemplate } from './templates/appointment-confirmation.template';
 import { chatTranscriptTemplate } from './templates/chat-transcript.template';
+import { agentVerificationTemplate } from './templates/agent-verification.template';
 
 @Injectable()
 export class MailerService {
@@ -84,7 +85,7 @@ export class MailerService {
       );
       this.templates.set(
         'account-verification',
-        Handlebars.compile(accountVerificationTemplate),
+        Handlebars.compile(agentVerificationTemplate),
       );
       this.templates.set(
         'admin-verification',
