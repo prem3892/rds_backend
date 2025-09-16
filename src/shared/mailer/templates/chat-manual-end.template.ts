@@ -1,0 +1,273 @@
+export const chatManualEndTemplate = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Session Transcript - Manual End</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            background-color: #3b82f6;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .content {
+            padding: 30px;
+        }
+        .session-info {
+            background-color: #f0f9ff;
+            border: 1px solid #bae6fd;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        .agent-history {
+            background-color: #f0f9ff;
+            border: 1px solid #bae6fd;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        .transcript {
+            background-color: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            margin: 20px 0;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .message {
+            padding: 12px 20px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .message:last-child {
+            border-bottom: none;
+        }
+        .message-customer {
+            background-color: #f3f4f6;
+        }
+        .message-agent {
+            background-color: #ecfdf5;
+        }
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .sender-name {
+            font-weight: bold;
+            color: #374151;
+        }
+        .sender-customer {
+            color: #7c3aed;
+        }
+        .sender-agent {
+            color: #059669;
+        }
+        .timestamp {
+            font-size: 12px;
+            color: #6b7280;
+        }
+        .message-content {
+            color: #374151;
+            word-wrap: break-word;
+        }
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+        .detail-label {
+            font-weight: bold;
+            color: #374151;
+            min-width: 120px;
+        }
+        .agent-item {
+            background-color: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            border-left: 4px solid #3b82f6;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            font-size: 14px;
+            color: #6b7280;
+            text-align: center;
+        }
+        .info-box {
+            background-color: #dbeafe;
+            border: 1px solid #3b82f6;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        .info-icon {
+            color: #1d4ed8;
+            font-weight: bold;
+        }
+        .reason-box {
+            background-color: #f3f4f6;
+            border: 1px solid #d1d5db;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💬 Chat Session Completed</h1>
+            <p>Session Transcript & Summary</p>
+        </div>
+        
+        <div class="content">
+            <div class="info-box">
+                <span class="info-icon">ℹ️ Notice:</span> 
+                This chat session was manually ended by {{#if (eq endedBy 'agent')}}an agent{{else}}the customer{{/if}}.
+                {{#if endReason}}
+                <div class="reason-box">
+                    <strong>Reason:</strong> {{endReason}}
+                </div>
+                {{/if}}
+            </div>
+
+            <h2>Chat Session Summary</h2>
+            
+            <p>A chat session has been completed. Below is the complete transcript and session details for your records.</p>
+            
+            <div class="session-info">
+                <h3>📋 Session Information</h3>
+                <div class="detail-row">
+                    <span class="detail-label">Session ID:</span>
+                    <span>{{sessionId}}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Customer:</span>
+                    <span>{{customerName}}{{#if customerEmail}} ({{customerEmail}}){{/if}}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Department:</span>
+                    <span>{{department}}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Domain:</span>
+                    <span>{{domain}}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Started:</span>
+                    <span>{{chatStartTime}}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Ended:</span>
+                    <span>{{chatEndTime}}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Ended By:</span>
+                    <span>{{#if (eq endedBy 'agent')}}Agent{{else}}Customer{{/if}}</span>
+                </div>
+                {{#if endReason}}
+                <div class="detail-row">
+                    <span class="detail-label">Reason:</span>
+                    <span>{{endReason}}</span>
+                </div>
+                {{/if}}
+            </div>
+
+            {{#if agentHistory}}
+            <div class="agent-history">
+                <h3>👥 Agent History</h3>
+                <p>The following agents were involved in this chat session:</p>
+                {{#each agentHistory}}
+                <div class="agent-item">
+                    <div class="detail-row">
+                        <span class="detail-label">Agent:</span>
+                        <span>{{agentName}}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Joined:</span>
+                        <span>{{joinedAt}}</span>
+                    </div>
+                    {{#if leftAt}}
+                    <div class="detail-row">
+                        <span class="detail-label">Left:</span>
+                        <span>{{leftAt}}</span>
+                    </div>
+                    {{/if}}
+                    <div class="detail-row">
+                        <span class="detail-label">Duration:</span>
+                        <span>{{duration}}</span>
+                    </div>
+                </div>
+                {{/each}}
+            </div>
+            {{/if}}
+
+            {{#if transcript}}
+            <div class="transcript">
+                <h3 style="padding: 20px 20px 10px 20px; margin: 0; background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">💬 Chat Transcript</h3>
+                {{#each transcript}}
+                <div class="message {{#if (eq senderType 'customer')}}message-customer{{else}}message-agent{{/if}}">
+                    <div class="message-header">
+                        <span class="sender-name {{#if (eq senderType 'customer')}}sender-customer{{else}}sender-agent{{/if}}">
+                            {{#if (eq senderType 'customer')}}👤{{else}}🎧{{/if}} {{senderName}}
+                        </span>
+                        <span class="timestamp">{{timestamp}}</span>
+                    </div>
+                    <div class="message-content">{{message}}</div>
+                </div>
+                {{/each}}
+            </div>
+            {{else}}
+            <div class="transcript">
+                <h3 style="padding: 20px; margin: 0; text-align: center; color: #6b7280;">No messages were exchanged in this session</h3>
+            </div>
+            {{/if}}
+
+            <p><strong>Next Steps:</strong></p>
+            <ul>
+                <li>Review the conversation for quality assurance purposes</li>
+                <li>Follow up with the customer if additional assistance is needed</li>
+                <li>Update customer records with any relevant information from the chat</li>
+                <li>Use this transcript for training and improvement purposes</li>
+                <li>Archive this record according to your data retention policies</li>
+            </ul>
+
+            <p>This transcript has been automatically generated and saved for your records.</p>
+            
+            <div class="footer">
+                <p><strong>This is an automated email generated when a chat session ends.</strong></p>
+                <p>Please save this email for your records and follow your standard post-chat procedures.</p>
+                <p>For questions about this transcript, please contact your system administrator.</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+`;

@@ -23,6 +23,7 @@ import { adminVerificationTemplate } from './templates/admin-verification.templa
 import { welcomeTemplate } from './templates/welcome.template';
 import { appointmentConfirmationTemplate } from './templates/appointment-confirmation.template';
 import { chatTranscriptTemplate } from './templates/chat-transcript.template';
+import { chatManualEndTemplate } from './templates/chat-manual-end.template';
 import { agentVerificationTemplate } from './templates/agent-verification.template';
 
 @Injectable()
@@ -99,6 +100,10 @@ export class MailerService {
       this.templates.set(
         'chat-transcript',
         Handlebars.compile(chatTranscriptTemplate),
+      );
+      this.templates.set(
+        'chat-manual-end',
+        Handlebars.compile(chatManualEndTemplate),
       );
 
       // Register Handlebars helpers
@@ -236,16 +241,26 @@ export class MailerService {
 
   async sendChatTranscriptEmail(
     to: string,
+    subject: string,
     data: ChatTranscriptTemplateData,
   ): Promise<boolean> {
-    const inactivityTypeLabel =
-      data.inactivityType === 'agent' ? 'Agent' : 'Customer';
-    const subject = `🚨 ${inactivityTypeLabel} Inactivity Alert - Chat Session ${data.sessionId} Ended`;
-
     return this.sendTemplateMail({
       to,
       subject,
       template: 'chat-transcript',
+      context: data,
+    });
+  }
+
+  async sendChatManualEndEmail(
+    to: string,
+    subject: string,
+    data: ChatTranscriptTemplateData,
+  ): Promise<boolean> {
+    return this.sendTemplateMail({
+      to,
+      subject,
+      template: 'chat-manual-end',
       context: data,
     });
   }

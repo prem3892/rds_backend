@@ -60,8 +60,18 @@ export interface ChatTranscriptTemplateData {
   sessionId: string;
   chatStartTime: string;
   chatEndTime: string;
+  // Legacy fields for backward compatibility
   inactivityReason: string;
   inactivityType: 'agent' | 'customer';
+  // New generic fields for all ending types
+  endReason?: string;
+  endType?:
+    | 'inactivity'
+    | 'manual_end'
+    | 'system_timeout'
+    | 'technical_issue'
+    | 'other';
+  endedBy?: 'agent' | 'customer' | 'system';
   agentHistory: Array<{
     agentName: string;
     joinedAt: string;

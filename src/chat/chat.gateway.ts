@@ -52,6 +52,7 @@ import { IpExtractorUtil } from '../shared/utils/ip-extractor.util';
 import { AppointmentDocument } from 'src/schemas/appointment.schema';
 import { AgentProfileDocument } from 'src/schemas/agent-profile.schema';
 import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
+import { ChatTranscriptService } from './services/chat-transcript/chat-transcript.service';
 import { VisitorStateService } from './services/visitor-state/visitor-state.service';
 import { FingerprintUtil } from '../shared/utils/fingerprint.util';
 
@@ -102,6 +103,8 @@ export class ChatGateway
     private readonly usersService: UsersService,
     @Inject(forwardRef(() => ChatNotificationService))
     private readonly chatNotificationService: ChatNotificationService,
+    @Inject(forwardRef(() => ChatTranscriptService))
+    private readonly chatTranscriptService: ChatTranscriptService,
     @Inject(forwardRef(() => VisitorStateService))
     private readonly visitorStateService: VisitorStateService,
   ) {
@@ -1468,6 +1471,21 @@ export class ChatGateway
       session._id,
       ChatSessionStatus.CLOSED_BY_AGENT,
     );
+
+    // Send transcript email for manual chat ending
+    try {
+      await this.chatTranscriptService.sendTranscriptEmailForManualEnd(
+        session._id.toString(),
+        'agent',
+        data.reason,
+      );
+    } catch (emailError) {
+      this.logger.error(
+        `Error sending transcript email for agent-ended chat ${session._id}: ${emailError.message}`,
+        emailError.stack,
+      );
+      // Don't throw error - email failure shouldn't prevent chat ending
+    }
 
     // Notify customer that agent ended the chat
     this.server
