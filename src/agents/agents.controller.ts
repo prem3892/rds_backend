@@ -64,6 +64,8 @@ import {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('agents')
 export class AgentsController {
+  private readonly logger = new Logger(AgentsController.name);
+
   constructor(
     private readonly agentsService: AgentsService,
     private readonly usersService: UsersService,
@@ -91,75 +93,6 @@ export class AgentsController {
   })
   async getAllAgentsWithProfiles(@AuthenticatedUser() adminUser: JwtPayload) {
     return this.agentsService.getAllAgentProfilesWithUserDetails(adminUser.sub);
-  }
-
-  @Get(':agentId')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({
-    summary: 'Get agent profile by ID (Admin only)',
-    description:
-      'Retrieve a specific agent profile with associated user details by agent ID. Only accessible by administrators.',
-  })
-  @ApiParam({
-    name: 'agentId',
-    description: 'The unique identifier of the agent',
-    type: 'string',
-    example: '507f1f77bcf86cd799439011',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Agent profile retrieved successfully',
-    type: AgentProfileResponseDto,
-  })
-  @ApiBadRequestResponse({
-    description: 'Invalid agent ID format',
-    type: ErrorResponseDto,
-  })
-  @ApiNotFoundResponse({
-    description: 'Agent profile not found',
-    type: NotFoundResponseDto,
-  })
-  @ApiUnauthorizedResponse({
-    description: 'Authentication required',
-    type: UnauthorizedResponseDto,
-  })
-  @ApiForbiddenResponse({
-    description: 'Admin role required',
-    type: ForbiddenResponseDto,
-  })
-  async getAgentById(
-    @Param('agentId') agentId: string,
-    @AuthenticatedUser() adminUser: JwtPayload,
-  ) {
-    if (!Types.ObjectId.isValid(agentId)) {
-      throw new BadRequestException('Invalid agent ID format');
-    }
-
-    const agentProfile = await this.agentsService.findAgentProfileById(agentId);
-    if (!agentProfile) {
-      throw new NotFoundException(`Agent profile with ID ${agentId} not found`);
-    }
-
-    // Get the userId from the agent profile
-    const userId = agentProfile.userId;
-    if (!userId) {
-      throw new BadRequestException(
-        'This agent profile is not associated with a user',
-      );
-    }
-
-    // Get user details to return combined response
-    const userDetails = await this.usersService.findById(userId);
-    return {
-      ...agentProfile.toObject(),
-      user: userDetails
-        ? {
-            email: userDetails.email,
-            firstName: userDetails.firstName,
-            lastName: userDetails.lastName,
-          }
-        : null,
-    };
   }
 
   @Get('me/profile')
@@ -626,6 +559,7 @@ export class AgentsController {
     @AuthenticatedUser() user: JwtPayload,
     @Query() queryDto: GetCannedMessagesDto,
   ) {
+    this.logger.debug('Received request to fetch canned messages');
     return this.agentsService.getCannedMessages(user.sub, queryDto);
   }
 
@@ -641,6 +575,7 @@ export class AgentsController {
     if (!Types.ObjectId.isValid(messageId)) {
       throw new BadRequestException('Invalid message ID format');
     }
+    this.logger.debug(`Fetching canned message with ID: ${messageId}`);
     return this.agentsService.getCannedMessageById(user.sub, messageId);
   }
 
@@ -782,5 +717,74 @@ export class AgentsController {
   })
   async getMyAvailability(@AuthenticatedUser() user: JwtPayload) {
     return this.agentsService.isAgentCurrentlyAvailable(user.sub);
+  }
+
+  @Get(':agentId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get agent profile by ID (Admin only)',
+    description:
+      'Retrieve a specific agent profile with associated user details by agent ID. Only accessible by administrators.',
+  })
+  @ApiParam({
+    name: 'agentId',
+    description: 'The unique identifier of the agent',
+    type: 'string',
+    example: '507f1f77bcf86cd799439011',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Agent profile retrieved successfully',
+    type: AgentProfileResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid agent ID format',
+    type: ErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Agent profile not found',
+    type: NotFoundResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  async getAgentById(
+    @Param('agentId') agentId: string,
+    @AuthenticatedUser() adminUser: JwtPayload,
+  ) {
+    if (!Types.ObjectId.isValid(agentId)) {
+      throw new BadRequestException('Invalid agent ID format');
+    }
+
+    const agentProfile = await this.agentsService.findAgentProfileById(agentId);
+    if (!agentProfile) {
+      throw new NotFoundException(`Agent profile with ID ${agentId} not found`);
+    }
+
+    // Get the userId from the agent profile
+    const userId = agentProfile.userId;
+    if (!userId) {
+      throw new BadRequestException(
+        'This agent profile is not associated with a user',
+      );
+    }
+
+    // Get user details to return combined response
+    const userDetails = await this.usersService.findById(userId);
+    return {
+      ...agentProfile.toObject(),
+      user: userDetails
+        ? {
+            email: userDetails.email,
+            firstName: userDetails.firstName,
+            lastName: userDetails.lastName,
+          }
+        : null,
+    };
   }
 }

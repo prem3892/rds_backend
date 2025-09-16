@@ -132,6 +132,11 @@ export class AgentsService {
   ): Promise<AgentProfileDocument> {
     const profile = await this.findAgentProfileByUserId(userId);
 
+    this.logger.debug(
+      `[findAgentProfileByUserIdOrFail] Found agent profile for user ID ${userId}:`,
+      profile,
+    );
+
     if (!profile) {
       this.logger.error(
         `Agent profile for user ID ${userId} ${typeof userId} not found.`,
@@ -680,6 +685,9 @@ export class AgentsService {
       hasPrev: boolean;
     };
   }> {
+    this.logger.debug(
+      `Getting canned messages for agent ${agentUserId} with query: ${JSON.stringify(queryDto)}`,
+    );
     const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
 
     const {
