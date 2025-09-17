@@ -1012,6 +1012,13 @@ export class AgentsService {
       throw new NotFoundException(`Agent profile with ID ${agentId} not found`);
     }
 
+    // Prevent admin from blocking themselves
+    if (agentProfile.userId.toString() === adminUserId) {
+      throw new BadRequestException(
+        'You cannot block/unblock your own account',
+      );
+    }
+
     // Check if the current admin is the one who created this agent profile
     if (
       agentProfile.adminId &&
