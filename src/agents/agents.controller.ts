@@ -14,6 +14,8 @@ import {
   Logger,
   UseInterceptors,
   UploadedFile,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -48,6 +50,7 @@ import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { UsersService } from '../users/users.service'; // For password updates
 import { UpdateUserDto } from 'src/users/dto/update-user.dto';
 import { Types } from 'mongoose';
+import { ChatNotificationService } from '../chat/services/chat-notification/chat-notification.service';
 import { createProfilePictureUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
 import { getProfilePictureUrl } from '../shared/utils/file-upload.utils';
 import {
@@ -69,6 +72,8 @@ export class AgentsController {
   constructor(
     private readonly agentsService: AgentsService,
     private readonly usersService: UsersService,
+    @Inject(forwardRef(() => ChatNotificationService))
+    private readonly chatNotificationService: ChatNotificationService,
   ) {}
 
   @Get()
@@ -375,19 +380,42 @@ export class AgentsController {
       await this.usersService.update(userId.toString(), userUpdatePayload);
     }
 
-    // Handle AGENT PROFILE schema fields (departmentIds, domainAccess, isOnline, maxConcurrentChats)
+    // Handle isOnline field separately using setOnlineStatus for validation, maybe addtry/catch
+    if (typeof updateDto.isOnline === 'boolean') {
+      await this.agentsService.setOnlineStatus(
+        userId.toString(),
+        updateDto.isOnline,
+      );
+
+      // Notify the agent about the status change via socket
+      await this.chatNotificationService.notifyAgentAboutStatusChangeByAdmin(
+        userId.toString(),
+        updateDto.isOnline,
+        adminUser.sub,
+      );
+    }
+
+    // Handle AGENT PROFILE schema fields (departmentIds, domainAccess, maxConcurrentChats, etc.)
     const agentProfileUpdatePayload: UpdateAgentProfileDto = { ...updateDto };
     // Remove user-specific fields from agent profile payload
     delete agentProfileUpdatePayload['password'];
     delete agentProfileUpdatePayload['firstName'];
     delete agentProfileUpdatePayload['lastName'];
     delete agentProfileUpdatePayload['email'];
+    // Remove isOnline as it's handled separately above
+    delete agentProfileUpdatePayload['isOnline'];
 
-    // Update agent profile fields with agentId directly
-    const updatedProfile = await this.agentsService.updateAgentProfileById(
-      agentId,
-      agentProfileUpdatePayload,
-    );
+    // Update agent profile fields with agentId directly (only if there are fields to update)
+    let updatedProfile;
+    if (Object.keys(agentProfileUpdatePayload).length > 0) {
+      updatedProfile = await this.agentsService.updateAgentProfileById(
+        agentId,
+        agentProfileUpdatePayload,
+      );
+    } else {
+      // If no profile fields to update, just get the current profile
+      updatedProfile = await this.agentsService.findAgentProfileById(agentId);
+    }
 
     // Get updated user details to return combined response
     const userDetails = await this.usersService.findById(userId);

@@ -997,12 +997,12 @@ export class ChatGateway
       );
 
       // Broadcast pool status update to other clients
-      this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
+      // this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
 
       // Return acknowledgment to the triggering socket (this is the traditional response)
       // Note: The triggering socket will receive this twice (once from room broadcast, once from return)
       // but that's acceptable for backward compatibility
-      return acknowledgmentData;
+      // return acknowledgmentData;
     } catch (error) {
       this.logger.error(
         `Failed to set online status for agent ${agentId}: ${error.message}`,
@@ -1025,9 +1025,6 @@ export class ChatGateway
       this.logger.log(
         `Sent online status error to all sockets for agent ${agentId}. Error: ${error.message}`,
       );
-
-      // Return error acknowledgment to the triggering socket
-      return errorData;
     }
   }
 

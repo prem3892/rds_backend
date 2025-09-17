@@ -189,7 +189,16 @@ export class AgentsService {
       const userDetails = userMap.get(profile.userId.toString());
       return {
         ...profile,
-        user: userDetails || null, // Attach user details
+        user: userDetails
+          ? {
+              _id: userDetails._id,
+              firstName: userDetails.firstName,
+              lastName: userDetails.lastName,
+              email: userDetails.email,
+              role: userDetails.role,
+              isEmailVerified: userDetails.isEmailVerified,
+            }
+          : null, // Attach only specific user fields
       };
     });
   }

@@ -257,6 +257,41 @@ export class ChatNotificationService {
   }
 
   /**
+   * Notify an agent that their online status was changed by an admin
+   * @param agentId The agent whose status was changed
+   * @param isOnline The new online status
+   * @param adminId The admin who made the change
+   */
+  async notifyAgentAboutStatusChangeByAdmin(
+    agentId: string,
+    isOnline: boolean,
+    adminId: string,
+  ) {
+    try {
+      // Send notification to the agent's room
+      const notificationData = {
+        success: true,
+        isOnline: isOnline,
+        changedByAdmin: true,
+        adminId: adminId,
+        timestamp: new Date().toISOString(),
+      };
+
+      this.server
+        .to(`agent:${agentId}`)
+        .emit('server:online_status_updated', notificationData);
+
+      this.logger.log(
+        `Notified agent ${agentId} about online status change to ${isOnline} by admin ${adminId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to notify agent ${agentId} about status change by admin: ${error.message}`,
+      );
+    }
+  }
+
+  /**
    * Notify available agents about a pending chat that needs reassignment
    * @param session The chat session that needs a new agent
    */
