@@ -268,6 +268,13 @@ export class ChatNotificationService {
     adminId: string,
   ) {
     try {
+      if (!this.server) {
+        this.logger.warn(
+          'Socket.IO server not available for agent status change notification',
+        );
+        return;
+      }
+
       // Send notification to the agent's room
       const notificationData = {
         success: true,
