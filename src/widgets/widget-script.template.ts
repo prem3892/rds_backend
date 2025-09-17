@@ -999,12 +999,33 @@ export function generateWidgetScript(
               const response = await fetch(\`\${API_BASE}/public/chat/sessions/\${this.currentChatSession.chatSessionId}/messages\`);
               if (!response.ok) throw new Error('Failed to fetch history');
               const messages = await response.json();
+
+              // reverse the array so that oldest messages appear first
+              messages.reverse();
               
               // Clear existing messages before loading history
               const messagesContainer = document.getElementById('messages-container');
               messagesContainer.innerHTML = '';
               
-              messages.forEach(message => this.displayMessage(message));
+              // Transform messages from history format to displayMessage format
+              messages.forEach(message => {
+                const transformedMessage = {
+                  _id: message._id,
+                  senderType: message.senderType.toLowerCase(), // Convert to lowercase
+                  messageContent: {
+                    text: message.content.text,
+                    type: message.content.type || message.messageType.toLowerCase(),
+                    url: message.content.url,
+                    filename: message.content.filename,
+                    mimeType: message.content.mimeType
+                  },
+                  timestamp: message.timestamp,
+                  readByAgent: message.readByAgent,
+                  readByCustomer: message.readByCustomer
+                };
+                
+                this.displayMessage(transformedMessage);
+              });
             } catch (error) {
               console.error('Failed to load chat history:', error);
             }
