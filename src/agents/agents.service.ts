@@ -250,6 +250,14 @@ export class AgentsService {
         agentProfile.lastSeen = new Date();
       }
     }
+    if (typeof updateDto.isBlocked === 'boolean') {
+      agentProfile.isBlocked = updateDto.isBlocked;
+      // If blocking the agent, also set them offline
+      if (updateDto.isBlocked) {
+        agentProfile.isOnline = false;
+        agentProfile.lastSeen = new Date();
+      }
+    }
     if (updateDto.maxConcurrentChats)
       agentProfile.maxConcurrentChats = updateDto.maxConcurrentChats;
     if (updateDto.shifts) {
@@ -312,6 +320,14 @@ export class AgentsService {
         agentProfile.lastSeen = new Date();
       }
     }
+    if (typeof updateDto.isBlocked === 'boolean') {
+      agentProfile.isBlocked = updateDto.isBlocked;
+      // If blocking the agent, also set them offline
+      if (updateDto.isBlocked) {
+        agentProfile.isOnline = false;
+        agentProfile.lastSeen = new Date();
+      }
+    }
     if (updateDto.maxConcurrentChats)
       agentProfile.maxConcurrentChats = updateDto.maxConcurrentChats;
     if (updateDto.shifts) {
@@ -347,6 +363,13 @@ export class AgentsService {
     if (!agentProfile) {
       throw new NotFoundException(
         `Agent profile for user ID ${agentUserId} not found.`,
+      );
+    }
+
+    // Check if agent is blocked
+    if (agentProfile.isBlocked) {
+      throw new ForbiddenException(
+        'Your account has been blocked. Please contact your administrator.',
       );
     }
 
@@ -392,6 +415,7 @@ export class AgentsService {
     const onlineAgents = await this.agentProfileModel
       .find({
         isOnline: true, // First check: agent must be online
+        isBlocked: { $ne: true }, // Exclude blocked agents
         adminId: widget.createdBy, // CRITICAL: Only agents from the same organization
       })
       .exec();
@@ -963,8 +987,59 @@ export class AgentsService {
    */
   async getAllOnlineAgents(): Promise<AgentProfileDocument[]> {
     return this.agentProfileModel
-      .find({ isOnline: true })
+      .find({
+        isOnline: true,
+        isBlocked: { $ne: true }, // Exclude blocked agents
+      })
       .populate('departmentIds')
       .exec();
+  }
+
+  /**
+   * Block or unblock an agent account
+   */
+  async blockUnblockAgent(
+    agentId: string,
+    isBlocked: boolean,
+    adminUserId: string,
+  ): Promise<AgentProfileDocument> {
+    this.logger.log(
+      `${isBlocked ? 'Blocking' : 'Unblocking'} agent ${agentId} by admin ${adminUserId}`,
+    );
+
+    const agentProfile = await this.findAgentProfileById(agentId);
+    if (!agentProfile) {
+      throw new NotFoundException(`Agent profile with ID ${agentId} not found`);
+    }
+
+    // Check if the current admin is the one who created this agent profile
+    if (
+      agentProfile.adminId &&
+      agentProfile.adminId.toString() !== adminUserId
+    ) {
+      this.logger.warn(
+        `Admin ${adminUserId} attempted to ${isBlocked ? 'block' : 'unblock'} agent ${agentId} created by admin ${agentProfile.adminId}`,
+      );
+      throw new BadRequestException(
+        'You can only block/unblock agent profiles that you created',
+      );
+    }
+
+    // Update the blocked status
+    agentProfile.isBlocked = isBlocked;
+
+    // If blocking the agent, also set them offline
+    if (isBlocked) {
+      agentProfile.isOnline = false;
+      agentProfile.lastSeen = new Date();
+    }
+
+    const updatedProfile = await agentProfile.save();
+
+    this.logger.log(
+      `Agent ${agentId} has been ${isBlocked ? 'blocked' : 'unblocked'} successfully`,
+    );
+
+    return updatedProfile;
   }
 }

@@ -62,13 +62,20 @@ export class AuthService {
       );
     }
 
-    // Generate tokens
-    const tokens = await this.generateTokens(validatedUser);
-
-    // Get the isOnline property from the agent profile
+    // Get the agent profile to check blocked status
     const agentProfile = await this.agentsService.findAgentProfileByUserId(
       validatedUser._id,
     );
+
+    // Check if agent is blocked (only for agents, not admins)
+    if (validatedUser.role === UserRole.AGENT && agentProfile?.isBlocked) {
+      throw new UnauthorizedException(
+        'Your account has been blocked. Please contact your administrator.',
+      );
+    }
+
+    // Generate tokens
+    const tokens = await this.generateTokens(validatedUser);
 
     return {
       accessToken: tokens.accessToken,
@@ -83,6 +90,7 @@ export class AuthService {
         website: validatedUser.website,
         isEmailVerified: validatedUser.isEmailVerified,
         isOnline: agentProfile?.isOnline ?? false,
+        isBlocked: agentProfile?.isBlocked ?? false,
       },
     };
   }
