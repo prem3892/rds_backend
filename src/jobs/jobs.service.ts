@@ -86,9 +86,27 @@ export class JobsService {
             );
 
           if (!lastMessage) {
+            // Handle corner case: session is active but has no messages
+            // Check if session creation time exceeds agent inactivity threshold
             this.logger.debug(
-              `No non-system messages found for session ${sessionId}, skipping`,
+              `No non-system messages found for session ${sessionId}, checking session creation time for agent inactivity`,
             );
+
+            const sessionCreationTime = session.initiatedAt;
+            const agentInactivityThreshold = new Date(
+              Date.now() - this.agentInactivityThresholdMs,
+            );
+
+            if (sessionCreationTime < agentInactivityThreshold) {
+              this.logger.log(
+                `Session ${sessionId} has no messages and was created more than ${this.agentInactivityThresholdMs / 60000} minutes ago. Treating as agent inactivity.`,
+              );
+              await this.checkAgentInactivity(session);
+            } else {
+              this.logger.debug(
+                `Session ${sessionId} has no messages but was created recently, skipping`,
+              );
+            }
             continue;
           }
 
