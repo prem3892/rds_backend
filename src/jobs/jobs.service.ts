@@ -6,13 +6,19 @@ import { ChatMessageService } from '../chat/services/chat-message/chat-message.s
 import { ChatTranscriptService } from '../chat/services/chat-transcript/chat-transcript.service';
 import { AgentsService } from '../agents/agents.service';
 import { ConfigService } from '@nestjs/config';
-import { ChatMessageSenderType } from '../shared/constants/enums';
+import {
+  ChatMessageSenderType,
+  ChatSessionStatus,
+} from '../shared/constants/enums';
 
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
   private readonly agentInactivityThresholdMs: number;
   private readonly customerInactivityThresholdMs: number;
+  private readonly firstAlertThresholdMs: number;
+  private readonly subsequentAlertIntervalMs: number;
+  private readonly maxPriorityAlerts: number;
 
   constructor(
     private readonly chatSessionService: ChatSessionService,
@@ -31,6 +37,15 @@ export class JobsService {
       this.configService.get<number>(
         'chatTimers.customerInactivityThresholdMs',
       ) || 600000;
+    // Configuration for unattended chat notifications
+    this.firstAlertThresholdMs =
+      this.configService.get<number>('chatTimers.firstAlertThresholdMs') ||
+      60000;
+    this.subsequentAlertIntervalMs =
+      this.configService.get<number>('chatTimers.subsequentAlertIntervalMs') ||
+      60000;
+    this.maxPriorityAlerts =
+      this.configService.get<number>('chatTimers.maxPriorityAlerts') || 3;
   }
 
   /**
@@ -264,6 +279,84 @@ export class JobsService {
     } catch (error) {
       this.logger.error(
         `Error in checkAgentShiftStatus job: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
+   * Scheduled job that runs every 5 minutes to handle unattended chat notifications
+   * Sends priority notifications to eligible agents for pending sessions
+   * and marks expired sessions as EXPIRED_PENDING_ASSIGNMENT
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async handleUnattendedChatNotifications() {
+    this.logger.debug('Running unattended chat notification job...');
+
+    try {
+      const pendingSessions =
+        await this.chatSessionService.getPendingAssignmentSessions(
+          this.firstAlertThresholdMs,
+          this.subsequentAlertIntervalMs,
+          this.maxPriorityAlerts,
+        );
+
+      for (const session of pendingSessions) {
+        this.logger.debug(
+          `Processing pending session: ${session._id}, count: ${session.priorityNotificationSentCount}`,
+        );
+        // Use the widget ID from the session for finding eligible agents
+        const eligibleAgents = await this.agentsService.getEligibleOnlineAgents(
+          session.widgetId, // Use the widget ID which contains departmentIds
+          session.domain,
+        );
+
+        if (eligibleAgents.length > 0) {
+          this.logger.log(
+            `Found ${eligibleAgents.length} eligible agents for session ${session._id}. Sending priority notification.`,
+          );
+
+          await this.chatSessionService.incrementPriorityNotificationCount(
+            session._id,
+          );
+
+          // Delegate socket notifications to ChatNotificationService
+          await this.chatNotificationService.sendPriorityNotificationToAgents(
+            eligibleAgents,
+            session,
+          );
+        } else {
+          this.logger.warn(
+            `No eligible agents found for priority notification for session ${session._id}.`,
+          );
+        }
+      }
+
+      // Handle expired pending sessions
+      const expiredSessions =
+        await this.chatSessionService.getExpiredPendingSessions(
+          this.subsequentAlertIntervalMs,
+          this.maxPriorityAlerts,
+        );
+      for (const session of expiredSessions) {
+        this.logger.log(
+          `Session ${session._id} has expired pending assignment. Updating status.`,
+        );
+        const updated = await this.chatSessionService.updateSessionStatus(
+          session._id,
+          ChatSessionStatus.EXPIRED_PENDING_ASSIGNMENT,
+        );
+
+        // Delegate socket notification to ChatNotificationService
+        if (updated) {
+          await this.chatNotificationService.notifyCustomerAboutExpiredSession(
+            updated,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error in handleUnattendedChatNotifications job: ${error.message}`,
         error.stack,
       );
     }
