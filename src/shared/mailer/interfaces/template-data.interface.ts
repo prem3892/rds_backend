@@ -27,6 +27,13 @@ export interface AdminVerificationTemplateData {
   expirationTime: string;
 }
 
+export interface OtpVerificationTemplateData {
+  firstName: string;
+  lastName: string;
+  otp: string;
+  expirationTime: string;
+}
+
 export interface AppointmentConfirmationTemplateData {
   customerName: string;
   agentName: string;

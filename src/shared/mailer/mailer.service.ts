@@ -14,6 +14,7 @@ import {
   WelcomeTemplateData,
   AppointmentConfirmationTemplateData,
   ChatTranscriptTemplateData,
+  OtpVerificationTemplateData,
 } from './interfaces/template-data.interface';
 
 // Import templates
@@ -25,6 +26,7 @@ import { appointmentConfirmationTemplate } from './templates/appointment-confirm
 import { chatTranscriptTemplate } from './templates/chat-transcript.template';
 import { chatManualEndTemplate } from './templates/chat-manual-end.template';
 import { agentVerificationTemplate } from './templates/agent-verification.template';
+import { otpVerificationTemplate } from './templates/otp-verification.template';
 
 @Injectable()
 export class MailerService {
@@ -104,6 +106,10 @@ export class MailerService {
       this.templates.set(
         'chat-manual-end',
         Handlebars.compile(chatManualEndTemplate),
+      );
+      this.templates.set(
+        'otp-verification',
+        Handlebars.compile(otpVerificationTemplate),
       );
 
       // Register Handlebars helpers
@@ -223,6 +229,18 @@ export class MailerService {
       to,
       subject: 'Verify Your Admin Account - Live Chat System',
       template: 'admin-verification',
+      context: data,
+    });
+  }
+
+  async sendOtpVerificationEmail(
+    to: string,
+    data: OtpVerificationTemplateData,
+  ): Promise<boolean> {
+    return this.sendTemplateMail({
+      to,
+      subject: 'Email Verification Code - Live Chat System',
+      template: 'otp-verification',
       context: data,
     });
   }

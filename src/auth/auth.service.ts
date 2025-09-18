@@ -538,4 +538,187 @@ export class AuthService {
       console.error('Failed to send welcome email:', error);
     }
   }
+
+  // OTP Verification Methods
+  private generateOtp(): string {
+    // Generate a 6-digit OTP using crypto for security
+    return crypto.randomInt(100000, 999999).toString();
+  }
+
+  async sendEmailVerificationOtp(userId: string): Promise<boolean> {
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.isEmailVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+
+    // Rate limiting: Check if user has requested OTP recently
+    const now = new Date();
+    const rateLimitMinutes = 2; // Allow new OTP every 2 minutes
+
+    if (user.lastOtpRequestTime) {
+      const timeDiff = now.getTime() - user.lastOtpRequestTime.getTime();
+      const minutesDiff = timeDiff / (1000 * 60);
+
+      if (minutesDiff < rateLimitMinutes) {
+        throw new BadRequestException(
+          `Please wait ${Math.ceil(rateLimitMinutes - minutesDiff)} minute(s) before requesting a new OTP`,
+        );
+      }
+    }
+
+    // Generate OTP and set expiration (10 minutes)
+    const otp = this.generateOtp();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Save OTP to user and reset attempts
+    await this.usersService.updateUser(user._id, {
+      emailVerificationOtp: otp,
+      emailVerificationOtpExpires: otpExpires,
+      emailVerificationMethod: 'otp',
+      otpAttempts: 0,
+      lastOtpRequestTime: now,
+    });
+
+    // Send OTP email
+    return this.mailerService.sendOtpVerificationEmail(user.email, {
+      firstName: user.firstName,
+      lastName: user.lastName,
+      otp,
+      expirationTime: '10 minutes',
+    });
+  }
+
+  async sendEmailVerificationOtpByEmail(email: string): Promise<boolean> {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      throw new NotFoundException('User with this email does not exist');
+    }
+
+    if (user.isEmailVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+
+    // Rate limiting: Check if user has requested OTP recently
+    const now = new Date();
+    const rateLimitMinutes = 2; // Allow new OTP every 2 minutes
+
+    if (user.lastOtpRequestTime) {
+      const timeDiff = now.getTime() - user.lastOtpRequestTime.getTime();
+      const minutesDiff = timeDiff / (1000 * 60);
+
+      if (minutesDiff < rateLimitMinutes) {
+        throw new BadRequestException(
+          `Please wait ${Math.ceil(rateLimitMinutes - minutesDiff)} minute(s) before requesting a new OTP`,
+        );
+      }
+    }
+
+    // Generate OTP and set expiration (10 minutes)
+    const otp = this.generateOtp();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Save OTP to user and reset attempts
+    await this.usersService.updateUser(user._id, {
+      emailVerificationOtp: otp,
+      emailVerificationOtpExpires: otpExpires,
+      emailVerificationMethod: 'otp',
+      otpAttempts: 0,
+      lastOtpRequestTime: now,
+    });
+
+    // Send OTP email
+    return this.mailerService.sendOtpVerificationEmail(user.email, {
+      firstName: user.firstName,
+      lastName: user.lastName,
+      otp,
+      expirationTime: '10 minutes',
+    });
+  }
+
+  async verifyEmailOtp(email: string, otp: string): Promise<boolean> {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      throw new NotFoundException('User with this email does not exist');
+    }
+
+    if (user.isEmailVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+
+    // Check if OTP exists and is not expired
+    if (!user.emailVerificationOtp || !user.emailVerificationOtpExpires) {
+      throw new BadRequestException(
+        'No OTP found. Please request a new verification code.',
+      );
+    }
+
+    if (user.emailVerificationOtpExpires < new Date()) {
+      throw new BadRequestException(
+        'OTP has expired. Please request a new verification code.',
+      );
+    }
+
+    // Check attempt limit (max 5 attempts)
+    const maxAttempts = 5;
+    if (user.otpAttempts >= maxAttempts) {
+      // Clear OTP data to force new request
+      await this.usersService.updateUser(user._id, {
+        emailVerificationOtp: undefined,
+        emailVerificationOtpExpires: undefined,
+        otpAttempts: 0,
+      });
+      throw new BadRequestException(
+        'Too many failed attempts. Please request a new verification code.',
+      );
+    }
+
+    // Verify OTP
+    if (user.emailVerificationOtp !== otp) {
+      // Increment attempt count
+      await this.usersService.updateUser(user._id, {
+        otpAttempts: user.otpAttempts + 1,
+      });
+
+      const remainingAttempts = maxAttempts - (user.otpAttempts + 1);
+      throw new BadRequestException(
+        `Invalid OTP. ${remainingAttempts} attempt(s) remaining.`,
+      );
+    }
+
+    // OTP is valid - mark email as verified and clear OTP data
+    await this.usersService.updateUser(user._id, {
+      isEmailVerified: true,
+      emailVerificationOtp: undefined,
+      emailVerificationOtpExpires: undefined,
+      otpAttempts: 0,
+      emailVerificationMethod: 'otp',
+    });
+
+    return true;
+  }
+
+  async resendVerificationOtp(email: string): Promise<boolean> {
+    return this.sendEmailVerificationOtpByEmail(email);
+  }
+
+  async resendAdminVerificationOtp(email: string): Promise<boolean> {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      throw new NotFoundException('User with this email does not exist');
+    }
+
+    if (user.role !== UserRole.ADMIN) {
+      throw new BadRequestException('This endpoint is only for admin accounts');
+    }
+
+    if (user.isEmailVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+
+    return this.sendEmailVerificationOtpByEmail(email);
+  }
 }
