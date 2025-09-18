@@ -299,6 +299,49 @@ export class ChatNotificationService {
   }
 
   /**
+   * Notify the specific agent that their chat session has ended due to inactivity
+   * @param agentId The ID of the agent whose chat ended
+   * @param session The chat session that ended
+   */
+  async notifyAgentsAboutChatEnded(agentId: string, session: any) {
+    try {
+      if (!this.server) {
+        this.logger.warn(
+          'Socket.IO server not available for chat ended notifications',
+        );
+        return;
+      }
+
+      // Get customer name for the notification
+      const customer = session.customerId as any;
+      const customerName = customer?.name || customer?.email || 'Customer';
+
+      // Prepare notification data (same payload as server:customer_inactive)
+      const notificationData = {
+        chatSessionId: session._id.toString(),
+        message: `Chat session with ${customerName} has ended due to agent inactivity.`,
+        customerId: session.customerId.toString(),
+        customerName,
+        sessionStatus: session.status,
+      };
+
+      // Send notification to the specific agent
+      this.server
+        .to(`agent:${agentId}`)
+        .emit('server:chat_ended', notificationData);
+
+      this.logger.log(
+        `Notified agent ${agentId} about chat session ${session._id} ending due to agent inactivity`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to notify agent about chat ended: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
    * Notify available agents about a pending chat that needs reassignment
    * @param session The chat session that needs a new agent
    */

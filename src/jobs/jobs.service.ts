@@ -172,8 +172,9 @@ export class JobsService {
         updatedSession,
       );
 
-      // Notify available agents about the pending chat
-      await this.chatNotificationService.notifyAgentsAboutPendingChat(
+      // Notify the specific agent that their chat session has ended
+      await this.chatNotificationService.notifyAgentsAboutChatEnded(
+        agentId,
         updatedSession,
       );
 
