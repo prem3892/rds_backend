@@ -362,7 +362,6 @@ export function generateWidgetScript(
             this.updateAgentProfilePictures(data.initialAgentAvailability || []);
             
             if (data.activeSession) {
-              // Temporary disabling history feature
               this.currentChatSession = data.activeSession;
               this.showChatInterface();
               this.loadChatHistory();
@@ -373,6 +372,11 @@ export function generateWidgetScript(
             console.log('Chat initiated:', data);
             this.currentChatSession = { chatSessionId: data.chatSessionId };
             this.showChatInterface();
+            
+            // Load chat history if this is an existing session
+            if (data.status === 'EXISTING') {
+              this.loadChatHistory();
+            }
           });
 
           this.socket.on('server:agent_initiated_chat', (data) => {
@@ -429,10 +433,19 @@ export function generateWidgetScript(
 
           this.socket.on('server:new_message', (message) => {
             console.log('Received server:new_message:', message);
+            console.log('Message content:', message.content);
+            console.log('Message type:', message.messageType);
             
             // Remove from pending messages if this was a customer message we sent
             if (message.senderType.toLowerCase() === 'customer') {
-              this.removePendingMessage(message.content.text);
+              // For text messages, remove by text content
+              if (message.content.text) {
+                this.removePendingMessage(message.content.text);
+              }
+              // For file messages, remove by filename (since we show "Uploading filename..." as pending)
+              else if (message.content.filename) {
+                this.removePendingMessage(\`Uploading \${message.content.filename}...\`);
+              }
             }
             
             // Display all messages from server
@@ -441,9 +454,10 @@ export function generateWidgetScript(
               senderType: message.senderType.toLowerCase(),
               messageContent: { 
                 text: message.content.text, 
-                type: message.messageType.toLowerCase(),
-                url: message.content.url,
+                type: message.content.type || message.messageType.toLowerCase(),
+                url: \`\${API_BASE}\${message.content.url}\`,
                 filename: message.content.filename,
+                fileSize: message.content.fileSize,
                 mimeType: message.content.mimeType
               },
               timestamp: message.timestamp,
@@ -669,7 +683,7 @@ export function generateWidgetScript(
           if (!file || !this.currentChatSession?.chatSessionId) return;
     
           const formData = new FormData();
-          formData.append('file', file);
+          formData.append('image', file);
           formData.append('chatSessionId', this.currentChatSession.chatSessionId);
     
           // Show uploading state
@@ -683,7 +697,7 @@ export function generateWidgetScript(
             isUploading: true
           });
     
-          fetch(\`\${API_BASE}/chat/upload\`, {
+          fetch(\`\${API_BASE}/public/chat/upload-image\`, {
             method: 'POST',
             body: formData
           })
@@ -699,10 +713,10 @@ export function generateWidgetScript(
               chatSessionId: this.currentChatSession.chatSessionId,
               messageContent: {
                 type: 'file',
-                url: data.url,
-                filename: file.name,
-                fileSize: file.size,
-                mimeType: file.type
+                url: data.imageUrl,
+                filename: data.originalName,
+                fileSize: data.size,
+                mimeType: data.mimetype
               }
             };
             this.socket.emit('customer:send_message', messageData);
