@@ -1029,7 +1029,7 @@ export function generateWidgetScript(
                   messageContent: {
                     text: message.content.text,
                     type: message.content.type || message.messageType.toLowerCase(),
-                    url: message.content.url,
+                    url: \`\${API_BASE}\${message.content.url}\`,
                     filename: message.content.filename,
                     mimeType: message.content.mimeType
                   },
