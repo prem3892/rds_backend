@@ -119,7 +119,7 @@ export class AgentsService {
     if (typeof userId === 'string') _id = new Types.ObjectId(userId);
     else _id = userId;
 
-    this.logger.debug(`Converted userId to Types.ObjectId: ${_id}`);
+    this.logger.debug(`Convertedd userId to Types.ObjectId: ${_id}`);
 
     return this.agentProfileModel
       .findOne({ userId: _id })
@@ -189,7 +189,16 @@ export class AgentsService {
       const userDetails = userMap.get(profile.userId.toString());
       return {
         ...profile,
-        user: userDetails || null, // Attach user details
+        user: userDetails
+          ? {
+              _id: userDetails._id,
+              firstName: userDetails.firstName,
+              lastName: userDetails.lastName,
+              email: userDetails.email,
+              role: userDetails.role,
+              isEmailVerified: userDetails.isEmailVerified,
+            }
+          : null, // Attach only specific user fields
       };
     });
   }
@@ -247,6 +256,14 @@ export class AgentsService {
       agentProfile.isOnline = updateDto.isOnline;
       if (updateDto.isOnline === false || updateDto.isOnline === true) {
         // only update lastSeen if status actually changes or set
+        agentProfile.lastSeen = new Date();
+      }
+    }
+    if (typeof updateDto.isBlocked === 'boolean') {
+      agentProfile.isBlocked = updateDto.isBlocked;
+      // If blocking the agent, also set them offline
+      if (updateDto.isBlocked) {
+        agentProfile.isOnline = false;
         agentProfile.lastSeen = new Date();
       }
     }
@@ -312,6 +329,14 @@ export class AgentsService {
         agentProfile.lastSeen = new Date();
       }
     }
+    if (typeof updateDto.isBlocked === 'boolean') {
+      agentProfile.isBlocked = updateDto.isBlocked;
+      // If blocking the agent, also set them offline
+      if (updateDto.isBlocked) {
+        agentProfile.isOnline = false;
+        agentProfile.lastSeen = new Date();
+      }
+    }
     if (updateDto.maxConcurrentChats)
       agentProfile.maxConcurrentChats = updateDto.maxConcurrentChats;
     if (updateDto.shifts) {
@@ -347,6 +372,13 @@ export class AgentsService {
     if (!agentProfile) {
       throw new NotFoundException(
         `Agent profile for user ID ${agentUserId} not found.`,
+      );
+    }
+
+    // Check if agent is blocked
+    if (agentProfile.isBlocked) {
+      throw new ForbiddenException(
+        'Your account has been blocked. Please contact your administrator.',
       );
     }
 
@@ -392,6 +424,7 @@ export class AgentsService {
     const onlineAgents = await this.agentProfileModel
       .find({
         isOnline: true, // First check: agent must be online
+        isBlocked: { $ne: true }, // Exclude blocked agents
         adminId: widget.createdBy, // CRITICAL: Only agents from the same organization
       })
       .exec();
@@ -963,8 +996,66 @@ export class AgentsService {
    */
   async getAllOnlineAgents(): Promise<AgentProfileDocument[]> {
     return this.agentProfileModel
-      .find({ isOnline: true })
+      .find({
+        isOnline: true,
+        isBlocked: { $ne: true }, // Exclude blocked agents
+      })
       .populate('departmentIds')
       .exec();
+  }
+
+  /**
+   * Block or unblock an agent account
+   */
+  async blockUnblockAgent(
+    agentId: string,
+    isBlocked: boolean,
+    adminUserId: string,
+  ): Promise<AgentProfileDocument> {
+    this.logger.log(
+      `${isBlocked ? 'Blocking' : 'Unblocking'} agent ${agentId} by admin ${adminUserId}`,
+    );
+
+    const agentProfile = await this.findAgentProfileById(agentId);
+    if (!agentProfile) {
+      throw new NotFoundException(`Agent profile with ID ${agentId} not found`);
+    }
+
+    // Prevent admin from blocking themselves
+    if (agentProfile.userId.toString() === adminUserId) {
+      throw new BadRequestException(
+        'You cannot block/unblock your own account',
+      );
+    }
+
+    // Check if the current admin is the one who created this agent profile
+    if (
+      agentProfile.adminId &&
+      agentProfile.adminId.toString() !== adminUserId
+    ) {
+      this.logger.warn(
+        `Admin ${adminUserId} attempted to ${isBlocked ? 'block' : 'unblock'} agent ${agentId} created by admin ${agentProfile.adminId}`,
+      );
+      throw new BadRequestException(
+        'You can only block/unblock agent profiles that you created',
+      );
+    }
+
+    // Update the blocked status
+    agentProfile.isBlocked = isBlocked;
+
+    // If blocking the agent, also set them offline
+    if (isBlocked) {
+      agentProfile.isOnline = false;
+      agentProfile.lastSeen = new Date();
+    }
+
+    const updatedProfile = await agentProfile.save();
+
+    this.logger.log(
+      `Agent ${agentId} has been ${isBlocked ? 'blocked' : 'unblocked'} successfully`,
+    );
+
+    return updatedProfile;
   }
 }

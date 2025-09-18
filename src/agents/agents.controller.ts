@@ -14,6 +14,8 @@ import {
   Logger,
   UseInterceptors,
   UploadedFile,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -48,6 +50,7 @@ import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { UsersService } from '../users/users.service'; // For password updates
 import { UpdateUserDto } from 'src/users/dto/update-user.dto';
 import { Types } from 'mongoose';
+import { ChatNotificationService } from '../chat/services/chat-notification/chat-notification.service';
 import { createProfilePictureUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
 import { getProfilePictureUrl } from '../shared/utils/file-upload.utils';
 import {
@@ -69,6 +72,8 @@ export class AgentsController {
   constructor(
     private readonly agentsService: AgentsService,
     private readonly usersService: UsersService,
+    @Inject(forwardRef(() => ChatNotificationService))
+    private readonly chatNotificationService: ChatNotificationService,
   ) {}
 
   @Get()
@@ -375,19 +380,42 @@ export class AgentsController {
       await this.usersService.update(userId.toString(), userUpdatePayload);
     }
 
-    // Handle AGENT PROFILE schema fields (departmentIds, domainAccess, isOnline, maxConcurrentChats)
+    // Handle isOnline field separately using setOnlineStatus for validation, maybe addtry/catch
+    if (typeof updateDto.isOnline === 'boolean') {
+      await this.agentsService.setOnlineStatus(
+        userId.toString(),
+        updateDto.isOnline,
+      );
+
+      // Notify the agent about the status change via socket
+      await this.chatNotificationService.notifyAgentAboutStatusChangeByAdmin(
+        userId.toString(),
+        updateDto.isOnline,
+        adminUser.sub,
+      );
+    }
+
+    // Handle AGENT PROFILE schema fields (departmentIds, domainAccess, maxConcurrentChats, etc.)
     const agentProfileUpdatePayload: UpdateAgentProfileDto = { ...updateDto };
     // Remove user-specific fields from agent profile payload
     delete agentProfileUpdatePayload['password'];
     delete agentProfileUpdatePayload['firstName'];
     delete agentProfileUpdatePayload['lastName'];
     delete agentProfileUpdatePayload['email'];
+    // Remove isOnline as it's handled separately above
+    delete agentProfileUpdatePayload['isOnline'];
 
-    // Update agent profile fields with agentId directly
-    const updatedProfile = await this.agentsService.updateAgentProfileById(
-      agentId,
-      agentProfileUpdatePayload,
-    );
+    // Update agent profile fields with agentId directly (only if there are fields to update)
+    let updatedProfile;
+    if (Object.keys(agentProfileUpdatePayload).length > 0) {
+      updatedProfile = await this.agentsService.updateAgentProfileById(
+        agentId,
+        agentProfileUpdatePayload,
+      );
+    } else {
+      // If no profile fields to update, just get the current profile
+      updatedProfile = await this.agentsService.findAgentProfileById(agentId);
+    }
 
     // Get updated user details to return combined response
     const userDetails = await this.usersService.findById(userId);
@@ -717,6 +745,81 @@ export class AgentsController {
   })
   async getMyAvailability(@AuthenticatedUser() user: JwtPayload) {
     return this.agentsService.isAgentCurrentlyAvailable(user.sub);
+  }
+
+  @Patch(':agentId/block')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Block/Unblock agent account (Admin only)',
+    description:
+      'Block or unblock an agent account. When blocked, the agent cannot access the system or handle chats. Only accessible by administrators.',
+  })
+  @ApiParam({
+    name: 'agentId',
+    description: 'The unique identifier of the agent',
+    type: 'string',
+    example: '507f1f77bcf86cd799439011',
+  })
+  @ApiBody({
+    description: 'Block status data',
+    schema: {
+      type: 'object',
+      properties: {
+        isBlocked: {
+          type: 'boolean',
+          description: 'Whether to block (true) or unblock (false) the agent',
+          example: true,
+        },
+      },
+      required: ['isBlocked'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Agent block status updated successfully',
+    type: SuccessMessageResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid agent ID format or missing isBlocked field',
+    type: ErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Agent profile not found',
+    type: NotFoundResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  async blockUnblockAgent(
+    @Param('agentId') agentId: string,
+    @AuthenticatedUser() adminUser: JwtPayload,
+    @Body() body: { isBlocked: boolean },
+  ) {
+    if (!Types.ObjectId.isValid(agentId)) {
+      throw new BadRequestException('Invalid agent ID format');
+    }
+
+    if (typeof body.isBlocked !== 'boolean') {
+      throw new BadRequestException('isBlocked must be a boolean value');
+    }
+
+    const result = await this.agentsService.blockUnblockAgent(
+      agentId,
+      body.isBlocked,
+      adminUser.sub,
+    );
+
+    const action = body.isBlocked ? 'blocked' : 'unblocked';
+    return {
+      message: `Agent has been ${action} successfully`,
+      agentId: result._id,
+      isBlocked: result.isBlocked,
+    };
   }
 
   @Get(':agentId')

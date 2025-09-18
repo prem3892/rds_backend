@@ -189,4 +189,34 @@ export class DepartmentsService {
     }
     return deletedDepartment;
   }
+
+  /**
+   * Find or create a default department for an admin.
+   * If admin has existing departments, returns the first (oldest) one.
+   * If no departments exist, creates a "General Support" department.
+   */
+  async findOrCreateDefaultDepartment(
+    adminId: Types.ObjectId,
+  ): Promise<DepartmentDocument> {
+    // First, try to find existing departments for this admin
+    const existingDepartments = await this.departmentModel
+      .find({ createdBy: adminId })
+      .sort({ createdAt: 1 }) // Sort by creation date, oldest first
+      .limit(1)
+      .exec();
+
+    if (existingDepartments.length > 0) {
+      return existingDepartments[0];
+    }
+
+    // No departments exist, create a default one
+    const defaultDepartmentData = {
+      name: 'General Support',
+      description: 'Default department for general support inquiries',
+      createdBy: adminId,
+    };
+
+    const defaultDepartment = new this.departmentModel(defaultDepartmentData);
+    return defaultDepartment.save();
+  }
 }

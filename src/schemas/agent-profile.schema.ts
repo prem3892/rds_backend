@@ -37,6 +37,9 @@ export class AgentProfile {
   @Prop({ default: false, index: true })
   isOnline: boolean;
 
+  @Prop({ default: false, index: true })
+  isBlocked: boolean;
+
   @Prop({ default: 3 })
   maxConcurrentChats: number;
 

@@ -41,6 +41,13 @@ export class AgentProfileResponseDto {
   isOnline: boolean;
 
   @ApiProperty({
+    description:
+      'Agent blocked status - when true, agent cannot access the system',
+    example: false,
+  })
+  isBlocked: boolean;
+
+  @ApiProperty({
     description: 'Maximum number of concurrent chats the agent can handle',
     example: 5,
   })

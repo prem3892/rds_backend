@@ -8,6 +8,7 @@ import { UsersModule } from '../users/users.module';
 import { CustomersModule } from '../customers/customers.module';
 import { DepartmentsModule } from '../departments/departments.module';
 import { WidgetsModule } from '../widgets/widgets.module';
+import { MailerModule } from '../shared/mailer/mailer.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { WidgetsModule } from '../widgets/widgets.module';
     CustomersModule,
     DepartmentsModule,
     WidgetsModule,
+    MailerModule,
   ],
   providers: [JobsService],
   exports: [JobsService],

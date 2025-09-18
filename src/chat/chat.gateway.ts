@@ -52,6 +52,7 @@ import { IpExtractorUtil } from '../shared/utils/ip-extractor.util';
 import { AppointmentDocument } from 'src/schemas/appointment.schema';
 import { AgentProfileDocument } from 'src/schemas/agent-profile.schema';
 import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
+import { ChatTranscriptService } from './services/chat-transcript/chat-transcript.service';
 import { VisitorStateService } from './services/visitor-state/visitor-state.service';
 import { FingerprintUtil } from '../shared/utils/fingerprint.util';
 
@@ -102,6 +103,8 @@ export class ChatGateway
     private readonly usersService: UsersService,
     @Inject(forwardRef(() => ChatNotificationService))
     private readonly chatNotificationService: ChatNotificationService,
+    @Inject(forwardRef(() => ChatTranscriptService))
+    private readonly chatTranscriptService: ChatTranscriptService,
     @Inject(forwardRef(() => VisitorStateService))
     private readonly visitorStateService: VisitorStateService,
   ) {
@@ -925,78 +928,104 @@ export class ChatGateway
       throw new WsException('Invalid payload for online status.');
 
     const agentId = client.user.sub;
-    const agentProfile = await this.agentsService.setOnlineStatus(
-      agentId,
-      data.isOnline,
-    );
 
-    // Get all sockets for this agent
-    const allAgentSockets =
-      await this.redisService.getAllSocketsForAgent(agentId);
+    try {
+      const agentProfile = await this.agentsService.setOnlineStatus(
+        agentId,
+        data.isOnline,
+      );
 
-    this.logger.log(
-      `Agent ${agentId} set online status to ${data.isOnline} from socket ${client.id}. Broadcasting to ${allAgentSockets.length} socket(s): [${allAgentSockets.join(', ')}]`,
-    );
+      // Get all sockets for this agent
+      const allAgentSockets =
+        await this.redisService.getAllSocketsForAgent(agentId);
 
-    // Manage room membership for ALL agent's sockets
-    const organizationRoom = agentProfile?.adminId
-      ? `online_agents:${agentProfile.adminId.toString()}`
-      : null;
+      this.logger.log(
+        `Agent ${agentId} set online status to ${data.isOnline} from socket ${client.id}. Broadcasting to ${allAgentSockets.length} socket(s): [${allAgentSockets.join(', ')}]`,
+      );
 
-    for (const socketId of allAgentSockets) {
-      try {
-        const sockets = await this.server.in(socketId).fetchSockets();
-        if (sockets.length > 0) {
-          const agentSocket = sockets[0]; // Should only be one socket with this ID
-          if (data.isOnline && organizationRoom) {
-            await agentSocket.join(organizationRoom);
-            this.logger.debug(
-              `Socket ${socketId} joined '${organizationRoom}' room`,
-            );
-          } else if (!data.isOnline && organizationRoom) {
-            await agentSocket.leave(organizationRoom);
-            this.logger.debug(
-              `Socket ${socketId} left '${organizationRoom}' room`,
+      // Manage room membership for ALL agent's sockets
+      const organizationRoom = agentProfile?.adminId
+        ? `online_agents:${agentProfile.adminId.toString()}`
+        : null;
+
+      for (const socketId of allAgentSockets) {
+        try {
+          const sockets = await this.server.in(socketId).fetchSockets();
+          if (sockets.length > 0) {
+            const agentSocket = sockets[0]; // Should only be one socket with this ID
+            if (data.isOnline && organizationRoom) {
+              await agentSocket.join(organizationRoom);
+              this.logger.debug(
+                `Socket ${socketId} joined '${organizationRoom}' room`,
+              );
+            } else if (!data.isOnline && organizationRoom) {
+              await agentSocket.leave(organizationRoom);
+              this.logger.debug(
+                `Socket ${socketId} left '${organizationRoom}' room`,
+              );
+            }
+          } else {
+            this.logger.warn(
+              `Socket ${socketId} not found in server for agent ${agentId}`,
             );
           }
-        } else {
-          this.logger.warn(
-            `Socket ${socketId} not found in server for agent ${agentId}`,
+        } catch (error) {
+          this.logger.error(
+            `Error managing room membership for socket ${socketId}: ${error.message}`,
           );
         }
-      } catch (error) {
-        this.logger.error(
-          `Error managing room membership for socket ${socketId}: ${error.message}`,
-        );
       }
+
+      // Broadcast acknowledgment to ALL agent's sockets (not just the triggering one)
+      const acknowledgmentData = {
+        event: 'server:online_status_updated',
+        data: {
+          success: true,
+          isOnline: agentProfile.isOnline,
+          triggeredBySocket: client.id, // Optional: let client know which device triggered the change
+          totalSockets: allAgentSockets.length,
+        },
+      };
+
+      // Send to all agent's sockets via the agent room
+      this.server
+        .to(`agent:${agentId}`)
+        .emit(acknowledgmentData.event, acknowledgmentData.data);
+
+      this.logger.log(
+        `Sent online status acknowledgment to all sockets for agent ${agentId}. Status: ${data.isOnline}`,
+      );
+
+      // Broadcast pool status update to other clients
+      // this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
+
+      // Return acknowledgment to the triggering socket (this is the traditional response)
+      // Note: The triggering socket will receive this twice (once from room broadcast, once from return)
+      // but that's acceptable for backward compatibility
+      // return acknowledgmentData;
+    } catch (error) {
+      this.logger.error(
+        `Failed to set online status for agent ${agentId}: ${error.message}`,
+      );
+
+      // Broadcast error using the same event to ALL agent's sockets
+      const errorData = {
+        event: 'server:online_status_updated',
+        data: {
+          success: false,
+          error: error.message || 'Failed to update online status',
+          requestedStatus: data.isOnline,
+          triggeredBySocket: client.id,
+        },
+      };
+
+      // Send error to all agent's sockets via the agent room
+      this.server.to(`agent:${agentId}`).emit(errorData.event, errorData.data);
+
+      this.logger.log(
+        `Sent online status error to all sockets for agent ${agentId}. Error: ${error.message}`,
+      );
     }
-
-    // Broadcast acknowledgment to ALL agent's sockets (not just the triggering one)
-    const acknowledgmentData = {
-      event: 'server:online_status_updated',
-      data: {
-        isOnline: agentProfile.isOnline,
-        triggeredBySocket: client.id, // Optional: let client know which device triggered the change
-        totalSockets: allAgentSockets.length,
-      },
-    };
-
-    // Send to all agent's sockets via the agent room
-    this.server
-      .to(`agent:${agentId}`)
-      .emit(acknowledgmentData.event, acknowledgmentData.data);
-
-    this.logger.log(
-      `Sent online status acknowledgment to all sockets for agent ${agentId}. Status: ${data.isOnline}`,
-    );
-
-    // Broadcast pool status update to other clients
-    this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
-
-    // Return acknowledgment to the triggering socket (this is the traditional response)
-    // Note: The triggering socket will receive this twice (once from room broadcast, once from return)
-    // but that's acceptable for backward compatibility
-    return acknowledgmentData;
   }
 
   private async broadcastAgentPoolStatusUpdateForAgent(agentProfile: any) {
@@ -1469,6 +1498,21 @@ export class ChatGateway
       ChatSessionStatus.CLOSED_BY_AGENT,
     );
 
+    // Send transcript email for manual chat ending
+    try {
+      await this.chatTranscriptService.sendTranscriptEmailForManualEnd(
+        session._id.toString(),
+        'agent',
+        data.reason,
+      );
+    } catch (emailError) {
+      this.logger.error(
+        `Error sending transcript email for agent-ended chat ${session._id}: ${emailError.message}`,
+        emailError.stack,
+      );
+      // Don't throw error - email failure shouldn't prevent chat ending
+    }
+
     // Notify customer that agent ended the chat
     this.server
       .to(`customer:${session.customerId.toString()}`)
@@ -1787,13 +1831,23 @@ export class ChatGateway
     }
 
     // Calculate initial agent availability for all departments of the widget
-    let initialAgentAvailability: AgentProfileDocument[] = [];
+    let initialAgentAvailability: any[] = [];
     if (widget.departmentIds && Array.isArray(widget.departmentIds)) {
       const agents = await this.agentsService.getEligibleOnlineAgents(
         widget._id!, // _id can't be undefined
         payload.domain,
       );
-      initialAgentAvailability = [...agents];
+
+      // Populate firstName from agent account for each agent
+      initialAgentAvailability = await Promise.all(
+        agents.map(async (agent) => {
+          const user = await this.usersService.findById(agent.userId);
+          return {
+            ...agent.toObject(),
+            firstName: user?.firstName || 'Agent',
+          };
+        }),
+      );
     }
 
     // Notify eligible agents about new visitor (regardless of new or existing session)

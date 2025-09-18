@@ -47,6 +47,16 @@ export class UpdateAgentProfileDto {
   isOnline?: boolean;
 
   @ApiProperty({
+    description:
+      'Agent blocked status - when true, agent cannot access the system',
+    example: false,
+    required: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  isBlocked?: boolean;
+
+  @ApiProperty({
     description: 'Maximum number of concurrent chats the agent can handle',
     minimum: 1,
     example: 5,

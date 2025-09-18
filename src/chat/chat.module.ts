@@ -9,6 +9,7 @@ import { WidgetsModule } from '../widgets/widgets.module';
 import { DepartmentsModule } from 'src/departments/departments.module';
 import { ConfigModule } from '@nestjs/config';
 import { AppointmentsModule } from 'src/appointments/appointments.module'; // For appointment booked notice
+import { MailerModule } from '../shared/mailer/mailer.module';
 import {
   ChatSession,
   ChatSessionSchema,
@@ -21,8 +22,10 @@ import { ChatGateway } from './chat.gateway';
 import { ChatSessionService } from './services/chat-session/chat-session.service';
 import { ChatMessageService } from './services/chat-message/chat-message.service';
 import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
+import { ChatTranscriptService } from './services/chat-transcript/chat-transcript.service';
 import { VisitorStateService } from './services/visitor-state/visitor-state.service';
 import { VisitorTrackingController } from './visitor-tracking.controller';
+import { PublicChatController } from './public-chat.controller';
 
 @Module({
   imports: [
@@ -38,6 +41,7 @@ import { VisitorTrackingController } from './visitor-tracking.controller';
     WidgetsModule,
     DepartmentsModule,
     forwardRef(() => AppointmentsModule), // For sending appointment booked notices
+    MailerModule,
     // AppRedisModule is Global, so no need to import here explicitly
   ],
   providers: [
@@ -45,13 +49,19 @@ import { VisitorTrackingController } from './visitor-tracking.controller';
     ChatSessionService,
     ChatMessageService,
     ChatNotificationService,
+    ChatTranscriptService,
     VisitorStateService,
   ],
-  controllers: [ChatController, VisitorTrackingController],
+  controllers: [
+    ChatController,
+    VisitorTrackingController,
+    PublicChatController,
+  ],
   exports: [
     ChatSessionService,
     ChatMessageService,
     ChatNotificationService,
+    ChatTranscriptService,
     VisitorStateService,
     ChatGateway, // If other modules need to emit via gateway
     MongooseModule,

@@ -16,6 +16,7 @@ import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { UserRole } from '../shared/constants/enums';
 import { UserDocument } from 'src/schemas/user.schema';
 import { AgentsService } from 'src/agents/agents.service';
+import { DepartmentsService } from 'src/departments/departments.service';
 import { Types } from 'mongoose';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
@@ -25,6 +26,7 @@ export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly agentsService: AgentsService,
+    private readonly departmentsService: DepartmentsService,
     private readonly jwtService: JwtService,
     private readonly mailerService: MailerService,
     private readonly configService: ConfigService,
@@ -60,13 +62,20 @@ export class AuthService {
       );
     }
 
-    // Generate tokens
-    const tokens = await this.generateTokens(validatedUser);
-
-    // Get the isOnline property from the agent profile
+    // Get the agent profile to check blocked status
     const agentProfile = await this.agentsService.findAgentProfileByUserId(
       validatedUser._id,
     );
+
+    // Check if agent is blocked (only for agents, not admins)
+    if (validatedUser.role === UserRole.AGENT && agentProfile?.isBlocked) {
+      throw new UnauthorizedException(
+        'Your account has been blocked. Please contact your administrator.',
+      );
+    }
+
+    // Generate tokens
+    const tokens = await this.generateTokens(validatedUser);
 
     return {
       accessToken: tokens.accessToken,
@@ -81,6 +90,7 @@ export class AuthService {
         website: validatedUser.website,
         isEmailVerified: validatedUser.isEmailVerified,
         isOnline: agentProfile?.isOnline ?? false,
+        isBlocked: agentProfile?.isBlocked ?? false,
       },
     };
   }
@@ -107,7 +117,7 @@ export class AuthService {
       adminId,
     );
 
-    // If the user is an agent, create agent profile with shifts
+    // If the user is an agent, create agent profile with shifts and default department
     if (user.role === UserRole.AGENT) {
       const agentProfileData: any = {};
 
@@ -121,6 +131,13 @@ export class AuthService {
 
       if (profilePicture) {
         agentProfileData.profilePicture = profilePicture;
+      }
+
+      // Assign default department if adminId is provided
+      if (adminId) {
+        const defaultDepartment =
+          await this.departmentsService.findOrCreateDefaultDepartment(adminId);
+        agentProfileData.departmentIds = [defaultDepartment._id];
       }
 
       await this.agentsService.createAgentProfile(
@@ -153,7 +170,18 @@ export class AuthService {
     });
 
     // Create agent profile for admin since admin is also an agent with super abilities
-    await this.agentsService.createAgentProfile(user._id);
+    // Also assign default department to admin
+    const defaultDepartment =
+      await this.departmentsService.findOrCreateDefaultDepartment(user._id);
+    const agentProfileData = {
+      departmentIds: [defaultDepartment._id],
+    };
+
+    await this.agentsService.createAgentProfile(
+      user._id,
+      undefined,
+      agentProfileData,
+    );
 
     // Send admin verification email instead of welcome email
     await this.sendAdminVerificationEmail(user);

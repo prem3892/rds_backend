@@ -3,32 +3,29 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { ChatSessionService } from '../chat/services/chat-session/chat-session.service';
 import { ChatNotificationService } from '../chat/services/chat-notification/chat-notification.service';
 import { ChatMessageService } from '../chat/services/chat-message/chat-message.service';
-import { MailerService } from '../shared/mailer/mailer.service';
+import { ChatTranscriptService } from '../chat/services/chat-transcript/chat-transcript.service';
 import { AgentsService } from '../agents/agents.service';
-import { UsersService } from '../users/users.service';
-import { CustomersService } from '../customers/customers.service';
-import { DepartmentsService } from '../departments/departments.service';
-import { WidgetsService } from '../widgets/widgets.service';
 import { ConfigService } from '@nestjs/config';
-import { ChatTranscriptTemplateData } from '../shared/mailer/interfaces/template-data.interface';
-import { ChatMessageSenderType } from '../shared/constants/enums';
+import {
+  ChatMessageSenderType,
+  ChatSessionStatus,
+} from '../shared/constants/enums';
 
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
   private readonly agentInactivityThresholdMs: number;
   private readonly customerInactivityThresholdMs: number;
+  private readonly firstAlertThresholdMs: number;
+  private readonly subsequentAlertIntervalMs: number;
+  private readonly maxPriorityAlerts: number;
 
   constructor(
     private readonly chatSessionService: ChatSessionService,
     private readonly chatNotificationService: ChatNotificationService,
     private readonly chatMessageService: ChatMessageService,
-    private readonly mailerService: MailerService,
+    private readonly chatTranscriptService: ChatTranscriptService,
     private readonly agentsService: AgentsService,
-    private readonly usersService: UsersService,
-    private readonly customersService: CustomersService,
-    private readonly departmentsService: DepartmentsService,
-    private readonly widgetsService: WidgetsService,
     private readonly configService: ConfigService,
   ) {
     // Default to 3 minutes (180000ms) if not configured
@@ -40,6 +37,15 @@ export class JobsService {
       this.configService.get<number>(
         'chatTimers.customerInactivityThresholdMs',
       ) || 600000;
+    // Configuration for unattended chat notifications
+    this.firstAlertThresholdMs =
+      this.configService.get<number>('chatTimers.firstAlertThresholdMs') ||
+      60000;
+    this.subsequentAlertIntervalMs =
+      this.configService.get<number>('chatTimers.subsequentAlertIntervalMs') ||
+      60000;
+    this.maxPriorityAlerts =
+      this.configService.get<number>('chatTimers.maxPriorityAlerts') || 3;
   }
 
   /**
@@ -80,9 +86,27 @@ export class JobsService {
             );
 
           if (!lastMessage) {
+            // Handle corner case: session is active but has no messages
+            // Check if session creation time exceeds agent inactivity threshold
             this.logger.debug(
-              `No non-system messages found for session ${sessionId}, skipping`,
+              `No non-system messages found for session ${sessionId}, checking session creation time for agent inactivity`,
             );
+
+            const sessionCreationTime = session.initiatedAt;
+            const agentInactivityThreshold = new Date(
+              Date.now() - this.agentInactivityThresholdMs,
+            );
+
+            if (sessionCreationTime < agentInactivityThreshold) {
+              this.logger.log(
+                `Session ${sessionId} has no messages and was created more than ${this.agentInactivityThresholdMs / 60000} minutes ago. Treating as agent inactivity.`,
+              );
+              await this.checkAgentInactivity(session);
+            } else {
+              this.logger.debug(
+                `Session ${sessionId} has no messages but was created recently, skipping`,
+              );
+            }
             continue;
           }
 
@@ -148,14 +172,19 @@ export class JobsService {
         updatedSession,
       );
 
-      // Notify available agents about the pending chat
-      await this.chatNotificationService.notifyAgentsAboutPendingChat(
+      // Notify the specific agent that their chat session has ended
+      await this.chatNotificationService.notifyAgentsAboutChatEnded(
+        agentId,
         updatedSession,
       );
 
       // Send transcript email
       try {
-        await this.sendTranscriptEmailForInactivity(updatedSession, 'agent');
+        await this.chatTranscriptService.sendTranscriptEmailForInactivity(
+          updatedSession,
+          'agent',
+          this.agentInactivityThresholdMs / 60000,
+        );
       } catch (emailError) {
         this.logger.error(
           `Error sending transcript email for session ${sessionId}: ${emailError.message}`,
@@ -196,7 +225,11 @@ export class JobsService {
 
       // Send transcript email
       try {
-        await this.sendTranscriptEmailForInactivity(updatedSession, 'customer');
+        await this.chatTranscriptService.sendTranscriptEmailForInactivity(
+          updatedSession,
+          'customer',
+          this.customerInactivityThresholdMs / 60000,
+        );
       } catch (emailError) {
         this.logger.error(
           `Error sending transcript email for session ${sessionId}: ${emailError.message}`,
@@ -205,226 +238,6 @@ export class JobsService {
       }
     } else {
       this.logger.debug(`Customer is still active in session ${sessionId}`);
-    }
-  }
-
-  /**
-   * Send transcript email when chat session ends due to inactivity
-   * @param session - The chat session that ended due to inactivity
-   * @param inactivityType - The type of inactivity ('agent' or 'customer')
-   */
-  private async sendTranscriptEmailForInactivity(
-    session: any,
-    inactivityType: 'agent' | 'customer',
-  ): Promise<void> {
-    try {
-      // Get customer details with populated data
-      const sessionWithCustomer = await this.chatSessionService.findById(
-        session._id,
-        {
-          populateCustomer: true,
-          populateWidget: false,
-          populateDepartment: false,
-        },
-      );
-
-      if (!sessionWithCustomer) {
-        this.logger.warn(
-          `Session ${session._id} not found for transcript email`,
-        );
-        return;
-      }
-
-      const customer = sessionWithCustomer.customerId as any;
-
-      // Get widget details to find notification emails
-      const widget = await this.widgetsService.findById(
-        sessionWithCustomer.widgetId,
-      );
-
-      if (!widget) {
-        this.logger.warn(`Widget not found for session ${session._id}`);
-        return;
-      }
-
-      // Check if widget has notification emails configured
-      if (
-        !widget.notification_emails ||
-        widget.notification_emails.length === 0
-      ) {
-        this.logger.debug(
-          `Widget ${widget._id} has no notification emails configured for session ${session._id}`,
-        );
-        return;
-      }
-
-      // Get all messages for the session
-      const messages = await this.chatMessageService.getAllMessagesForSession(
-        session._id.toString(),
-      );
-
-      // Get department details
-      const department = await this.departmentsService.findById(
-        sessionWithCustomer.departmentId.toString(),
-      );
-
-      // Process agent history to get agent names and calculate durations
-      const agentHistoryWithDetails = await Promise.all(
-        sessionWithCustomer.agentHistory.map(async (agentHist) => {
-          try {
-            const user = await this.usersService.findById(
-              agentHist.agentId.toString(),
-            );
-            const agentProfile =
-              await this.agentsService.findAgentProfileByUserId(
-                agentHist.agentId.toString(),
-              );
-
-            const joinedAt = new Date(agentHist.joinedAt);
-            const leftAt = agentHist.leftAt
-              ? new Date(agentHist.leftAt)
-              : new Date();
-            const durationMs = leftAt.getTime() - joinedAt.getTime();
-            const durationMinutes = Math.floor(durationMs / 60000);
-            const durationSeconds = Math.floor((durationMs % 60000) / 1000);
-
-            let agentName = 'Unknown Agent';
-            if (user?.firstName && user?.lastName) {
-              agentName = `${user.firstName} ${user.lastName}`;
-            } else if (user?.email) {
-              agentName = user.email;
-            }
-
-            return {
-              agentName,
-              joinedAt: joinedAt.toLocaleString(),
-              leftAt: agentHist.leftAt ? leftAt.toLocaleString() : undefined,
-              duration: `${durationMinutes}m ${durationSeconds}s`,
-            };
-          } catch (error) {
-            this.logger.error(
-              `Error getting agent details for ${agentHist.agentId}: ${error.message}`,
-            );
-            return {
-              agentName: 'Unknown Agent',
-              joinedAt: new Date(agentHist.joinedAt).toLocaleString(),
-              leftAt: agentHist.leftAt
-                ? new Date(agentHist.leftAt).toLocaleString()
-                : undefined,
-              duration: 'Unknown',
-            };
-          }
-        }),
-      );
-
-      // Process messages for transcript
-      const transcript = await Promise.all(
-        messages.map(async (message) => {
-          let senderName = 'Unknown';
-
-          if (message.senderType === ChatMessageSenderType.CUSTOMER) {
-            senderName = customer.name || customer.email || 'Customer';
-          } else if (message.senderType === ChatMessageSenderType.AGENT) {
-            try {
-              const user = await this.usersService.findById(
-                message.senderId.toString(),
-              );
-              const agentProfile =
-                await this.agentsService.findAgentProfileByUserId(
-                  message.senderId.toString(),
-                );
-
-              if (user?.firstName && user?.lastName) {
-                senderName = `${user.firstName} ${user.lastName}`;
-              } else if (user?.email) {
-                senderName = user.email;
-              } else {
-                senderName = 'Agent';
-              }
-            } catch (error) {
-              senderName = 'Agent';
-            }
-          }
-
-          return {
-            timestamp: new Date(message.timestamp).toLocaleString(),
-            senderName,
-            senderType:
-              message.senderType === ChatMessageSenderType.CUSTOMER
-                ? ('customer' as const)
-                : ('agent' as const),
-            message:
-              typeof message.content === 'object'
-                ? message.content.text || JSON.stringify(message.content)
-                : String(message.content),
-          };
-        }),
-      );
-
-      // Prepare email data
-      const inactivityReason =
-        inactivityType === 'agent'
-          ? `Agent was inactive for more than ${this.agentInactivityThresholdMs / 60000} minutes`
-          : `Customer was inactive for more than ${this.customerInactivityThresholdMs / 60000} minutes`;
-
-      const emailData: ChatTranscriptTemplateData = {
-        customerName: customer.name || customer.email || 'Anonymous Customer',
-        customerEmail: customer.email,
-        sessionId: session._id.toString(),
-        chatStartTime: new Date(
-          sessionWithCustomer.initiatedAt,
-        ).toLocaleString(),
-        chatEndTime: new Date(
-          sessionWithCustomer.endedAt || new Date(),
-        ).toLocaleString(),
-        inactivityReason,
-        inactivityType,
-        agentHistory: agentHistoryWithDetails,
-        transcript,
-        domain: sessionWithCustomer.domain,
-        department: department?.name || 'Unknown Department',
-      };
-
-      // Send emails to all notification emails configured in the widget
-      const notificationEmails = widget.notification_emails;
-      let successCount = 0;
-      let failureCount = 0;
-
-      for (const email of notificationEmails) {
-        try {
-          const emailSent = await this.mailerService.sendChatTranscriptEmail(
-            email.trim(),
-            emailData,
-          );
-
-          if (emailSent) {
-            successCount++;
-            this.logger.log(
-              `Transcript email sent successfully to ${email} for session ${session._id}`,
-            );
-          } else {
-            failureCount++;
-            this.logger.warn(
-              `Failed to send transcript email to ${email} for session ${session._id}`,
-            );
-          }
-        } catch (emailError) {
-          failureCount++;
-          this.logger.error(
-            `Error sending transcript email to ${email} for session ${session._id}: ${emailError.message}`,
-          );
-        }
-      }
-
-      this.logger.log(
-        `Transcript email summary for session ${session._id}: ${successCount} sent successfully, ${failureCount} failed out of ${notificationEmails.length} total emails`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error sending transcript email for session ${session._id}: ${error.message}`,
-        error.stack,
-      );
-      throw error;
     }
   }
 
@@ -485,6 +298,84 @@ export class JobsService {
     } catch (error) {
       this.logger.error(
         `Error in checkAgentShiftStatus job: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
+   * Scheduled job that runs every 5 minutes to handle unattended chat notifications
+   * Sends priority notifications to eligible agents for pending sessions
+   * and marks expired sessions as EXPIRED_PENDING_ASSIGNMENT
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async handleUnattendedChatNotifications() {
+    this.logger.debug('Running unattended chat notification job...');
+
+    try {
+      const pendingSessions =
+        await this.chatSessionService.getPendingAssignmentSessions(
+          this.firstAlertThresholdMs,
+          this.subsequentAlertIntervalMs,
+          this.maxPriorityAlerts,
+        );
+
+      for (const session of pendingSessions) {
+        this.logger.debug(
+          `Processing pending session: ${session._id}, count: ${session.priorityNotificationSentCount}`,
+        );
+        // Use the widget ID from the session for finding eligible agents
+        const eligibleAgents = await this.agentsService.getEligibleOnlineAgents(
+          session.widgetId, // Use the widget ID which contains departmentIds
+          session.domain,
+        );
+
+        if (eligibleAgents.length > 0) {
+          this.logger.log(
+            `Found ${eligibleAgents.length} eligible agents for session ${session._id}. Sending priority notification.`,
+          );
+
+          await this.chatSessionService.incrementPriorityNotificationCount(
+            session._id,
+          );
+
+          // Delegate socket notifications to ChatNotificationService
+          await this.chatNotificationService.sendPriorityNotificationToAgents(
+            eligibleAgents,
+            session,
+          );
+        } else {
+          this.logger.warn(
+            `No eligible agents found for priority notification for session ${session._id}.`,
+          );
+        }
+      }
+
+      // Handle expired pending sessions
+      const expiredSessions =
+        await this.chatSessionService.getExpiredPendingSessions(
+          this.subsequentAlertIntervalMs,
+          this.maxPriorityAlerts,
+        );
+      for (const session of expiredSessions) {
+        this.logger.log(
+          `Session ${session._id} has expired pending assignment. Updating status.`,
+        );
+        const updated = await this.chatSessionService.updateSessionStatus(
+          session._id,
+          ChatSessionStatus.EXPIRED_PENDING_ASSIGNMENT,
+        );
+
+        // Delegate socket notification to ChatNotificationService
+        if (updated) {
+          await this.chatNotificationService.notifyCustomerAboutExpiredSession(
+            updated,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error in handleUnattendedChatNotifications job: ${error.message}`,
         error.stack,
       );
     }
