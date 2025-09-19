@@ -499,6 +499,12 @@ export function generateWidgetScript(
             console.log('Agent ended chat:', data);
             this.showAgentStatus(\`Chat ended, please refresh the page for new chat\`);
           });
+
+          // Listen for customer info request from server
+          this.socket.on('server:customer_info_requested', (data) => {
+            console.log('Customer info requested:', data);
+            this.showCustomerInfoRequestForm();
+          });
         }
     
         connectWidget() {
@@ -538,6 +544,134 @@ export function generateWidgetScript(
             const messageInput = document.getElementById('message-input');
             if (messageInput) messageInput.focus();
           }, 100);
+        }
+
+        showCustomerInfoRequestForm() {
+          // Create a temporary overlay form for customer info request
+          const existingOverlay = document.getElementById('customer-info-overlay');
+          if (existingOverlay) {
+            existingOverlay.remove();
+          }
+
+          const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
+          
+          const overlay = document.createElement('div');
+          overlay.id = 'customer-info-overlay';
+          overlay.className = 'absolute inset-0 bg-white z-10 flex flex-col';
+          
+          overlay.innerHTML = \`
+            <div class="p-4 border-b">
+              <h3 class="text-lg font-medium text-gray-900">Please provide your information</h3>
+              <p class="text-sm text-gray-600 mt-1">The agent has requested your contact details to better assist you.</p>
+            </div>
+            <div class="flex-1 p-4 overflow-y-auto">
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                  <input type="text" id="info-request-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                  <input type="email" id="info-request-email" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                </div>
+              </div>
+            </div>
+            <div class="p-4 border-t">
+              <div class="flex space-x-3">
+                <button id="cancel-info-request" class="flex-1 py-2 px-4 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                  Cancel
+                </button>
+                <button id="submit-info-request" class="flex-1 py-2 px-4 text-white rounded-lg hover:opacity-90 transition-opacity" 
+                        style="background-color: \${primaryColor}">
+                  Submit
+                </button>
+              </div>
+            </div>
+          \`;
+          
+          this.chatWindow.appendChild(overlay);
+          
+          // Bind events for the overlay form
+          document.getElementById('cancel-info-request').addEventListener('click', () => {
+            overlay.remove();
+          });
+          
+          document.getElementById('submit-info-request').addEventListener('click', () => {
+            this.submitCustomerInfoRequest();
+          });
+          
+          // Handle Enter key submission
+          const nameInput = document.getElementById('info-request-name');
+          const emailInput = document.getElementById('info-request-email');
+          
+          [nameInput, emailInput].forEach(input => {
+            input.addEventListener('keypress', (e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                this.submitCustomerInfoRequest();
+              }
+            });
+          });
+          
+          // Focus the name input
+          setTimeout(() => nameInput.focus(), 100);
+        }
+
+        submitCustomerInfoRequest() {
+          const nameInput = document.getElementById('info-request-name');
+          const emailInput = document.getElementById('info-request-email');
+          
+          const name = nameInput.value.trim();
+          const email = emailInput.value.trim();
+          
+          // Basic validation
+          if (!name) {
+            alert('Please enter your name.');
+            nameInput.focus();
+            return;
+          }
+          
+          if (!email) {
+            alert('Please enter your email.');
+            emailInput.focus();
+            return;
+          }
+          
+          // Basic email validation
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(email)) {
+            alert('Please enter a valid email address.');
+            emailInput.focus();
+            return;
+          }
+          
+          // Create a formatted message with the customer information
+          const infoMessage = \`Name: \${name}\\nEmail: \${email}\`;
+          
+          // Send the information as a regular message
+          if (this.currentChatSession?.chatSessionId) {
+            const messageData = {
+              chatSessionId: this.currentChatSession.chatSessionId,
+              messageContent: { type: 'text', text: infoMessage }
+            };
+            
+            // Show pending message state
+            this.addPendingMessage(infoMessage);
+            this.displayMessage({
+              senderType: 'customer',
+              messageContent: messageData.messageContent,
+              timestamp: new Date(),
+              isPending: true
+            });
+            
+            this.socket.emit('customer:send_message', messageData);
+          }
+          
+          // Remove the overlay
+          const overlay = document.getElementById('customer-info-overlay');
+          if (overlay) {
+            overlay.remove();
+          }
         }
     
         updateHeaderText(agentsAvailable) {
