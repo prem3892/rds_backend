@@ -2558,7 +2558,7 @@ export class ChatGateway
 
     const appointmentData: CreateAppointmentDto = {
       ...payload,
-      agentId: (agent._id as Types.ObjectId).toString(),
+      agentId: (agent.userId as Types.ObjectId).toString(),
       customerId: customer._id.toString(),
       appointmentTime: new Date(payload.date),
       notes: payload.notes ?? '',

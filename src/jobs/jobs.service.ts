@@ -335,14 +335,15 @@ export class JobsService {
             `Found ${eligibleAgents.length} eligible agents for session ${session._id}. Sending priority notification.`,
           );
 
-          await this.chatSessionService.incrementPriorityNotificationCount(
-            session._id,
-          );
+          const updatedSession =
+            await this.chatSessionService.incrementPriorityNotificationCount(
+              session._id,
+            );
 
           // Delegate socket notifications to ChatNotificationService
           await this.chatNotificationService.sendPriorityNotificationToAgents(
             eligibleAgents,
-            session,
+            updatedSession,
           );
         } else {
           this.logger.warn(

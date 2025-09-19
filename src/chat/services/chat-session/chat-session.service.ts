@@ -504,6 +504,7 @@ export class ChatSessionService {
         },
         { new: true },
       )
+      .populate('customerId')
       .exec();
   }
 
