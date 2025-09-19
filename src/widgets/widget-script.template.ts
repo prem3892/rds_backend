@@ -550,12 +550,14 @@ export function generateWidgetScript(
           // Display the form as a chat message
           const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
           
+          const formId = \`info_request_\${Date.now()}\`;
           const formMessage = {
-            _id: \`info_request_\${Date.now()}\`,
+            _id: formId,
             senderType: 'system',
             messageContent: { 
               type: 'customer_info_form',
-              text: 'Please provide your contact information to continue:'
+              text: 'Please provide your contact information to continue:',
+              formId: formId // Add unique form ID
             },
             timestamp: new Date().toISOString(),
             readByAgent: true
@@ -568,10 +570,7 @@ export function generateWidgetScript(
           utils.scrollToBottom(messagesContainer);
         }
 
-        submitCustomerInfoRequest() {
-          const nameInput = document.getElementById('info-request-name');
-          const emailInput = document.getElementById('info-request-email');
-          
+        submitCustomerInfoRequest(nameInput, emailInput) {
           if (!nameInput || !emailInput) {
             console.error('Customer info form inputs not found');
             return;
@@ -618,7 +617,7 @@ export function generateWidgetScript(
           // Disable the form to prevent multiple submissions
           nameInput.disabled = true;
           emailInput.disabled = true;
-          const submitBtn = document.getElementById('submit-info-request');
+          const submitBtn = nameInput.closest('.space-y-3').querySelector('button');
           if (submitBtn) {
             submitBtn.disabled = true;
             submitBtn.textContent = 'Submitted';
@@ -842,20 +841,21 @@ export function generateWidgetScript(
           let messageContent = '';
           if (message.messageContent.type === 'customer_info_form') {
             const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
+            const formId = message.messageContent.formId || message._id;
             messageContent = \`
               <div class="space-y-3">
                 <div class="text-sm text-gray-700 mb-3">\${utils.escapeHtml(message.messageContent.text)}</div>
                 <div class="space-y-2">
                   <div>
                     <label class="block text-xs font-medium text-gray-600 mb-1">Name *</label>
-                    <input type="text" id="info-request-name" class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" required>
+                    <input type="text" id="info-request-name-\${formId}" class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" required>
                   </div>
                   <div>
                     <label class="block text-xs font-medium text-gray-600 mb-1">Email *</label>
-                    <input type="email" id="info-request-email" class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" required>
+                    <input type="email" id="info-request-email-\${formId}" class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" required>
                   </div>
                   <div class="flex space-x-2 mt-3">
-                    <button id="submit-info-request" class="flex-1 py-1 px-3 text-xs text-white rounded hover:opacity-90 transition-opacity" 
+                    <button id="submit-info-request-\${formId}" class="flex-1 py-1 px-3 text-xs text-white rounded hover:opacity-90 transition-opacity" 
                             style="background-color: \${primaryColor}">
                       Submit
                     </button>
@@ -925,13 +925,14 @@ export function generateWidgetScript(
           
           // Bind events for customer info form if this is a form message
           if (message.messageContent.type === 'customer_info_form') {
-            const submitBtn = messageDiv.querySelector('#submit-info-request');
-            const nameInput = messageDiv.querySelector('#info-request-name');
-            const emailInput = messageDiv.querySelector('#info-request-email');
+            const formId = message.messageContent.formId || message._id;
+            const submitBtn = messageDiv.querySelector(\`#submit-info-request-\${formId}\`);
+            const nameInput = messageDiv.querySelector(\`#info-request-name-\${formId}\`);
+            const emailInput = messageDiv.querySelector(\`#info-request-email-\${formId}\`);
             
             if (submitBtn) {
               submitBtn.addEventListener('click', () => {
-                this.submitCustomerInfoRequest();
+                this.submitCustomerInfoRequest(nameInput, emailInput);
               });
             }
             
@@ -941,7 +942,7 @@ export function generateWidgetScript(
                 input.addEventListener('keypress', (e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    this.submitCustomerInfoRequest();
+                    this.submitCustomerInfoRequest(nameInput, emailInput);
                   }
                 });
               }
