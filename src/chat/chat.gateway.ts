@@ -2620,6 +2620,82 @@ export class ChatGateway
     return acknowledgmentData;
   }
 
+  @SubscribeMessage('agent:customer_info_request')
+  async handleAgentCustomerInfoRequest(
+    @MessageBody() payload: { chatSessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ): Promise<{ event: string; data: any }> {
+    if (!client.user) throw new WsException('Agent not authenticated.');
+    if (
+      !payload.chatSessionId ||
+      !Types.ObjectId.isValid(payload.chatSessionId)
+    ) {
+      throw new WsException('Invalid chatSessionId');
+    }
+
+    const agentUserId = client.user.sub;
+    const session = await this.chatSessionService.findByIdOrFail(
+      payload.chatSessionId,
+    );
+
+    // Get agent profile by user id
+    const agentProfile =
+      await this.agentsService.findAgentProfileByUserId(agentUserId);
+    const _agentId = (agentProfile?.userId as Types.ObjectId).toString();
+
+    if (
+      (_agentId && session.agentId?.toString() !== _agentId) ||
+      session.status !== ChatSessionStatus.ACTIVE
+    ) {
+      this.logger.error(
+        `[handleAgentCustomerInfoRequest] Agent ${_agentId} cannot request customer info for session ${payload.chatSessionId}`,
+      );
+      throw new WsException('Cannot request customer info for this session.');
+    }
+
+    // Get all agent sockets for multi-socket support
+    const allAgentSockets =
+      await this.redisService.getAllSocketsForAgent(agentUserId);
+    const socketCount = allAgentSockets.length;
+
+    this.logger.log(
+      `Agent ${agentUserId} requesting customer info for chat ${payload.chatSessionId} from socket ${client.id}. Total agent sockets: ${socketCount}`,
+    );
+
+    // Emit the customer info request to the customer
+    this.server
+      .to(`customer:${session.customerId.toString()}`)
+      .emit('server:customer_info_requested', {
+        chatSessionId: payload.chatSessionId,
+        agentId: _agentId,
+        requestedAt: new Date(),
+      });
+
+    // Prepare acknowledgment data
+    const acknowledgmentData = {
+      event: 'server:customer_info_request_sent',
+      data: {
+        chatSessionId: payload.chatSessionId,
+        customerId: session.customerId.toString(),
+        triggeredBySocket: client.id,
+        totalAgentSockets: socketCount,
+        requestedAt: new Date(),
+      },
+    };
+
+    // Broadcast acknowledgment to ALL agent's sockets
+    this.server
+      .to(`agent:${agentUserId}`)
+      .emit(acknowledgmentData.event, acknowledgmentData.data);
+
+    this.logger.log(
+      `Customer info request sent to customer ${session.customerId.toString()} for session ${payload.chatSessionId} by agent ${_agentId} from socket ${client.id}. Broadcasted to ${socketCount} socket(s).`,
+    );
+
+    // Return acknowledgment to the triggering socket
+    return acknowledgmentData;
+  }
+
   // --- Helper Methods ---
   private async removeParticipantsFromChatRoom(
     chatSessionId: string,
