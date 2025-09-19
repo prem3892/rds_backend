@@ -593,14 +593,6 @@ export function generateWidgetScript(
             return;
           }
           
-          // Basic email validation
-          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-          if (!emailRegex.test(email)) {
-            alert('Please enter a valid email address.');
-            emailInput.focus();
-            return;
-          }
-          
           // Create a formatted message with the customer information
           const infoMessage = \`Name: \${name}\\nEmail: \${email}\`;
           
