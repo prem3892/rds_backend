@@ -12,6 +12,8 @@ import {
   Logger,
   Inject,
   forwardRef,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -45,6 +47,7 @@ import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { GetMessagesQueryDto } from './dto/get-messages.dto';
 import { GetChatSessionsQueryDto } from './dto/get-chat-session.dto';
 import { InitiateChatApiDto } from './dto/initiate-chat-api.dto';
+import { UploadImageDto } from './dto/upload-image.dto';
 import {
   ChatSessionResponseDto,
   ChatMessageResponseDto,
@@ -58,6 +61,8 @@ import {
   NotFoundResponseDto,
   PaginatedResponseDto,
 } from '../shared/dto/common-responses.dto';
+import { createChatImageUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
+import { getChatImageUrl } from '../shared/utils/file-upload.utils';
 
 @ApiTags('Chat')
 @ApiBearerAuth('JWT-auth')
@@ -509,6 +514,124 @@ export class ChatController {
       createdAt: chatSession.initiatedAt,
       message:
         'Chat session created successfully. You can now send messages using WebSocket events.',
+    };
+  }
+
+  // ==================== IMAGE UPLOAD ENDPOINTS ====================
+
+  @Post('upload-image')
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @UseInterceptors(createChatImageUploadInterceptor())
+  @ApiOperation({
+    summary: 'Upload image for chat',
+    description:
+      'Upload an image file to be used in chat messages. The image will be stored and a URL will be returned that can be used in chat messages. Maximum file size is 10MB. Supported formats: JPG, JPEG, PNG, GIF, WebP.',
+  })
+  @ApiCreatedResponse({
+    description: 'Image uploaded successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        imageUrl: {
+          type: 'string',
+          description: 'URL of the uploaded image',
+          example:
+            '/uploads/chat-images/507f1f77bcf86cd799439011/image-uuid.jpg',
+        },
+        filename: {
+          type: 'string',
+          description: 'Generated filename',
+          example: '507f1f77bcf86cd799439011-uuid.jpg',
+        },
+        originalName: {
+          type: 'string',
+          description: 'Original filename',
+          example: 'screenshot.jpg',
+        },
+        size: {
+          type: 'number',
+          description: 'File size in bytes',
+          example: 1024000,
+        },
+        mimetype: {
+          type: 'string',
+          description: 'MIME type of the uploaded file',
+          example: 'image/jpeg',
+        },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid file, file too large, or invalid chat session ID',
+    type: ErrorResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Access denied to the chat session',
+    type: ForbiddenResponseDto,
+  })
+  async uploadChatImage(
+    @Body() uploadDto: UploadImageDto,
+    @UploadedFile() file: any,
+    @AuthenticatedUser() user: JwtPayload,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No image file provided');
+    }
+
+    // Validate chat session ID
+    if (!Types.ObjectId.isValid(uploadDto.chatSessionId)) {
+      throw new BadRequestException('Invalid chat session ID format');
+    }
+
+    // Check if user has access to this chat session
+    const session = await this.chatSessionService.findByIdOrFail(
+      uploadDto.chatSessionId,
+    );
+
+    // Authorization check based on user role
+    if (user.role === UserRole.AGENT) {
+      // Agent can only upload to their assigned sessions
+      if (!session.agentId || session.agentId.toString() !== user.sub) {
+        throw new ForbiddenException(
+          'You do not have permission to upload images to this chat session.',
+        );
+      }
+    } else if (user.role === UserRole.ADMIN) {
+      // Admin can upload to sessions assigned to their managed agents
+      if (session.agentId) {
+        const isAuthorized =
+          await this.chatSessionService.isSessionAccessibleByAdmin(
+            uploadDto.chatSessionId,
+            user.sub,
+          );
+        if (!isAuthorized) {
+          throw new ForbiddenException(
+            'You do not have permission to upload images to this chat session.',
+          );
+        }
+      }
+    }
+    // Note: CUSTOMER role would need additional validation if customers can upload
+    // For now, we'll allow it if they have the role, but in practice you might want
+    // to check if the customer owns the session
+
+    // Generate the image URL
+    const imageUrl = getChatImageUrl(uploadDto.chatSessionId, file.filename);
+
+    this.logger.log(
+      `User ${user.email} uploaded image ${file.filename} for chat session ${uploadDto.chatSessionId}`,
+    );
+
+    return {
+      imageUrl,
+      filename: file.filename,
+      originalName: file.originalname,
+      size: file.size,
+      mimetype: file.mimetype,
     };
   }
 }
