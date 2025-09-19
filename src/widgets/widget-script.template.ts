@@ -547,79 +547,35 @@ export function generateWidgetScript(
         }
 
         showCustomerInfoRequestForm() {
-          // Create a temporary overlay form for customer info request
-          const existingOverlay = document.getElementById('customer-info-overlay');
-          if (existingOverlay) {
-            existingOverlay.remove();
-          }
-
+          // Display the form as a chat message
           const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
           
-          const overlay = document.createElement('div');
-          overlay.id = 'customer-info-overlay';
-          overlay.className = 'absolute inset-0 bg-white z-10 flex flex-col';
+          const formMessage = {
+            _id: \`info_request_\${Date.now()}\`,
+            senderType: 'system',
+            messageContent: { 
+              type: 'customer_info_form',
+              text: 'Please provide your contact information to continue:'
+            },
+            timestamp: new Date().toISOString(),
+            readByAgent: true
+          };
           
-          overlay.innerHTML = \`
-            <div class="p-4 border-b">
-              <h3 class="text-lg font-medium text-gray-900">Please provide your information</h3>
-              <p class="text-sm text-gray-600 mt-1">The agent has requested your contact details to better assist you.</p>
-            </div>
-            <div class="flex-1 p-4 overflow-y-auto">
-              <div class="space-y-4">
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-                  <input type="text" id="info-request-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                </div>
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-                  <input type="email" id="info-request-email" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                </div>
-              </div>
-            </div>
-            <div class="p-4 border-t">
-              <div class="flex space-x-3">
-                <button id="cancel-info-request" class="flex-1 py-2 px-4 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
-                  Cancel
-                </button>
-                <button id="submit-info-request" class="flex-1 py-2 px-4 text-white rounded-lg hover:opacity-90 transition-opacity" 
-                        style="background-color: \${primaryColor}">
-                  Submit
-                </button>
-              </div>
-            </div>
-          \`;
+          this.displayMessage(formMessage);
           
-          this.chatWindow.appendChild(overlay);
-          
-          // Bind events for the overlay form
-          document.getElementById('cancel-info-request').addEventListener('click', () => {
-            overlay.remove();
-          });
-          
-          document.getElementById('submit-info-request').addEventListener('click', () => {
-            this.submitCustomerInfoRequest();
-          });
-          
-          // Handle Enter key submission
-          const nameInput = document.getElementById('info-request-name');
-          const emailInput = document.getElementById('info-request-email');
-          
-          [nameInput, emailInput].forEach(input => {
-            input.addEventListener('keypress', (e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                this.submitCustomerInfoRequest();
-              }
-            });
-          });
-          
-          // Focus the name input
-          setTimeout(() => nameInput.focus(), 100);
+          // Scroll to bottom to show the form
+          const messagesContainer = document.getElementById('messages-container');
+          utils.scrollToBottom(messagesContainer);
         }
 
         submitCustomerInfoRequest() {
           const nameInput = document.getElementById('info-request-name');
           const emailInput = document.getElementById('info-request-email');
+          
+          if (!nameInput || !emailInput) {
+            console.error('Customer info form inputs not found');
+            return;
+          }
           
           const name = nameInput.value.trim();
           const email = emailInput.value.trim();
@@ -667,10 +623,14 @@ export function generateWidgetScript(
             this.socket.emit('customer:send_message', messageData);
           }
           
-          // Remove the overlay
-          const overlay = document.getElementById('customer-info-overlay');
-          if (overlay) {
-            overlay.remove();
+          // Disable the form to prevent multiple submissions
+          nameInput.disabled = true;
+          emailInput.disabled = true;
+          const submitBtn = document.getElementById('submit-info-request');
+          if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitted';
+            submitBtn.style.opacity = '0.5';
           }
         }
     
@@ -888,7 +848,30 @@ export function generateWidgetScript(
           }
           
           let messageContent = '';
-          if (message.messageContent.text) {
+          if (message.messageContent.type === 'customer_info_form') {
+            const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
+            messageContent = \`
+              <div class="space-y-3">
+                <div class="text-sm text-gray-700 mb-3">\${utils.escapeHtml(message.messageContent.text)}</div>
+                <div class="space-y-2">
+                  <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Name *</label>
+                    <input type="text" id="info-request-name" class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" required>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Email *</label>
+                    <input type="email" id="info-request-email" class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" required>
+                  </div>
+                  <div class="flex space-x-2 mt-3">
+                    <button id="submit-info-request" class="flex-1 py-1 px-3 text-xs text-white rounded hover:opacity-90 transition-opacity" 
+                            style="background-color: \${primaryColor}">
+                      Submit
+                    </button>
+                  </div>
+                </div>
+              </div>
+            \`;
+          } else if (message.messageContent.text) {
             messageContent = utils.escapeHtml(message.messageContent.text);
           } else if (message.messageContent.type === 'file') {
             const isImage = message.messageContent.mimeType?.startsWith('image/');
@@ -924,23 +907,59 @@ export function generateWidgetScript(
             \`;
           }
           
+          // Special styling for customer info form
+          const isInfoForm = message.messageContent.type === 'customer_info_form';
+          const maxWidthClass = isInfoForm ? 'max-w-sm lg:max-w-md' : 'max-w-xs lg:max-w-md';
+          
           messageDiv.innerHTML = \`
-            <div class="max-w-xs lg:max-w-md px-3 py-2 rounded-lg \${
+            <div class="\${maxWidthClass} px-3 py-2 rounded-lg \${
               isCustomer 
                 ? 'bg-blue-500 text-white' 
                 : isSystem 
-                  ? 'bg-gray-100 text-gray-700 text-sm text-center w-full' 
+                  ? isInfoForm 
+                    ? 'bg-blue-50 border border-blue-200 text-gray-800 w-full' 
+                    : 'bg-gray-100 text-gray-700 text-sm text-center w-full'
                   : 'bg-gray-200 text-gray-900'
             } \${message.isUploading || isPending ? 'opacity-50' : ''}">
               <div>\${messageContent}</div>
-              <div class="text-xs text-right mt-1 \${isCustomer ? 'text-blue-100' : 'text-gray-500'} flex items-center justify-end">
+              \${!isInfoForm ? \`<div class="text-xs text-right mt-1 \${isCustomer ? 'text-blue-100' : 'text-gray-500'} flex items-center justify-end">
                 <span>\${utils.formatTime(message.timestamp)}</span>
                 \${statusIndicator}
-              </div>
+              </div>\` : ''}
             </div>
           \`;
           
           messagesContainer.appendChild(messageDiv);
+          
+          // Bind events for customer info form if this is a form message
+          if (message.messageContent.type === 'customer_info_form') {
+            const submitBtn = messageDiv.querySelector('#submit-info-request');
+            const nameInput = messageDiv.querySelector('#info-request-name');
+            const emailInput = messageDiv.querySelector('#info-request-email');
+            
+            if (submitBtn) {
+              submitBtn.addEventListener('click', () => {
+                this.submitCustomerInfoRequest();
+              });
+            }
+            
+            // Handle Enter key submission
+            [nameInput, emailInput].forEach(input => {
+              if (input) {
+                input.addEventListener('keypress', (e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.submitCustomerInfoRequest();
+                  }
+                });
+              }
+            });
+            
+            // Focus the name input
+            setTimeout(() => {
+              if (nameInput) nameInput.focus();
+            }, 100);
+          }
           
           // Start observing this message for read tracking if it has an ID and is from agent
           if (message._id && !isCustomer && this.messageReadObserver) {
