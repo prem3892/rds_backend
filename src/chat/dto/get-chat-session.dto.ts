@@ -4,7 +4,9 @@ import {
   IsNumberString,
   IsOptional,
   IsString,
+  IsBoolean,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import { ChatSessionStatus } from '../../shared/constants/enums';
 
@@ -75,4 +77,19 @@ export class GetChatSessionsQueryDto {
   @IsOptional()
   @IsString()
   customerEmail?: string;
+
+  @ApiProperty({
+    description: 'Filter sessions that have scheduled appointments',
+    example: true,
+    required: false,
+    type: Boolean,
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  @IsBoolean()
+  hasScheduledAppointment?: boolean;
 }

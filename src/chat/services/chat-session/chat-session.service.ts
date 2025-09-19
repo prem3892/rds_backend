@@ -783,6 +783,7 @@ export class ChatSessionService {
       departmentId,
       customerName,
       customerEmail,
+      hasScheduledAppointment,
     } = queryDto;
     const skip = (page - 1) * limit;
 
@@ -819,6 +820,24 @@ export class ChatSessionService {
       }
       if (customerIds.length > 0) {
         query.customerId = { $in: customerIds };
+      }
+    }
+
+    // Handle appointment filtering
+    if (hasScheduledAppointment !== undefined) {
+      const appointmentSessionIds = await this.appointmentModel.distinct(
+        'chatSessionId',
+        {
+          status: AppointmentStatus.SCHEDULED,
+        },
+      );
+
+      if (hasScheduledAppointment) {
+        // Filter to only sessions that have scheduled appointments
+        query._id = { $in: appointmentSessionIds };
+      } else {
+        // Filter to only sessions that do NOT have scheduled appointments
+        query._id = { $nin: appointmentSessionIds };
       }
     }
 
@@ -910,6 +929,7 @@ export class ChatSessionService {
       departmentId,
       customerName,
       customerEmail,
+      hasScheduledAppointment,
     } = queryDto;
     const skip = (page - 1) * limit;
 
@@ -957,6 +977,24 @@ export class ChatSessionService {
       }
       if (customerIds.length > 0) {
         query.customerId = { $in: customerIds };
+      }
+    }
+
+    // Handle appointment filtering
+    if (hasScheduledAppointment !== undefined) {
+      const appointmentSessionIds = await this.appointmentModel.distinct(
+        'chatSessionId',
+        {
+          status: AppointmentStatus.SCHEDULED,
+        },
+      );
+
+      if (hasScheduledAppointment) {
+        // Filter to only sessions that have scheduled appointments
+        query._id = { $in: appointmentSessionIds };
+      } else {
+        // Filter to only sessions that do NOT have scheduled appointments
+        query._id = { $nin: appointmentSessionIds };
       }
     }
 
