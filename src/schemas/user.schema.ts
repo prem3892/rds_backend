@@ -51,6 +51,25 @@ export class User {
   emailVerificationExpires: Date;
 
   @Prop()
+  emailVerificationOtp: string;
+
+  @Prop()
+  emailVerificationOtpExpires: Date;
+
+  @Prop({
+    type: String,
+    enum: ['token', 'otp'],
+    default: 'token',
+  })
+  emailVerificationMethod: string;
+
+  @Prop({ default: 0 })
+  otpAttempts: number;
+
+  @Prop()
+  lastOtpRequestTime: Date;
+
+  @Prop()
   passwordResetToken: string;
 
   @Prop()

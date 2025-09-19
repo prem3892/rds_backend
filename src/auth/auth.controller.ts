@@ -32,6 +32,12 @@ import {
   ResetPasswordDto,
   VerifyEmailDto,
 } from './dto/password-reset.dto';
+import {
+  SendVerificationOtpDto,
+  VerifyEmailOtpDto,
+  ResendVerificationOtpDto,
+  SendVerificationDto,
+} from './dto/otp-verification.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import {
@@ -478,6 +484,156 @@ export class AuthController {
     );
     return {
       message: 'Verification email sent successfully. Please check your inbox.',
+    };
+  }
+
+  // OTP Verification Endpoints
+
+  @Post('send-verification-otp')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Send email verification OTP',
+    description:
+      'Send 6-digit OTP code via email to authenticated user for email verification',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification OTP sent successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example:
+            'Verification OTP sent successfully. Please check your email.',
+        },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Email already verified, user not found, or rate limit exceeded',
+    type: ErrorResponseDto,
+  })
+  async sendEmailVerificationOtp(@AuthenticatedUser() user: JwtPayload) {
+    await this.authService.sendEmailVerificationOtp(user.sub);
+    return {
+      message: 'Verification OTP sent successfully. Please check your email.',
+    };
+  }
+
+  @Post('verify-email-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Verify email address using OTP',
+    description:
+      'Verify user email address using 6-digit OTP code received via email',
+  })
+  @ApiBody({ type: VerifyEmailOtpDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Email verified successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example: 'Email verified successfully. You can now login.',
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid OTP, expired OTP, or too many attempts',
+    type: ErrorResponseDto,
+  })
+  async verifyEmailOtp(@Body() verifyEmailOtpDto: VerifyEmailOtpDto) {
+    await this.authService.verifyEmailOtp(
+      verifyEmailOtpDto.email,
+      verifyEmailOtpDto.otp,
+    );
+    return { message: 'Email verified successfully. You can now login.' };
+  }
+
+  @Post('resend-verification-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resend verification OTP',
+    description:
+      'Resend 6-digit OTP code via email to any unverified user account. Can be used if the original OTP was not received or expired.',
+  })
+  @ApiBody({ type: ResendVerificationOtpDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification OTP sent successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example:
+            'Verification OTP sent successfully. Please check your email.',
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid email, user not found, email already verified, or rate limit exceeded',
+    type: ErrorResponseDto,
+  })
+  async resendVerificationOtp(
+    @Body() resendVerificationOtpDto: ResendVerificationOtpDto,
+  ) {
+    await this.authService.resendVerificationOtp(
+      resendVerificationOtpDto.email,
+    );
+    return {
+      message: 'Verification OTP sent successfully. Please check your email.',
+    };
+  }
+
+  @Post('admin/resend-verification-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resend admin verification OTP',
+    description:
+      'Resend 6-digit OTP code via email to unverified admin account. Can be used if the original OTP was not received or expired.',
+  })
+  @ApiBody({ type: ResendVerificationOtpDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification OTP sent successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example:
+            'Verification OTP sent successfully. Please check your email.',
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid email, user not found, not an admin, email already verified, or rate limit exceeded',
+    type: ErrorResponseDto,
+  })
+  async resendAdminVerificationOtp(
+    @Body() resendVerificationOtpDto: ResendVerificationOtpDto,
+  ) {
+    await this.authService.resendAdminVerificationOtp(
+      resendVerificationOtpDto.email,
+    );
+    return {
+      message: 'Verification OTP sent successfully. Please check your email.',
     };
   }
 }
