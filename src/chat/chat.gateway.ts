@@ -1409,7 +1409,7 @@ export class ChatGateway
 
     const message = await this.chatMessageService.createMessage({
       chatSessionId: session._id,
-      senderId: new Types.ObjectId(agentId),
+      senderId: new Types.ObjectId(_agentId),
       senderType: ChatMessageSenderType.AGENT,
       messageType: messageType,
       content: payload.messageContent,
@@ -2582,7 +2582,7 @@ export class ChatGateway
     // Send a system message in chat
     const systemMessage = await this.chatMessageService.createMessage({
       chatSessionId: new Types.ObjectId(payload.chatSessionId),
-      senderId: agent._id as Types.ObjectId, // System action by agent
+      senderId: agent.userId as Types.ObjectId, // System action by agent
       senderType: ChatMessageSenderType.SYSTEM,
       messageType: ChatMessageType.APPOINTMENT_BOOKED_NOTICE,
       content: {
@@ -2670,6 +2670,24 @@ export class ChatGateway
         agentId: _agentId,
         requestedAt: new Date(),
       });
+
+    // Send a system message in chat
+    const systemMessage = await this.chatMessageService.createMessage({
+      chatSessionId: new Types.ObjectId(payload.chatSessionId),
+      senderId: agentProfile?.userId as Types.ObjectId, // System action by agent
+      senderType: ChatMessageSenderType.SYSTEM,
+      messageType: ChatMessageType.CUSTOMER_INFO_REQUESTED_NOTICE,
+      content: {
+        text: `Agent has requested additional customer information.`,
+        requestDetails: {
+          agentId: _agentId,
+          requestedAt: new Date(),
+        },
+      },
+    });
+    this.server
+      .to(`chatSession:${payload.chatSessionId}`)
+      .emit('server:new_message', systemMessage);
 
     // Prepare acknowledgment data
     const acknowledgmentData = {
