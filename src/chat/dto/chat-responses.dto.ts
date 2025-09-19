@@ -206,6 +206,31 @@ export class ChatSessionResponseDto {
     example: '2024-01-15T11:25:00.000Z',
   })
   updatedAt: string;
+
+  @ApiProperty({
+    description: 'Whether an appointment has been booked for this session',
+    example: true,
+  })
+  appointmentBooked: boolean;
+
+  @ApiProperty({
+    description: 'Appointment details if booked',
+    type: 'object',
+    properties: {
+      date: { type: 'string', example: '2024-01-16T14:30:00.000Z' },
+      notes: {
+        type: 'string',
+        example: 'Follow-up meeting for technical support',
+      },
+      bookedAt: { type: 'string', example: '2024-01-15T11:25:00.000Z' },
+    },
+    nullable: true,
+  })
+  appointmentData?: {
+    date: string; // ISO 8601 Date string
+    notes?: string;
+    bookedAt: string; // ISO 8601 Date string
+  };
 }
 
 export class ActiveChatSessionResponseDto {
