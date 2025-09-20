@@ -201,7 +201,14 @@ export class ChatGateway
       if (agentProfile?.adminId) {
         client.leave(`online_agents:${agentProfile.adminId.toString()}`);
       }
-      this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
+      //this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
+
+      // Notify widget customers about agent going offline
+      await this.chatNotificationService.notifyWidgetCustomersOfAgentStatusChange(
+        agentId,
+        false,
+        agentProfile,
+      );
 
       const activeSessions =
         await this.chatSessionService.getActiveSessionsForAgent(agentId);
@@ -324,6 +331,16 @@ export class ChatGateway
       this.logger.debug(
         `[handleCustomerDisconnect] Socket ${client.id} removed from customer:${customerId} room`,
       );
+
+      // Get customer details to determine widget room to leave
+      const customerForRoom = await this.customersService.findById(customerId);
+      if (customerForRoom?.widgetId) {
+        const widgetCustomerRoom = `widget_customers:${customerForRoom.widgetId.toString()}`;
+        client.leave(widgetCustomerRoom);
+        this.logger.debug(
+          `[handleCustomerDisconnect] Socket ${client.id} removed from widget customer room: ${widgetCustomerRoom}`,
+        );
+      }
 
       // Only proceed with full disconnect logic if customer has no remaining sockets
       if (hasOtherSockets) {
@@ -701,7 +718,14 @@ export class ChatGateway
           if (agentProfile?.adminId) {
             client.join(`online_agents:${agentProfile.adminId.toString()}`);
           }
-          this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
+          //this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
+
+          // Notify widget customers about agent coming back online
+          await this.chatNotificationService.notifyWidgetCustomersOfAgentStatusChange(
+            jwtPayload.sub,
+            true,
+            agentProfile,
+          );
 
           this.logger.log(
             `Agent ${jwtPayload.sub} reconnected and restored to online status (within shift).`,
@@ -996,8 +1020,22 @@ export class ChatGateway
         `Sent online status acknowledgment to all sockets for agent ${agentId}. Status: ${data.isOnline}`,
       );
 
-      // Broadcast pool status update to other clients
-      // this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
+      // Broadcast pool status update to other clients (widgets/potential customers)
+      //this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
+
+      // Notify customers in active chat sessions with this agent
+      await this.chatNotificationService.notifyCustomersOfAgentStatusChange(
+        agentId,
+        data.isOnline,
+        agentProfile,
+      );
+
+      // Notify widget customers about agent status change
+      await this.chatNotificationService.notifyWidgetCustomersOfAgentStatusChange(
+        agentId,
+        data.isOnline,
+        agentProfile,
+      );
 
       // Return acknowledgment to the triggering socket (this is the traditional response)
       // Note: The triggering socket will receive this twice (once from room broadcast, once from return)
@@ -1750,6 +1788,13 @@ export class ChatGateway
       customer._id.toString(),
     );
     client.join(`customer:${customer._id.toString()}`);
+
+    // Join widget-specific customer room for targeted agent status broadcasts
+    const widgetCustomerRoom = `widget_customers:${payload.widgetId}`;
+    client.join(widgetCustomerRoom);
+    this.logger.debug(
+      `Customer ${customer._id} joined widget customer room: ${widgetCustomerRoom}`,
+    );
 
     const socketCount = await this.redisService.getCustomerSocketCount(
       customer._id.toString(),

@@ -101,6 +101,7 @@ export function generateWidgetScript(
           this.messages = new Map(); // Track messages by their _id
           this.pendingMessages = new Set(); // Track messages being sent
           this.messageReadObserver = null; // IntersectionObserver for tracking message visibility
+          this.availableAgents = []; // Track current agent availability
           
           this.init();
         }
@@ -358,8 +359,23 @@ export function generateWidgetScript(
             console.log('Widget initialized:', data);
             this.customerId = data.customerId;
             
+            // Store initial agent availability and ensure no duplicates
+            const initialAgents = data.initialAgentAvailability || [];
+            const uniqueAgents = [];
+            const seenIds = new Set();
+            
+            for (const agent of initialAgents) {
+              const normalizedId = String(agent.adminId);
+              if (!seenIds.has(normalizedId)) {
+                seenIds.add(normalizedId);
+                uniqueAgents.push(agent);
+              }
+            }
+            
+            this.availableAgents = uniqueAgents;
+            
             // Update header with agent profile pictures
-            this.updateAgentProfilePictures(data.initialAgentAvailability || []);
+            this.updateAgentProfilePictures(this.availableAgents);
             
             if (data.activeSession) {
               this.currentChatSession = data.activeSession;
@@ -499,6 +515,12 @@ export function generateWidgetScript(
             console.log('Agent ended chat:', data);
             this.showAgentStatus(\`Chat ended, please refresh the page for new chat\`);
           });
+
+          // Listen for agent status changes
+          this.socket.on('server:agent_status_changed', (data) => {
+            console.log('Agent status changed:', data);
+            this.handleAgentStatusChange(data);
+          });
         }
     
         connectWidget() {
@@ -617,6 +639,55 @@ export function generateWidgetScript(
             
             profileContainer.appendChild(agentProfile);
           });
+        }
+
+        handleAgentStatusChange(data) {
+          // Expected payload: { chatSessionId, agentId, agentName, isOnline, timestamp }
+          const { agentId, agentName, isOnline } = data;
+          
+          // Convert agentId to string for consistent comparison
+          const normalizedAgentId = String(agentId);
+          
+          // Find the agent in our current availability list using adminId for comparison
+          const agentIndex = this.availableAgents.findIndex(agent => String(agent.adminId) === normalizedAgentId);
+          
+          if (isOnline) {
+            // Agent came online
+            if (agentIndex === -1) {
+              // Agent not in list, add them (we might not have all agent details, so create a minimal object)
+              this.availableAgents.push({
+                adminId: agentId,
+                firstName: agentName,
+                isOnline: true
+              });
+            } else {
+              // Agent already in list, update their status
+              this.availableAgents[agentIndex].isOnline = true;
+            }
+          } else {
+            // Agent went offline
+            if (agentIndex !== -1) {
+              // Remove agent from available list
+              this.availableAgents.splice(agentIndex, 1);
+            }
+          }
+          
+          // Remove any potential duplicates based on adminId (defensive programming)
+          const uniqueAgents = [];
+          const seenIds = new Set();
+          
+          for (const agent of this.availableAgents) {
+            const normalizedId = String(agent.adminId);
+            if (!seenIds.has(normalizedId)) {
+              seenIds.add(normalizedId);
+              uniqueAgents.push(agent);
+            }
+          }
+          
+          this.availableAgents = uniqueAgents;
+          
+          // Update the UI with the new agent availability
+          this.updateAgentProfilePictures(this.availableAgents);
         }
     
         initiateChat() {
