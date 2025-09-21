@@ -434,4 +434,134 @@ export class ChatNotificationService {
       );
     }
   }
+
+  /**
+   * Notify customers in active chat sessions about agent status changes
+   * @param agentId The agent whose status changed
+   * @param isOnline The new online status
+   * @param agentProfile The agent's profile information
+   */
+  async notifyCustomersOfAgentStatusChange(
+    agentId: string,
+    isOnline: boolean,
+    agentProfile: any,
+  ) {
+    try {
+      if (!this.server) {
+        this.logger.warn(
+          'Socket.IO server not available for customer agent status notifications',
+        );
+        return;
+      }
+
+      // Get all active chat sessions for this agent
+      const activeSessions =
+        await this.chatSessionService.getActiveSessionsForAgent(agentId);
+
+      if (activeSessions.length === 0) {
+        this.logger.debug(`No active sessions found for agent ${agentId}`);
+        return;
+      }
+
+      // Get agent's name for the notification
+      const agentUser = agentProfile?.userId
+        ? await this.usersService.findById(agentProfile.userId)
+        : null;
+      const agentName = agentUser?.firstName || 'Agent';
+
+      // Notify each customer in active sessions
+      for (const session of activeSessions) {
+        const eventData = {
+          chatSessionId: session._id.toString(),
+          agentId: agentId,
+          agentName: agentName,
+          isOnline: isOnline,
+          timestamp: new Date().toISOString(),
+        };
+
+        // Emit to the specific customer
+        this.server
+          .to(`customer:${session.customerId.toString()}`)
+          .emit('server:agent_status_changed', eventData);
+
+        this.logger.log(
+          `Notified customer ${session.customerId} about agent ${agentId} status change to ${isOnline ? 'online' : 'offline'} in session ${session._id}`,
+        );
+      }
+
+      this.logger.log(
+        `Notified ${activeSessions.length} customers about agent ${agentId} status change to ${isOnline ? 'online' : 'offline'}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to notify customers of agent ${agentId} status change: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
+   * Notify widget customers about agent status changes
+   * Broadcasts to customers connected to widgets that the agent can serve
+   * @param agentId The agent whose status changed
+   * @param isOnline The new online status
+   * @param agentProfile The agent's profile information
+   */
+  async notifyWidgetCustomersOfAgentStatusChange(
+    agentId: string,
+    isOnline: boolean,
+    agentProfile: any,
+  ) {
+    try {
+      if (!this.server) {
+        this.logger.warn(
+          'Socket.IO server not available for widget customer agent status notifications',
+        );
+        return;
+      }
+
+      // Get all widgets accessible by this agent
+      const accessibleWidgets =
+        await this.agentsService.getAgentAccessibleWidgets(agentId);
+
+      if (accessibleWidgets.length === 0) {
+        this.logger.debug(`No accessible widgets found for agent ${agentId}`);
+        return;
+      }
+
+      // Get agent's name for the notification
+      const agentUser = agentProfile?.userId
+        ? await this.usersService.findById(agentProfile.userId)
+        : null;
+      const agentName = agentUser?.firstName || 'Agent';
+
+      // Prepare event data
+      const eventData = {
+        agentId: agentId,
+        agentName: agentName,
+        isOnline: isOnline,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Broadcast to each widget's customer room
+      for (const widget of accessibleWidgets) {
+        const roomName = `widget_customers:${widget._id.toString()}`;
+
+        this.server.to(roomName).emit('server:agent_status_changed', eventData);
+
+        this.logger.debug(
+          `Broadcasted agent ${agentId} status change (${isOnline ? 'online' : 'offline'}) to widget ${widget._id} customers in room ${roomName}`,
+        );
+      }
+
+      this.logger.log(
+        `Broadcasted agent ${agentId} status change to customers of ${accessibleWidgets.length} accessible widgets`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to notify widget customers of agent ${agentId} status change: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
 }
