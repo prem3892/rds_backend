@@ -18,6 +18,7 @@ import {
   ChatMessage,
   ChatMessageSchema,
 } from 'src/schemas/chat-message.schema';
+import { Appointment, AppointmentSchema } from 'src/schemas/appointment.schema';
 import { ChatGateway } from './chat.gateway';
 import { ChatSessionService } from './services/chat-session/chat-session.service';
 import { ChatMessageService } from './services/chat-message/chat-message.service';
@@ -32,6 +33,7 @@ import { PublicChatController } from './public-chat.controller';
     MongooseModule.forFeature([
       { name: ChatSession.name, schema: ChatSessionSchema },
       { name: ChatMessage.name, schema: ChatMessageSchema },
+      { name: Appointment.name, schema: AppointmentSchema },
     ]),
     ConfigModule,
     forwardRef(() => AuthModule), // For JWT validation in gateway
