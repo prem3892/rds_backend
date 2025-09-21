@@ -14,7 +14,15 @@ import {
   ChatSession,
   ChatSessionDocument,
 } from 'src/schemas/chat-session.schema';
-import { ChatSessionStatus, UserRole } from 'src/shared/constants/enums';
+import {
+  Appointment,
+  AppointmentDocument,
+} from 'src/schemas/appointment.schema';
+import {
+  ChatSessionStatus,
+  UserRole,
+  AppointmentStatus,
+} from 'src/shared/constants/enums';
 import { AgentsService } from 'src/agents/agents.service';
 import { CustomersService } from 'src/customers/customers.service';
 import { InitiateChatDto } from 'src/chat/dto/initiate-chat.dto';
@@ -30,6 +38,8 @@ export class ChatSessionService {
   constructor(
     @InjectModel(ChatSession.name)
     private chatSessionModel: Model<ChatSessionDocument>,
+    @InjectModel(Appointment.name)
+    private appointmentModel: Model<AppointmentDocument>,
     @Inject(forwardRef(() => AgentsService))
     private readonly agentsService: AgentsService,
     private readonly customersService: CustomersService,
@@ -695,8 +705,67 @@ export class ChatSessionService {
     return updatedSession;
   }
 
+  /**
+   * Populate appointment data for chat sessions
+   * @param sessions - Array of chat session documents
+   * @returns Sessions with appointment data populated
+   */
+  private async populateAppointmentData(
+    sessions: ChatSessionDocument[],
+  ): Promise<any[]> {
+    if (!sessions.length) return [];
+
+    // Get all session IDs
+    const sessionIds = sessions.map((session) => session._id);
+
+    // Find all SCHEDULED appointments for these sessions (latest one per session)
+    const appointments = await this.appointmentModel.aggregate([
+      {
+        $match: {
+          chatSessionId: { $in: sessionIds },
+          status: AppointmentStatus.SCHEDULED,
+        },
+      },
+      {
+        $sort: { createdAt: -1 }, // Sort by creation date descending to get latest first
+      },
+      {
+        $group: {
+          _id: '$chatSessionId',
+          appointment: { $first: '$$ROOT' }, // Take the first (latest) appointment per session
+        },
+      },
+    ]);
+
+    // Create a map for quick lookup
+    const appointmentMap = new Map();
+    appointments.forEach((item) => {
+      appointmentMap.set(item._id.toString(), item.appointment);
+    });
+
+    // Transform sessions to include appointment data
+    return sessions.map((session) => {
+      const sessionObj = session.toObject();
+      const appointment = appointmentMap.get(session._id.toString());
+
+      if (appointment) {
+        sessionObj.appointmentBooked = true;
+        sessionObj.appointmentData = {
+          date: appointment.appointmentTime.toISOString(),
+          notes: appointment.notes || undefined,
+          bookedAt: appointment.createdAt.toISOString(),
+        };
+      } else {
+        sessionObj.appointmentBooked = false;
+        sessionObj.appointmentData = undefined;
+      }
+
+      return sessionObj;
+    });
+  }
+
   async findAllPaginated(queryDto: GetChatSessionsQueryDto): Promise<{
-    items: ChatSessionDocument[];
+    items: any[];
     meta: {
       page: number;
       limit: number;
@@ -714,6 +783,7 @@ export class ChatSessionService {
       departmentId,
       customerName,
       customerEmail,
+      hasScheduledAppointment,
     } = queryDto;
     const skip = (page - 1) * limit;
 
@@ -753,6 +823,24 @@ export class ChatSessionService {
       }
     }
 
+    // Handle appointment filtering
+    if (hasScheduledAppointment !== undefined) {
+      const appointmentSessionIds = await this.appointmentModel.distinct(
+        'chatSessionId',
+        {
+          status: AppointmentStatus.SCHEDULED,
+        },
+      );
+
+      if (hasScheduledAppointment) {
+        // Filter to only sessions that have scheduled appointments
+        query._id = { $in: appointmentSessionIds };
+      } else {
+        // Filter to only sessions that do NOT have scheduled appointments
+        query._id = { $nin: appointmentSessionIds };
+      }
+    }
+
     const [items, total] = await Promise.all([
       this.chatSessionModel
         .find(query)
@@ -781,7 +869,10 @@ export class ChatSessionService {
       hasPrev,
     };
 
-    return { items, meta };
+    // Populate appointment data
+    const itemsWithAppointments = await this.populateAppointmentData(items);
+
+    return { items: itemsWithAppointments, meta };
   }
 
   /**
@@ -794,7 +885,7 @@ export class ChatSessionService {
     queryDto: GetChatSessionsQueryDto,
     adminId: string,
   ): Promise<{
-    items: ChatSessionDocument[];
+    items: any[];
     meta: {
       page: number;
       limit: number;
@@ -838,6 +929,7 @@ export class ChatSessionService {
       departmentId,
       customerName,
       customerEmail,
+      hasScheduledAppointment,
     } = queryDto;
     const skip = (page - 1) * limit;
 
@@ -888,6 +980,24 @@ export class ChatSessionService {
       }
     }
 
+    // Handle appointment filtering
+    if (hasScheduledAppointment !== undefined) {
+      const appointmentSessionIds = await this.appointmentModel.distinct(
+        'chatSessionId',
+        {
+          status: AppointmentStatus.SCHEDULED,
+        },
+      );
+
+      if (hasScheduledAppointment) {
+        // Filter to only sessions that have scheduled appointments
+        query._id = { $in: appointmentSessionIds };
+      } else {
+        // Filter to only sessions that do NOT have scheduled appointments
+        query._id = { $nin: appointmentSessionIds };
+      }
+    }
+
     const [items, total] = await Promise.all([
       this.chatSessionModel
         .find(query)
@@ -916,7 +1026,10 @@ export class ChatSessionService {
       hasPrev,
     };
 
-    return { items, meta };
+    // Populate appointment data
+    const itemsWithAppointments = await this.populateAppointmentData(items);
+
+    return { items: itemsWithAppointments, meta };
   }
 
   /**

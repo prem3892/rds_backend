@@ -91,7 +91,7 @@ export class ChatController {
   @ApiOperation({
     summary: 'Get chat sessions',
     description:
-      'Retrieve a paginated list of chat sessions with filtering options. Admins can only see sessions assigned to their managed agents, agents can only see their own assigned sessions.',
+      'Retrieve a paginated list of chat sessions with filtering options including appointment status. Admins can only see sessions assigned to their managed agents, agents can only see their own assigned sessions.',
   })
   @ApiResponse({
     status: 200,
