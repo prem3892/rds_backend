@@ -15,6 +15,10 @@ import {
   ChatSessionDocument,
 } from 'src/schemas/chat-session.schema';
 import {
+  ChatMessage,
+  ChatMessageDocument,
+} from 'src/schemas/chat-message.schema';
+import {
   Appointment,
   AppointmentDocument,
 } from 'src/schemas/appointment.schema';
@@ -38,6 +42,8 @@ export class ChatSessionService {
   constructor(
     @InjectModel(ChatSession.name)
     private chatSessionModel: Model<ChatSessionDocument>,
+    @InjectModel(ChatMessage.name)
+    private chatMessageModel: Model<ChatMessageDocument>,
     @InjectModel(Appointment.name)
     private appointmentModel: Model<AppointmentDocument>,
     @Inject(forwardRef(() => AgentsService))
@@ -52,12 +58,13 @@ export class ChatSessionService {
    * @param id - The ID of the chat session to find
    * @param options - Query options
    * @param options.populateCustomer - Set to true to populate the customer details (default: false)
+   * @param options.populateUnreadCount - Set to true to populate the unread message count (default: false)
    * @returns The chat session document or null if not found
    * @example
    * // Without customer population
    * const session = await chatSessionService.findById(id);
-   * // With customer population
-   * const sessionWithCustomer = await chatSessionService.findById(id, { populateCustomer: true });
+   * // With customer population and unread count
+   * const sessionWithExtras = await chatSessionService.findById(id, { populateCustomer: true, populateUnreadCount: true });
    */
   async findById(
     id: string | Types.ObjectId,
@@ -65,12 +72,14 @@ export class ChatSessionService {
       populateCustomer?: boolean;
       populateWidget?: boolean;
       populateDepartment?: boolean;
+      populateUnreadCount?: boolean;
     } = {},
   ): Promise<ChatSessionDocument | null> {
     const {
       populateCustomer = false,
       populateWidget = true,
       populateDepartment = true,
+      populateUnreadCount = false,
     } = options;
 
     let _id: Types.ObjectId;
@@ -98,7 +107,14 @@ export class ChatSessionService {
       query.populate('departmentId');
     }
 
-    return query.exec();
+    const session = await query.exec();
+
+    // Optionally populate unread count
+    if (session && populateUnreadCount) {
+      return this.populateUnreadCount(session);
+    }
+
+    return session;
   }
 
   /**
@@ -106,17 +122,23 @@ export class ChatSessionService {
    * @param id - The ID of the chat session to find
    * @param options - Query options
    * @param options.populateCustomer - Set to true to populate the customer details (default: false)
+   * @param options.populateUnreadCount - Set to true to populate the unread message count (default: false)
    * @returns The chat session document
    * @throws NotFoundException if the chat session is not found
    * @example
    * // Without customer population
    * const session = await chatSessionService.findByIdOrFail(id);
-   * // With customer population
-   * const sessionWithCustomer = await chatSessionService.findByIdOrFail(id, { populateCustomer: true });
+   * // With customer population and unread count
+   * const sessionWithExtras = await chatSessionService.findByIdOrFail(id, { populateCustomer: true, populateUnreadCount: true });
    */
   async findByIdOrFail(
     id: string | Types.ObjectId,
-    options: { populateCustomer?: boolean } = {},
+    options: {
+      populateCustomer?: boolean;
+      populateWidget?: boolean;
+      populateDepartment?: boolean;
+      populateUnreadCount?: boolean;
+    } = {},
   ): Promise<ChatSessionDocument> {
     const session = await this.findById(id, options);
     if (!session) {
@@ -414,7 +436,7 @@ export class ChatSessionService {
   ): Promise<ChatSessionDocument[]> {
     this.logger.log(`Getting active sessions for agent ${agentId}`);
 
-    return this.chatSessionModel
+    const sessions = await this.chatSessionModel
       .find({
         agentId: new Types.ObjectId(agentId),
         status: {
@@ -429,6 +451,9 @@ export class ChatSessionService {
       .populate('departmentId', 'name')
       .sort({ lastMessageAt: -1 })
       .exec();
+
+    // Populate unread counts for all sessions
+    return this.populateUnreadCounts(sessions);
   }
 
   async getPendingSessionsForAgent(
@@ -453,7 +478,7 @@ export class ChatSessionService {
       `Agent ${agentId} has access to ${widgetIds.length} widgets: ${widgetIds.map((id) => id.toString()).join(', ')}`,
     );
 
-    return this.chatSessionModel
+    const sessions = await this.chatSessionModel
       .find({
         widgetId: { $in: widgetIds },
         status: ChatSessionStatus.PENDING_ASSIGNMENT,
@@ -463,6 +488,9 @@ export class ChatSessionService {
       .populate('departmentId', 'name')
       .sort({ initiatedAt: 1 }) // Oldest first - they need attention first
       .exec();
+
+    // Populate unread counts for all sessions
+    return this.populateUnreadCounts(sessions);
   }
 
   async getPendingAssignmentSessions(
@@ -1127,5 +1155,103 @@ export class ChatSessionService {
     // Create a copy of the query DTO and force the agentId
     const agentQueryDto = { ...queryDto, agentId };
     return this.findAllPaginated(agentQueryDto);
+  }
+
+  /**
+   * Get unread message count for a specific chat session
+   * @param sessionId - The ID of the chat session
+   * @returns The number of unread messages by agent
+   */
+  async getUnreadCountForSession(
+    sessionId: string | Types.ObjectId,
+  ): Promise<number> {
+    const sessionObjectId =
+      typeof sessionId === 'string' ? new Types.ObjectId(sessionId) : sessionId;
+
+    const result = await this.chatMessageModel.countDocuments({
+      chatSessionId: sessionObjectId,
+      readByAgent: false,
+    });
+
+    return result;
+  }
+
+  /**
+   * Get unread message counts for multiple chat sessions
+   * @param sessionIds - Array of chat session IDs
+   * @returns Map of session ID to unread count
+   */
+  async getUnreadCountsForSessions(
+    sessionIds: (string | Types.ObjectId)[],
+  ): Promise<Map<string, number>> {
+    const sessionObjectIds = sessionIds.map((id) =>
+      typeof id === 'string' ? new Types.ObjectId(id) : id,
+    );
+
+    const pipeline = [
+      {
+        $match: {
+          chatSessionId: { $in: sessionObjectIds },
+          readByAgent: false,
+        },
+      },
+      {
+        $group: {
+          _id: '$chatSessionId',
+          unreadCount: { $sum: 1 },
+        },
+      },
+    ];
+
+    const results = await this.chatMessageModel.aggregate(pipeline);
+    const unreadCountMap = new Map<string, number>();
+
+    // Initialize all sessions with 0 count
+    sessionIds.forEach((id) => {
+      const idString = typeof id === 'string' ? id : id.toString();
+      unreadCountMap.set(idString, 0);
+    });
+
+    // Update with actual counts
+    results.forEach((result) => {
+      unreadCountMap.set(result._id.toString(), result.unreadCount);
+    });
+
+    return unreadCountMap;
+  }
+
+  /**
+   * Populate unread count for a single chat session
+   * @param session - The chat session document
+   * @returns The session with unreadCount populated
+   */
+  async populateUnreadCount(
+    session: ChatSessionDocument,
+  ): Promise<ChatSessionDocument> {
+    if (!session) return session;
+
+    const unreadCount = await this.getUnreadCountForSession(session._id);
+    session.unreadCount = unreadCount;
+    return session;
+  }
+
+  /**
+   * Populate unread counts for multiple chat sessions
+   * @param sessions - Array of chat session documents
+   * @returns The sessions with unreadCount populated
+   */
+  async populateUnreadCounts(
+    sessions: ChatSessionDocument[],
+  ): Promise<ChatSessionDocument[]> {
+    if (!sessions || sessions.length === 0) return sessions;
+
+    const sessionIds = sessions.map((session) => session._id);
+    const unreadCountMap = await this.getUnreadCountsForSessions(sessionIds);
+
+    sessions.forEach((session) => {
+      session.unreadCount = unreadCountMap.get(session._id.toString()) || 0;
+    });
+
+    return sessions;
   }
 }

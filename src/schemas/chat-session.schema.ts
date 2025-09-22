@@ -75,6 +75,16 @@ export class ChatSession {
 
   @Prop()
   lastPriorityNotificationSentAt?: Date;
+
+  // Virtual field for unread messages count
+  unreadCount?: number;
 }
 
 export const ChatSessionSchema = SchemaFactory.createForClass(ChatSession);
+
+// Virtual field for unread messages count - populated manually in service
+ChatSessionSchema.virtual('unreadCount');
+
+// Ensure virtual fields are included in JSON output
+ChatSessionSchema.set('toJSON', { virtuals: true });
+ChatSessionSchema.set('toObject', { virtuals: true });
