@@ -2037,10 +2037,12 @@ export class ChatGateway
       }
 
       // If the session doesn't have an assigned agent or is in a pending state, notify eligible agents
+      // Skip notification if this is an auto-message
       if (
-        !chatSession.agentId ||
-        chatSession.status === ChatSessionStatus.PENDING_ASSIGNMENT ||
-        chatSession.status === ChatSessionStatus.PENDING_AGENT_RECONNECT
+        !payload.isAutoMessage &&
+        (!chatSession.agentId ||
+          chatSession.status === ChatSessionStatus.PENDING_ASSIGNMENT ||
+          chatSession.status === ChatSessionStatus.PENDING_AGENT_RECONNECT)
       ) {
         // Find eligible agents based on widget
         const eligibleAgents = await this.agentsService.getEligibleOnlineAgents(
@@ -2123,10 +2125,13 @@ export class ChatGateway
         chatSessionId: chatSession._id.toString(),
         // estimatedWaitTime, queuePosition can be added here
       });
-      for (const agent of eligibleAgents) {
-        this.server
-          .to(`agent:${agent.userId.toString()}`)
-          .emit('server:new_chat_request', chatSession); // Send full session
+      // Skip sending new_chat_request if this is an auto-message
+      if (!payload.isAutoMessage) {
+        for (const agent of eligibleAgents) {
+          this.server
+            .to(`agent:${agent.userId.toString()}`)
+            .emit('server:new_chat_request', chatSession); // Send full session
+        }
       }
     }
     return {
