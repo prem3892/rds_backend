@@ -115,28 +115,28 @@ export function generateWidgetScript(
           switch (location) {
             case 'bottom_left':
               return {
-                container: 'fixed bottom-4 left-4 z-50 font-sans',
+                container: 'fixed bottom-8 left-8 font-sans',
                 chatWindow: 'absolute bottom-16 left-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
               };
             case 'bottom_right':
               return {
-                container: 'fixed bottom-4 right-4 z-50 font-sans',
+                container: 'fixed bottom-8 right-8 font-sans',
                 chatWindow: 'absolute bottom-16 right-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
               };
             case 'top_left':
               return {
-                container: 'fixed top-4 left-4 z-50 font-sans',
+                container: 'fixed top-8 left-8 font-sans',
                 chatWindow: 'absolute top-16 left-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
               };
             case 'top_right':
               return {
-                container: 'fixed top-4 right-4 z-50 font-sans',
+                container: 'fixed top-8 right-8 font-sans',
                 chatWindow: 'absolute top-16 right-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
               };
             default:
               // Default to bottom_right
               return {
-                container: 'fixed bottom-4 right-4 z-50 font-sans',
+                container: 'fixed bottom-8 right-8 font-sans',
                 chatWindow: 'absolute bottom-16 right-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
               };
           }
@@ -208,6 +208,8 @@ export function generateWidgetScript(
           this.container = document.createElement('div');
           this.container.id = 'chat-widget-container';
           this.container.className = positionClasses.container;
+          // Ensure maximum z-index to stay on top of everything
+          this.container.style.zIndex = '2147483647'; // Maximum 32-bit integer value
           
           this.createChatButton();
           this.createChatWindow();
