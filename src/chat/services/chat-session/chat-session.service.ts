@@ -26,6 +26,7 @@ import {
   ChatSessionStatus,
   UserRole,
   AppointmentStatus,
+  ChatMessageSenderType,
 } from 'src/shared/constants/enums';
 import { AgentsService } from 'src/agents/agents.service';
 import { CustomersService } from 'src/customers/customers.service';
@@ -1160,7 +1161,7 @@ export class ChatSessionService {
   /**
    * Get unread message count for a specific chat session
    * @param sessionId - The ID of the chat session
-   * @returns The number of unread messages by agent
+   * @returns The number of unread customer messages by agent
    */
   async getUnreadCountForSession(
     sessionId: string | Types.ObjectId,
@@ -1170,6 +1171,7 @@ export class ChatSessionService {
 
     const result = await this.chatMessageModel.countDocuments({
       chatSessionId: sessionObjectId,
+      senderType: ChatMessageSenderType.CUSTOMER,
       readByAgent: false,
     });
 
@@ -1179,7 +1181,7 @@ export class ChatSessionService {
   /**
    * Get unread message counts for multiple chat sessions
    * @param sessionIds - Array of chat session IDs
-   * @returns Map of session ID to unread count
+   * @returns Map of session ID to unread customer message count
    */
   async getUnreadCountsForSessions(
     sessionIds: (string | Types.ObjectId)[],
@@ -1192,6 +1194,7 @@ export class ChatSessionService {
       {
         $match: {
           chatSessionId: { $in: sessionObjectIds },
+          senderType: ChatMessageSenderType.CUSTOMER,
           readByAgent: false,
         },
       },

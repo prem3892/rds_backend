@@ -56,8 +56,8 @@ export const ChatMessageSchema = SchemaFactory.createForClass(ChatMessage);
 // Virtual field for agent information - populated manually in service
 ChatMessageSchema.virtual('agentInfo');
 
-// Compound index for efficient unread count queries
-ChatMessageSchema.index({ chatSessionId: 1, readByAgent: 1 });
+// Compound index for efficient unread count queries (customer messages only)
+ChatMessageSchema.index({ chatSessionId: 1, senderType: 1, readByAgent: 1 });
 
 // Ensure virtual fields are included in JSON output
 ChatMessageSchema.set('toJSON', { virtuals: true });
