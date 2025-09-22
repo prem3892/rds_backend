@@ -106,6 +106,40 @@ export function generateWidgetScript(
           const toHex = (c) => c.toString(16).padStart(2, '0');
 
           return \`#\${toHex(r)}\${toHex(g)}\${toHex(b)}\`;
+        },
+        
+        // Get positioning classes based on button_location
+        getPositionClasses(buttonLocation) {
+          const location = buttonLocation || 'bottom_right';
+          
+          switch (location) {
+            case 'bottom_left':
+              return {
+                container: 'fixed bottom-4 left-4 z-50 font-sans',
+                chatWindow: 'absolute bottom-16 left-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
+              };
+            case 'bottom_right':
+              return {
+                container: 'fixed bottom-4 right-4 z-50 font-sans',
+                chatWindow: 'absolute bottom-16 right-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
+              };
+            case 'top_left':
+              return {
+                container: 'fixed top-4 left-4 z-50 font-sans',
+                chatWindow: 'absolute top-16 left-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
+              };
+            case 'top_right':
+              return {
+                container: 'fixed top-4 right-4 z-50 font-sans',
+                chatWindow: 'absolute top-16 right-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
+              };
+            default:
+              // Default to bottom_right
+              return {
+                container: 'fixed bottom-4 right-4 z-50 font-sans',
+                chatWindow: 'absolute bottom-16 right-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
+              };
+          }
         }
       };
     
@@ -168,9 +202,12 @@ export function generateWidgetScript(
         }
     
         createUI() {
+          const buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
+          const positionClasses = utils.getPositionClasses(buttonLocation);
+          
           this.container = document.createElement('div');
           this.container.id = 'chat-widget-container';
-          this.container.className = 'fixed bottom-4 right-4 z-50 font-sans';
+          this.container.className = positionClasses.container;
           
           this.createChatButton();
           this.createChatWindow();
@@ -204,11 +241,13 @@ export function generateWidgetScript(
           const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
           const secondaryColor = this.config.widgetConfig?.secondaryColor || '#64748B';
           const headerText = this.config.widgetConfig?.headerText || 'Chat with us';
+          const buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
           const bgColorWithOpacity = utils.hexToRgba(secondaryColor, 90);
+          const positionClasses = utils.getPositionClasses(buttonLocation);
           
           this.chatWindow = document.createElement('div');
           // Fixed height and width, added max-height to ensure it fits on smaller screens
-          this.chatWindow.className = 'absolute bottom-16 right-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col';
+          this.chatWindow.className = positionClasses.chatWindow;
           this.chatWindow.style.backgroundColor = bgColorWithOpacity;
           
           this.chatWindow.innerHTML = \`
