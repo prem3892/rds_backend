@@ -50,7 +50,10 @@ import {
   PaginatedResponseDto,
 } from '../shared/dto/common-responses.dto';
 
-import { WidgetResponseDto } from './dto/widget-responses.dto';
+import {
+  WidgetResponseDto,
+  WidgetPublicConfigResponseDto,
+} from './dto/widget-responses.dto';
 import { GetWidgetsQueryDto } from './dto/get-widgets-query.dto';
 import { AutoMessagesService } from './auto-messages.service';
 import { CreateAutoMessageDto } from './dto/create-auto-message.dto';
@@ -215,6 +218,29 @@ export class WidgetsController {
 
   // Public endpoint for widget configuration (JSON)
   @Get(':widgetId/public-config')
+  @ApiOperation({
+    summary: 'Get widget public configuration (Public)',
+    description:
+      'Retrieve public configuration for a widget including settings, departments, and auto messages. Used by the widget script to initialize the chat widget.',
+  })
+  @ApiParam({
+    name: 'widgetId',
+    description: 'Widget unique identifier',
+    example: '507f1f77bcf86cd799439011',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Widget public configuration retrieved successfully',
+    type: WidgetPublicConfigResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid widget ID format',
+    type: ErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Widget not found or not enabled',
+    type: NotFoundResponseDto,
+  })
   async getWidgetPublicConfig(
     @Param('widgetId') widgetId: string,
     @Res() res: Response,
@@ -226,6 +252,11 @@ export class WidgetsController {
     if (!widgetPublicData) {
       throw new NotFoundException('Widget not found or not enabled.');
     }
+
+    // TODO: Add domain and path query parameters to filter auto messages
+    // For now, we're including all auto messages for the widget
+    const autoMessages =
+      await this.autoMessagesService.findAllAutoMessagesForWidget(widgetId);
 
     // Expose only necessary fields for the public widget script
     const publicConfig = {
@@ -246,6 +277,15 @@ export class WidgetsController {
         button_label: widgetPublicData.button_label,
         widget_text_color: widgetPublicData.widget_text_color,
       },
+      autoMessages: autoMessages.map((msg) => ({
+        id: msg._id?.toString(),
+        title: msg.title,
+        message: msg.message,
+        domain: msg.domain,
+        sitewide: msg.sitewide,
+        pagePaths: msg.pagePaths,
+        showAfterSeconds: msg.showAfterSeconds,
+      })),
       // Add socket endpoint, etc.
       socketUrl: '/', // Or your specific WebSocket server URL
       socketNamespace: '/chat',

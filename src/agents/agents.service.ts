@@ -160,6 +160,11 @@ export class AgentsService {
     return profile;
   }
 
+  async getAgentName(userId: string | Types.ObjectId): Promise<string> {
+    const user = await this.usersService.findById(userId);
+    return `${user?.firstName} ${user?.lastName}`;
+  }
+
   async getAllAgentProfilesWithUserDetails(
     adminId: string | Types.ObjectId,
   ): Promise<any[]> {

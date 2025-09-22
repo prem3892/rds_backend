@@ -214,4 +214,88 @@ export class ChatMessageService {
       .sort({ timestamp: -1 }) // Get the most recent non-system message
       .exec();
   }
+
+  /**
+   * Get a single message with populated agent info
+   * @param messageId - The message ID
+   * @returns The message with populated agentInfo or null if not found
+   */
+  async getMessageWithAgentInfo(
+    messageId: string,
+  ): Promise<ChatMessageDocument | null> {
+    if (!Types.ObjectId.isValid(messageId)) {
+      throw new BadRequestException('Invalid message ID format');
+    }
+
+    const messages = await this.chatMessageModel.aggregate([
+      {
+        $match: {
+          _id: new Types.ObjectId(messageId),
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'senderId',
+          foreignField: '_id',
+          as: 'agentUser',
+          pipeline: [{ $project: { firstName: 1, lastName: 1 } }],
+        },
+      },
+      {
+        $lookup: {
+          from: 'agentprofiles',
+          localField: 'senderId',
+          foreignField: 'userId',
+          as: 'agentProfile',
+          pipeline: [{ $project: { profilePicture: 1 } }],
+        },
+      },
+      {
+        $addFields: {
+          agentInfo: {
+            $cond: {
+              if: { $eq: ['$senderType', 'AGENT'] },
+              then: {
+                $let: {
+                  vars: {
+                    user: { $arrayElemAt: ['$agentUser', 0] },
+                    profile: { $arrayElemAt: ['$agentProfile', 0] },
+                  },
+                  in: {
+                    fullName: {
+                      $trim: {
+                        input: {
+                          $concat: [
+                            { $ifNull: ['$$user.firstName', ''] },
+                            ' ',
+                            { $ifNull: ['$$user.lastName', ''] },
+                          ],
+                        },
+                      },
+                    },
+                    profilePicture: '$$profile.profilePicture',
+                  },
+                },
+              },
+              else: '$$REMOVE',
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          agentUser: 0,
+          agentProfile: 0,
+        },
+      },
+    ]);
+
+    if (messages.length === 0) {
+      return null;
+    }
+
+    // Convert back to Mongoose document
+    return new this.chatMessageModel(messages[0]);
+  }
 }

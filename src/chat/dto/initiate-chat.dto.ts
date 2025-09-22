@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  IsBoolean,
 } from 'class-validator';
 
 export class InitiateChatDto {
@@ -33,4 +34,8 @@ export class InitiateChatDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isAutoMessage?: boolean;
 }

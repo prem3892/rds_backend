@@ -83,6 +83,29 @@ export function generateWidgetScript(
               element.scrollTop = element.scrollHeight;
             }, 0);
           }
+        },
+        
+        // Convert hex color to rgba with opacity
+        hexToRgba(hex, percent) {
+          if (!hex) return '#ffffff';
+
+          // Remove # if present
+          hex = hex.replace('#', '');
+
+          // Parse hex values
+          let r = parseInt(hex.substring(0, 2), 16);
+          let g = parseInt(hex.substring(2, 4), 16);
+          let b = parseInt(hex.substring(4, 6), 16);
+
+          // Increase each channel toward 255 by given percent
+          r = Math.min(255, Math.floor(r + (255 - r) * (percent / 100)));
+          g = Math.min(255, Math.floor(g + (255 - g) * (percent / 100)));
+          b = Math.min(255, Math.floor(b + (255 - b) * (percent / 100)));
+
+          // Convert back to hex and pad if necessary
+          const toHex = (c) => c.toString(16).padStart(2, '0');
+
+          return \`#\${toHex(r)}\${toHex(g)}\${toHex(b)}\`;
         }
       };
     
@@ -102,6 +125,8 @@ export function generateWidgetScript(
           this.pendingMessages = new Set(); // Track messages being sent
           this.messageReadObserver = null; // IntersectionObserver for tracking message visibility
           this.availableAgents = []; // Track current agent availability
+          this.isOfflineMode = false; // Track if we're in offline mode
+          this.autoMessageShown = false; // Track if auto-message has been displayed
           
           this.init();
         }
@@ -115,6 +140,7 @@ export function generateWidgetScript(
             this.createUI();
             this.connectSocket();
             this.bindEvents();
+            this.scheduleAutoMessage();
           } catch (error) {
             console.error('Failed to initialize chat widget:', error);
           }
@@ -154,17 +180,16 @@ export function generateWidgetScript(
     
         createChatButton() {
           const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
+          const buttonLabel = this.config.widgetConfig?.button_label || 'Chat with us';
+          const textColor = this.config.widgetConfig?.widget_text_color || '#FFFFFF';
           
           this.chatButton = document.createElement('div');
           this.chatButton.className = 'relative cursor-pointer transform transition-transform hover:scale-105';
           
           this.chatButton.innerHTML = \`
-            <div class="w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white relative" 
-                 style="background-color: \${primaryColor}">
-              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
-                      d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-              </svg>
+            <div class="px-4 py-3 rounded-full shadow-lg flex items-center justify-center relative min-w-max" 
+                 style="background-color: \${primaryColor}; color: \${textColor};">
+              <span class="font-medium text-sm whitespace-nowrap">\${utils.escapeHtml(buttonLabel)}</span>
               <div id="unread-badge" class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center hidden">
                 <span id="unread-count">0</span>
               </div>
@@ -177,11 +202,14 @@ export function generateWidgetScript(
     
         createChatWindow() {
           const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
+          const secondaryColor = this.config.widgetConfig?.secondaryColor || '#64748B';
           const headerText = this.config.widgetConfig?.headerText || 'Chat with us';
+          const bgColorWithOpacity = utils.hexToRgba(secondaryColor, 90);
           
           this.chatWindow = document.createElement('div');
           // Fixed height and width, added max-height to ensure it fits on smaller screens
-          this.chatWindow.className = 'absolute bottom-16 right-0 w-80 max-h-[80vh] bg-white rounded-lg shadow-2xl border hidden flex flex-col';
+          this.chatWindow.className = 'absolute bottom-16 right-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col';
+          this.chatWindow.style.backgroundColor = bgColorWithOpacity;
           
           this.chatWindow.innerHTML = \`
             <!-- Header -->
@@ -212,7 +240,7 @@ export function generateWidgetScript(
             <!-- Chat Interface -->
             <div id="chat-interface" class="flex-1 flex flex-col hidden overflow-hidden">
               <!-- Chat Header -->
-              <div id="chat-header" class="px-4 py-2 border-b bg-gray-50 flex-shrink-0">
+              <div id="chat-header" class="px-4 py-2 border-b bg-white flex-shrink-0">
                 <div class="flex items-center justify-between">
                   <div>
                     <div class="text-xs text-gray-500" id="agent-status">Connecting...</div>
@@ -238,7 +266,7 @@ export function generateWidgetScript(
               </div>
     
               <!-- Message Input - Fixed to bottom -->
-              <div class="border-t p-4 flex-shrink-0">
+              <div class="border-t p-4 flex-shrink-0 bg-white">
                 <div class="flex space-x-2">
                   <div class="flex-1 relative">
                     <input type="text" id="message-input" 
@@ -253,8 +281,8 @@ export function generateWidgetScript(
                   </div>
                   <button id="send-btn" class="px-4 py-2 text-white rounded-lg hover:opacity-90 transition-opacity" 
                           style="background-color: \${primaryColor}">
-                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a6 6 0 108.486 8.486L20.5 13"/>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
                     </svg>
                   </button>
                 </div>
@@ -262,7 +290,7 @@ export function generateWidgetScript(
             </div>
     
             <!-- Customer Info Form -->
-            <div id="customer-info-form" class="flex-1 p-4 border-t hidden flex flex-col overflow-y-auto">
+            <div id="customer-info-form" class="flex-1 p-4 border-t hidden flex flex-col overflow-y-auto bg-white">
               <div class="space-y-3 flex flex-col flex-1">
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-1">Name (optional)</label>
@@ -279,6 +307,21 @@ export function generateWidgetScript(
                 <button id="start-chat-btn" class="w-full py-2 text-white rounded-lg hover:opacity-90 transition-opacity" 
                         style="background-color: \${primaryColor}">
                   Start Chat
+                </button>
+              </div>
+            </div>
+            
+            <!-- Offline Thank You Message -->
+            <div id="offline-thank-you" class="flex-1 p-4 border-t hidden flex flex-col overflow-y-auto bg-white">
+              <div class="space-y-3 flex flex-col flex-1 items-center justify-center text-center">
+                <svg class="w-16 h-16 text-green-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <h3 class="text-xl font-medium text-gray-900">Thank you!</h3>
+                <p class="text-gray-600">We will get back to you via the email you provided.</p>
+                <button id="close-thank-you-btn" class="mt-4 px-4 py-2 text-white rounded-lg hover:opacity-90 transition-opacity" 
+                        style="background-color: \${primaryColor}">
+                  Close
                 </button>
               </div>
             </div>
@@ -306,6 +349,12 @@ export function generateWidgetScript(
           document.getElementById('attach-btn').addEventListener('click', () => document.getElementById('file-input').click());
           document.getElementById('file-input').addEventListener('change', (e) => this.handleFileUpload(e));
           document.getElementById('start-chat-btn').addEventListener('click', () => this.initiateChat());
+          
+          // Add event listener for the close button in the thank you message
+          const closeThankYouBtn = document.getElementById('close-thank-you-btn');
+          if (closeThankYouBtn) {
+            closeThankYouBtn.addEventListener('click', () => this.toggleChat());
+          }
           
           // Add resize observer to adjust scrolling when window size changes
           if (window.ResizeObserver) {
@@ -365,7 +414,7 @@ export function generateWidgetScript(
             const seenIds = new Set();
             
             for (const agent of initialAgents) {
-              const normalizedId = String(agent.adminId);
+              const normalizedId = String(agent.userId);
               if (!seenIds.has(normalizedId)) {
                 seenIds.add(normalizedId);
                 uniqueAgents.push(agent);
@@ -387,12 +436,16 @@ export function generateWidgetScript(
           this.socket.on('server:initiate_chat_ack', (data) => {
             console.log('Chat initiated:', data);
             this.currentChatSession = { chatSessionId: data.chatSessionId };
-            this.showChatInterface();
-            
-            // Load chat history if this is an existing session
-            if (data.status === 'EXISTING') {
-              this.loadChatHistory();
+
+            if (!this.isOfflineMode) {
+              this.showChatInterface();
+              
+              // Load chat history if this is an existing session
+              if (data.status === 'EXISTING') {
+                this.loadChatHistory();
+              }
             }
+            
           });
 
           this.socket.on('server:agent_initiated_chat', (data) => {
@@ -423,7 +476,8 @@ export function generateWidgetScript(
                   type: 'text'
                 },
                 timestamp: new Date().toISOString(),
-                readByAgent: true // Agent messages are considered read by default
+                readByAgent: true, // Agent messages are considered read by default
+                agentInfo: data.agentName ? { fullName: data.agentName } : null
               });
             }
             
@@ -464,21 +518,26 @@ export function generateWidgetScript(
               }
             }
             
-            // Display all messages from server
-            this.displayMessage({
-              _id: message._id,
-              senderType: message.senderType.toLowerCase(),
-              messageContent: { 
-                text: message.content.text, 
-                type: message.content.type || message.messageType.toLowerCase(),
-                url: \`\${API_BASE}\${message.content.url}\`,
-                filename: message.content.filename,
-                fileSize: message.content.fileSize,
-                mimeType: message.content.mimeType
-              },
-              timestamp: message.timestamp,
-              readByAgent: message.readByAgent || false
-            });
+            // Only display messages if we're not in offline mode
+            if (!this.isOfflineMode) {
+              this.displayMessage({
+                _id: message._id,
+                senderType: message.senderType.toLowerCase(),
+                messageContent: { 
+                  text: message.content.text, 
+                  type: message.content.type || message.messageType.toLowerCase(),
+                  url: \`\${API_BASE}\${message.content.url}\`,
+                  filename: message.content.filename,
+                  fileSize: message.content.fileSize,
+                  mimeType: message.content.mimeType
+                },
+                timestamp: message.timestamp,
+                readByAgent: message.readByAgent || false,
+                agentInfo: message.agentInfo
+              });
+            } else {
+              console.log('Message received in offline mode - not displaying:', message);
+            }
             
             // Store message reference for status updates
             this.messages.set(message._id, message);
@@ -648,7 +707,8 @@ export function generateWidgetScript(
         }
     
         updateHeaderText(agentsAvailable) {
-          const headerTextElement = document.querySelector('#chat-widget-container .font-medium');
+          // Target only the header text in the chat window, not the button text
+          const headerTextElement = document.querySelector('#chat-widget-container .p-4.rounded-t-lg .font-medium');
           if (!headerTextElement) return;
           
           let displayText;
@@ -670,6 +730,29 @@ export function generateWidgetScript(
           
           // Clear existing profiles
           profileContainer.innerHTML = '';
+          
+          // Update the start chat button text based on agent availability
+          const startChatBtn = document.getElementById('start-chat-btn');
+          if (startChatBtn) {
+            startChatBtn.textContent = agents.length > 0 ? 'Start Chat' : 'Submit';
+          }
+          
+          // Update email field requirement based on agent availability
+          // Find the email label by looking for the label that's a sibling of the customer-email input's parent
+          const emailInput = document.getElementById('customer-email');
+          const emailLabel = emailInput ? emailInput.parentElement.querySelector('label') : null;
+          
+          if (emailLabel && emailInput) {
+            if (agents.length === 0) {
+              // Offline mode - email is required
+              emailLabel.innerHTML = 'Email <span class="text-red-500">*</span>';
+              emailInput.setAttribute('required', 'required');
+            } else {
+              // Online mode - email is optional
+              emailLabel.textContent = 'Email (optional)';
+              emailInput.removeAttribute('required');
+            }
+          }
           
           // Show max 3 agents
           const agentsToShow = agents.slice(0, 3);
@@ -730,18 +813,21 @@ export function generateWidgetScript(
           // Expected payload: { chatSessionId, agentId, agentName, isOnline, timestamp }
           const { agentId, agentName, isOnline } = data;
           
+          // Store previous agent availability state to detect transitions
+          const wasOffline = this.availableAgents.length === 0;
+          
           // Convert agentId to string for consistent comparison
           const normalizedAgentId = String(agentId);
           
-          // Find the agent in our current availability list using adminId for comparison
-          const agentIndex = this.availableAgents.findIndex(agent => String(agent.adminId) === normalizedAgentId);
+          // Find the agent in our current availability list using userId for comparison
+          const agentIndex = this.availableAgents.findIndex(agent => String(agent.userId) === normalizedAgentId);
           
           if (isOnline) {
             // Agent came online
             if (agentIndex === -1) {
               // Agent not in list, add them (we might not have all agent details, so create a minimal object)
               this.availableAgents.push({
-                adminId: agentId,
+                userId: agentId,
                 firstName: agentName,
                 isOnline: true
               });
@@ -757,12 +843,12 @@ export function generateWidgetScript(
             }
           }
           
-          // Remove any potential duplicates based on adminId (defensive programming)
+          // Remove any potential duplicates based on userId (defensive programming)
           const uniqueAgents = [];
           const seenIds = new Set();
           
           for (const agent of this.availableAgents) {
-            const normalizedId = String(agent.adminId);
+            const normalizedId = String(agent.userId);
             if (!seenIds.has(normalizedId)) {
               seenIds.add(normalizedId);
               uniqueAgents.push(agent);
@@ -773,6 +859,26 @@ export function generateWidgetScript(
           
           // Update the UI with the new agent availability
           this.updateAgentProfilePictures(this.availableAgents);
+          
+          // Check if we transitioned from offline to online mode
+          const isNowOnline = this.availableAgents.length > 0;
+          
+          if (wasOffline && isNowOnline) {
+            console.log('Transitioned from offline to online mode');
+            
+            // Reset offline mode flag
+            this.isOfflineMode = false;
+            
+            // If the thank you message is currently displayed, and we have an active chat session,
+            // switch to the chat interface to show the agent is now available
+            const thankYouDiv = document.getElementById('offline-thank-you');
+            if (!thankYouDiv.classList.contains('hidden') && this.currentChatSession) {
+              this.showChatInterface();
+              this.showAgentStatus('An agent is now available!');
+              // remove the thankYouDiv from DOM
+              thankYouDiv.classList.add('hidden');
+            }
+          }
         }
     
         initiateChat() {
@@ -784,6 +890,12 @@ export function generateWidgetScript(
             alert('Please enter a message to start the chat.');
             return;
           }
+          
+          // Check if email is required in offline mode
+          if (this.availableAgents.length === 0 && !email) {
+            alert('Please enter your email so we can get back to you.');
+            return;
+          }
     
           const chatData = {
             customerId: this.customerId,
@@ -792,6 +904,22 @@ export function generateWidgetScript(
             name: name || undefined,
             email: email || undefined
           };
+          
+          // Check if we're in offline mode (no agents available)
+          if (this.availableAgents.length === 0) {
+            console.log("Offline mode - storing message for later", chatData);
+            this.isOfflineMode = true; // Set offline mode flag
+            this.socket.emit('customer:initiate_chat', chatData);
+            
+            // Show thank you message instead of chat interface
+            this.showOfflineThankYou();
+            return;
+          }
+          
+          // Reset offline mode flag for online mode
+          this.isOfflineMode = false;
+          
+          // Online mode - proceed with normal chat
           console.log("customer:initiate_chat", chatData);
           this.socket.emit('customer:initiate_chat', chatData);
           this.showChatInterface();
@@ -805,6 +933,17 @@ export function generateWidgetScript(
             timestamp: new Date(),
             isPending: true
           });
+        }
+        
+        showOfflineThankYou() {
+          // Hide other interfaces
+          document.getElementById('customer-info-form').classList.add('hidden');
+          document.getElementById('chat-interface').classList.add('hidden');
+          
+          // Show thank you message
+          const thankYouDiv = document.getElementById('offline-thank-you');
+          thankYouDiv.classList.remove('hidden');
+          thankYouDiv.classList.add('flex');
         }
     
         sendMessage() {
@@ -901,13 +1040,16 @@ export function generateWidgetScript(
           const isCustomer = message.senderType === 'customer';
           const isSystem = message.senderType === 'system';
           const isPending = message.isPending || false;
+          const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
+          const secondaryColor = this.config.widgetConfig?.secondaryColor || '#64748B';
           
-          messageDiv.className = \`flex \${isCustomer ? 'justify-end' : 'justify-start'}\`;
+          messageDiv.className = \`flex \${isCustomer ? 'justify-end' : isSystem ? 'justify-center' : 'justify-start'}\`;
           
-          // Add message ID as data attribute for status updates
+          // Add message ID and sender type as data attributes for status updates
           if (message._id) {
             messageDiv.setAttribute('data-message-id', message._id);
           }
+          messageDiv.setAttribute('data-sender-type', message.senderType);
           
           let messageContent = '';
           if (message.messageContent.type === 'customer_info_form') {
@@ -974,21 +1116,33 @@ export function generateWidgetScript(
           const isInfoForm = message.messageContent.type === 'customer_info_form';
           const maxWidthClass = isInfoForm ? 'max-w-sm lg:max-w-md' : 'max-w-xs lg:max-w-md';
           
+          // Check if this is an agent message (not customer, not system)
+          const isAgent = !isCustomer && !isSystem;
+          
           messageDiv.innerHTML = \`
-            <div class="\${maxWidthClass} px-3 py-2 rounded-lg \${
-              isCustomer 
-                ? 'bg-blue-500 text-white' 
-                : isSystem 
-                  ? isInfoForm 
-                    ? 'bg-blue-50 border border-blue-200 text-gray-800 w-full' 
-                    : 'bg-gray-100 text-gray-700 text-sm text-center w-full'
-                  : 'bg-gray-200 text-gray-900'
-            } \${message.isUploading || isPending ? 'opacity-50' : ''}">
-              <div>\${messageContent}</div>
-              \${!isInfoForm ? \`<div class="text-xs text-right mt-1 \${isCustomer ? 'text-blue-100' : 'text-gray-500'} flex items-center justify-end">
-                <span>\${utils.formatTime(message.timestamp)}</span>
-                \${statusIndicator}
-              </div>\` : ''}
+            <div class="flex flex-col">
+              <div class="\${maxWidthClass} px-3 py-2 rounded-lg \${
+                isCustomer 
+                  ? 'text-white' 
+                  : isSystem 
+                    ? isInfoForm 
+                      ? 'bg-blue-50 border border-blue-200 text-gray-800 w-full' 
+                      : 'bg-gray-100 text-gray-700 text-sm text-center w-full'
+                    : 'text-white'
+              } \${message.isUploading || isPending ? 'opacity-50' : ''}" \${
+                isCustomer 
+                  ? \`style="background-color: \${primaryColor}"\`
+                  : !isSystem 
+                    ? \`style="background-color: \${secondaryColor}"\`
+                    : ''
+              }>
+                <div>\${messageContent}</div>
+                \${!isInfoForm ? \`<div class="text-xs text-right mt-1 \${isCustomer ? 'text-blue-100' : isSystem ? 'text-gray-500' : 'text-gray-200'} flex items-center justify-end">
+                  <span>\${utils.formatTime(message.timestamp)}</span>
+                  \${statusIndicator}
+                </div>\` : ''}
+              </div>
+              \${isAgent && message.agentInfo?.fullName ? \`<div class="text-xs text-gray-500 mt-1 ml-1">\${utils.escapeHtml(message.agentInfo.fullName)}</div>\` : ''}
             </div>
           \`;
           
@@ -1128,7 +1282,7 @@ export function generateWidgetScript(
                 
                 if (messageId && !messageElement.hasAttribute('data-read-sent')) {
                   // Check if this is an agent message (not customer message)
-                  const isAgentMessage = !messageElement.querySelector('.bg-blue-500');
+                  const isAgentMessage = messageElement.getAttribute('data-sender-type') === 'agent';
                   
                   if (isAgentMessage && this.currentChatSession?.chatSessionId) {
                     this.markMessageAsRead(messageId);
@@ -1174,7 +1328,7 @@ export function generateWidgetScript(
           const messageElements = document.querySelectorAll('[data-message-id]');
           messageElements.forEach(element => {
             const messageId = element.getAttribute('data-message-id');
-            const isAgentMessage = !element.querySelector('.bg-blue-500');
+            const isAgentMessage = element.getAttribute('data-sender-type') === 'agent';
             
             if (messageId && isAgentMessage && !element.hasAttribute('data-read-sent')) {
               this.markMessageAsRead(messageId);
@@ -1252,7 +1406,8 @@ export function generateWidgetScript(
                   },
                   timestamp: message.timestamp,
                   readByAgent: message.readByAgent,
-                  readByCustomer: message.readByCustomer
+                  readByCustomer: message.readByCustomer,
+                  agentInfo: message.agentInfo
                 };
                 
                 this.displayMessage(transformedMessage);
@@ -1261,6 +1416,143 @@ export function generateWidgetScript(
               console.error('Failed to load chat history:', error);
             }
           }
+        }
+
+        // Auto-message functionality
+        processAutoMessages() {
+          console.log("Processing auto-messages...");
+          if (!this.config.autoMessages || this.config.autoMessages.length === 0) {
+            console.log("No auto-messages configured.");
+            return null;
+          }
+
+          // Check for sitewide auto-message first (highest priority)
+          const sitewideMessage = this.config.autoMessages.find(msg => msg.sitewide === true);
+          if (sitewideMessage) {
+            console.log("Showing sitewide auto-message:", sitewideMessage);
+            return sitewideMessage;
+          }
+
+          console.log("Checking page-specific auto-messages...");
+
+          // Check for path-specific auto-messages
+          const currentPath = window.location.pathname;
+          const currentFullUrl = window.location.href;
+          
+          for (const autoMessage of this.config.autoMessages) {
+            if (autoMessage.pagePaths && autoMessage.pagePaths.length > 0) {
+              // Check if current path matches any of the specified paths
+              const pathMatches = autoMessage.pagePaths.some(path => {
+                // Handle both relative paths and full URLs
+                if (path.startsWith('http')) {
+                  return currentFullUrl === path;
+                } else {
+                  return currentPath === path || currentPath.endsWith(path);
+                }
+              });
+              
+              if (pathMatches) {
+                return autoMessage;
+              }
+            }
+          }
+
+          return null;
+        }
+
+        scheduleAutoMessage() {
+          // Don't show auto-message if already shown or if there's an active chat session
+          if (this.autoMessageShown || this.currentChatSession) {
+            return;
+          }
+
+          const autoMessage = this.processAutoMessages();
+          if (!autoMessage) {
+            return;
+          }
+
+          const delaySeconds = autoMessage.showAfterSeconds || 0;
+          
+          // Wait for socket connection before showing auto-message
+          const showAutoMessageWhenReady = () => {
+            if (this.isConnected) {
+              this.showAutoMessage(autoMessage);
+            } else {
+              // If not connected yet, wait a bit more and try again
+              setTimeout(showAutoMessageWhenReady, 500);
+            }
+          };
+          
+          setTimeout(showAutoMessageWhenReady, delaySeconds * 1000);
+        }
+
+        showAutoMessage(autoMessage) {
+          // Don't show if already shown or if user has started a chat
+          if (this.autoMessageShown || this.currentChatSession) {
+            return;
+          }
+
+          this.autoMessageShown = true;
+
+          // Create a dummy agent message
+          const autoMessageObj = this.createAutoMessage(autoMessage);
+          
+          // Open the widget and show chat interface
+          this.isMinimized = false;
+          this.chatWindow.classList.remove('hidden');
+          this.showChatInterface();
+          
+          // Ensure connection status is hidden since we're connected
+          this.hideConnectionStatus();
+          
+          // Update agent status to show we're ready to chat
+          this.showAgentStatus('Assistant is ready to help!');
+          
+          // Display the auto-message
+          this.displayMessage(autoMessageObj);
+          
+          // Automatically initiate a chat session for seamless experience
+          this.initiateAutoChat(autoMessage.message);
+          
+          // Scroll to bottom to ensure message is visible
+          setTimeout(() => {
+            const messagesContainer = document.getElementById('messages-container');
+            utils.scrollToBottom(messagesContainer);
+          }, 100);
+        }
+
+        createAutoMessage(autoMessage) {
+          return {
+            _id: \`auto_\${Date.now()}\`,
+            senderType: 'agent',
+            messageContent: {
+              type: 'text',
+              text: autoMessage.message
+            },
+            timestamp: new Date().toISOString(),
+            readByAgent: true,
+            readByCustomer: false,
+            agentInfo: {
+              name: 'Assistant',
+              avatar: null
+            },
+            isAutoMessage: true
+          };
+        }
+
+        initiateAutoChat(autoMessageText) {
+          // Create a chat session automatically for auto-messages
+          const chatData = {
+            customerId: this.customerId,
+            widgetId: WIDGET_ID,
+            initialMessage: \`Auto-message shown: "\${autoMessageText}"\`,
+            name: undefined,
+            email: undefined,
+            isAutoMessage: true
+          };
+          
+          console.log("Initiating auto-chat session", chatData);
+          this.socket.emit('customer:initiate_chat', chatData);
         }
       }
     

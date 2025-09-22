@@ -208,6 +208,39 @@ export class WidgetPublicConfigResponseDto {
   };
 
   @ApiProperty({
+    description: 'Auto messages configured for this widget',
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', example: '507f1f77bcf86cd799439014' },
+        title: { type: 'string', example: 'Welcome Message' },
+        message: {
+          type: 'string',
+          example: 'Hello! How can we help you today?',
+        },
+        domain: { type: 'string', example: 'example.com' },
+        sitewide: { type: 'boolean', example: true },
+        pagePaths: {
+          type: 'array',
+          items: { type: 'string' },
+          example: ['about-us', 'contact'],
+        },
+        showAfterSeconds: { type: 'number', example: 5 },
+      },
+    },
+  })
+  autoMessages: Array<{
+    id: string;
+    title: string;
+    message: string;
+    domain: string;
+    sitewide: boolean;
+    pagePaths: string[];
+    showAfterSeconds: number;
+  }>;
+
+  @ApiProperty({
     description: 'Socket.IO server URL for real-time communication',
     example: '/',
   })
