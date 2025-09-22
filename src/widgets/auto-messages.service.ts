@@ -307,4 +307,25 @@ export class AutoMessagesService {
       })
       .exec();
   }
+
+  /**
+   * Get all enabled auto messages for a specific widget (public method)
+   * Used by the public-config endpoint to include auto messages in widget configuration
+   */
+  async findAllAutoMessagesForWidget(
+    widgetId: string,
+  ): Promise<AutoMessageDocument[]> {
+    if (!Types.ObjectId.isValid(widgetId)) {
+      return [];
+    }
+
+    return this.autoMessageModel
+      .find({
+        widgetId: new Types.ObjectId(widgetId),
+        isEnabled: true,
+      })
+      .select('title message domain sitewide pagePaths showAfterSeconds')
+      .sort({ showAfterSeconds: 1 }) // Show messages with shorter delays first
+      .exec();
+  }
 }

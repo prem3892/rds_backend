@@ -125,6 +125,16 @@ export class ChatSessionService {
     return session;
   }
 
+  async getCurrentAgentNameOfSession(
+    sessionId: string | Types.ObjectId,
+  ): Promise<string | null> {
+    const session = await this.findById(sessionId);
+    if (session?.agentId) {
+      return this.agentsService.getAgentName(session?.agentId);
+    }
+    return null;
+  }
+
   async initiateChat(
     dto: InitiateChatDto,
     domain: string,

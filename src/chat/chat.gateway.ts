@@ -858,15 +858,21 @@ export class ChatGateway
       content: { text: payload.initialMessage },
     });
 
+    // Get the message with populated agentInfo for broadcasting
+    const populatedMessage =
+      await this.chatMessageService.getMessageWithAgentInfo(
+        initialMessage._id.toString(),
+      );
+
     this.logger.debug(
       '[handleAgentInitiateChat]: sending initial message to session room',
-      initialMessage,
+      populatedMessage || initialMessage,
     );
 
-    // Broadcast the message to the chat session room
+    // Broadcast the message to the chat session room with populated agentInfo
     this.server
       .to(`chatSession:${chatSession._id.toString()}`)
-      .emit('server:new_message', initialMessage);
+      .emit('server:new_message', populatedMessage || initialMessage);
 
     // 8. Join customer to chat session room if they are online
     const customerSockets = await this.redisService.getAllSocketsForCustomer(
@@ -1458,10 +1464,16 @@ export class ChatGateway
     );
     await this.chatSessionService.updateAgentLastSeen(session._id);
 
+    // Get the message with populated agentInfo for broadcasting
+    const populatedMessage =
+      await this.chatMessageService.getMessageWithAgentInfo(
+        message._id.toString(),
+      );
+
     // Broadcast the new message to the chat session (includes customer and all agent devices)
     this.server
       .to(`chatSession:${session._id.toString()}`)
-      .emit('server:new_message', message);
+      .emit('server:new_message', populatedMessage || message);
 
     // Prepare acknowledgment data with multi-socket context
     const acknowledgmentData = {
@@ -1536,21 +1548,6 @@ export class ChatGateway
       ChatSessionStatus.CLOSED_BY_AGENT,
     );
 
-    // Send transcript email for manual chat ending
-    try {
-      await this.chatTranscriptService.sendTranscriptEmailForManualEnd(
-        session._id.toString(),
-        'agent',
-        data.reason,
-      );
-    } catch (emailError) {
-      this.logger.error(
-        `Error sending transcript email for agent-ended chat ${session._id}: ${emailError.message}`,
-        emailError.stack,
-      );
-      // Don't throw error - email failure shouldn't prevent chat ending
-    }
-
     // Notify customer that agent ended the chat
     this.server
       .to(`customer:${session.customerId.toString()}`)
@@ -1598,6 +1595,21 @@ export class ChatGateway
     this.logger.log(
       `Agent ${agentId} ended chat ${session._id} from socket ${client.id}. Reason: ${data.reason || 'N/A'}. Broadcasted to ${socketCount} socket(s).`,
     );
+
+    // Send transcript email for manual chat ending
+    try {
+      this.chatTranscriptService.sendTranscriptEmailForManualEnd(
+        session._id.toString(),
+        'agent',
+        data.reason,
+      );
+    } catch (emailError) {
+      this.logger.error(
+        `Error sending transcript email for agent-ended chat ${session._id}: ${emailError.message}`,
+        emailError.stack,
+      );
+      // Don't throw error - email failure shouldn't prevent chat ending
+    }
 
     // Return acknowledgment to the triggering socket (traditional response)
     return acknowledgmentData;
@@ -1984,6 +1996,11 @@ export class ChatGateway
     const { session: chatSession, wasNew } =
       await this.chatSessionService.initiateChat(payload, domain, customer);
 
+    // const agentName =
+    //   await this.chatSessionService.getCurrentAgentNameOfSession(
+    //     chatSession._id,
+    //   );
+
     if (!wasNew) {
       // Customer already had a pending/active session
       client.emit('server:chat_session_pending', {
@@ -2040,9 +2057,14 @@ export class ChatGateway
       this.logger.log(
         `Customer ${client.customerId} attempted to initiate new chat, but existing session ${chatSession._id} found. Message saved and broadcasted.`,
       );
+
       return {
         event: 'server:initiate_chat_ack',
-        data: { chatSessionId: chatSession._id.toString(), status: 'EXISTING' },
+        data: {
+          chatSessionId: chatSession._id.toString(),
+          status: 'EXISTING',
+          // agentName: agentName,
+        },
       };
     }
 
@@ -2096,7 +2118,11 @@ export class ChatGateway
     }
     return {
       event: 'server:initiate_chat_ack',
-      data: { chatSessionId: chatSession._id.toString(), status: 'CREATED' },
+      data: {
+        chatSessionId: chatSession._id.toString(),
+        status: 'CREATED',
+        // agentName: agentName,
+      },
     };
   }
 

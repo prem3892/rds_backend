@@ -156,6 +156,10 @@ export class JobsService {
       Date.now() - this.agentInactivityThresholdMs,
     );
 
+    this.logger.debug(
+      `Checking agent inactivity for session ${sessionId} ${session.agentLastSeen} ${inactivityThreshold}`,
+    );
+
     if (session.agentLastSeen < inactivityThreshold) {
       this.logger.log(
         `Agent ${agentId} has been inactive for more than ${this.agentInactivityThresholdMs / 60000} minutes in session ${sessionId}`,
@@ -308,7 +312,7 @@ export class JobsService {
    * Sends priority notifications to eligible agents for pending sessions
    * and marks expired sessions as EXPIRED_PENDING_ASSIGNMENT
    */
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @Cron(CronExpression.EVERY_30_SECONDS)
   async handleUnattendedChatNotifications() {
     this.logger.debug('Running unattended chat notification job...');
 
@@ -339,6 +343,12 @@ export class JobsService {
             await this.chatSessionService.incrementPriorityNotificationCount(
               session._id,
             );
+
+          this.logger.log(
+            `Incremented priority notification count for session ${session._id}. New count: ${
+              updatedSession?.priorityNotificationSentCount
+            }`,
+          );
 
           // Delegate socket notifications to ChatNotificationService
           await this.chatNotificationService.sendPriorityNotificationToAgents(
