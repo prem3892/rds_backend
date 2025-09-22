@@ -126,6 +126,7 @@ export function generateWidgetScript(
           this.messageReadObserver = null; // IntersectionObserver for tracking message visibility
           this.availableAgents = []; // Track current agent availability
           this.isOfflineMode = false; // Track if we're in offline mode
+          this.autoMessageShown = false; // Track if auto-message has been displayed
           
           this.init();
         }
@@ -139,6 +140,7 @@ export function generateWidgetScript(
             this.createUI();
             this.connectSocket();
             this.bindEvents();
+            this.scheduleAutoMessage();
           } catch (error) {
             console.error('Failed to initialize chat widget:', error);
           }
@@ -202,7 +204,7 @@ export function generateWidgetScript(
           const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
           const secondaryColor = this.config.widgetConfig?.secondaryColor || '#64748B';
           const headerText = this.config.widgetConfig?.headerText || 'Chat with us';
-          const bgColorWithOpacity = utils.hexToRgba(secondaryColor, 70);
+          const bgColorWithOpacity = utils.hexToRgba(secondaryColor, 90);
           
           this.chatWindow = document.createElement('div');
           // Fixed height and width, added max-height to ensure it fits on smaller screens
@@ -1041,7 +1043,7 @@ export function generateWidgetScript(
           const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
           const secondaryColor = this.config.widgetConfig?.secondaryColor || '#64748B';
           
-          messageDiv.className = \`flex \${isCustomer ? 'justify-end' : 'justify-start'}\`;
+          messageDiv.className = \`flex \${isCustomer ? 'justify-end' : isSystem ? 'justify-center' : 'justify-start'}\`;
           
           // Add message ID and sender type as data attributes for status updates
           if (message._id) {
@@ -1414,6 +1416,143 @@ export function generateWidgetScript(
               console.error('Failed to load chat history:', error);
             }
           }
+        }
+
+        // Auto-message functionality
+        processAutoMessages() {
+          console.log("Processing auto-messages...");
+          if (!this.config.autoMessages || this.config.autoMessages.length === 0) {
+            console.log("No auto-messages configured.");
+            return null;
+          }
+
+          // Check for sitewide auto-message first (highest priority)
+          const sitewideMessage = this.config.autoMessages.find(msg => msg.sitewide === true);
+          if (sitewideMessage) {
+            console.log("Showing sitewide auto-message:", sitewideMessage);
+            return sitewideMessage;
+          }
+
+          console.log("Checking page-specific auto-messages...");
+
+          // Check for path-specific auto-messages
+          const currentPath = window.location.pathname;
+          const currentFullUrl = window.location.href;
+          
+          for (const autoMessage of this.config.autoMessages) {
+            if (autoMessage.pagePaths && autoMessage.pagePaths.length > 0) {
+              // Check if current path matches any of the specified paths
+              const pathMatches = autoMessage.pagePaths.some(path => {
+                // Handle both relative paths and full URLs
+                if (path.startsWith('http')) {
+                  return currentFullUrl === path;
+                } else {
+                  return currentPath === path || currentPath.endsWith(path);
+                }
+              });
+              
+              if (pathMatches) {
+                return autoMessage;
+              }
+            }
+          }
+
+          return null;
+        }
+
+        scheduleAutoMessage() {
+          // Don't show auto-message if already shown or if there's an active chat session
+          if (this.autoMessageShown || this.currentChatSession) {
+            return;
+          }
+
+          const autoMessage = this.processAutoMessages();
+          if (!autoMessage) {
+            return;
+          }
+
+          const delaySeconds = autoMessage.showAfterSeconds || 0;
+          
+          // Wait for socket connection before showing auto-message
+          const showAutoMessageWhenReady = () => {
+            if (this.isConnected) {
+              this.showAutoMessage(autoMessage);
+            } else {
+              // If not connected yet, wait a bit more and try again
+              setTimeout(showAutoMessageWhenReady, 500);
+            }
+          };
+          
+          setTimeout(showAutoMessageWhenReady, delaySeconds * 1000);
+        }
+
+        showAutoMessage(autoMessage) {
+          // Don't show if already shown or if user has started a chat
+          if (this.autoMessageShown || this.currentChatSession) {
+            return;
+          }
+
+          this.autoMessageShown = true;
+
+          // Create a dummy agent message
+          const autoMessageObj = this.createAutoMessage(autoMessage);
+          
+          // Open the widget and show chat interface
+          this.isMinimized = false;
+          this.chatWindow.classList.remove('hidden');
+          this.showChatInterface();
+          
+          // Ensure connection status is hidden since we're connected
+          this.hideConnectionStatus();
+          
+          // Update agent status to show we're ready to chat
+          this.showAgentStatus('Assistant is ready to help!');
+          
+          // Display the auto-message
+          this.displayMessage(autoMessageObj);
+          
+          // Automatically initiate a chat session for seamless experience
+          this.initiateAutoChat(autoMessage.message);
+          
+          // Scroll to bottom to ensure message is visible
+          setTimeout(() => {
+            const messagesContainer = document.getElementById('messages-container');
+            utils.scrollToBottom(messagesContainer);
+          }, 100);
+        }
+
+        createAutoMessage(autoMessage) {
+          return {
+            _id: \`auto_\${Date.now()}\`,
+            senderType: 'agent',
+            messageContent: {
+              type: 'text',
+              text: autoMessage.message
+            },
+            timestamp: new Date().toISOString(),
+            readByAgent: true,
+            readByCustomer: false,
+            agentInfo: {
+              name: 'Assistant',
+              avatar: null
+            },
+            isAutoMessage: true
+          };
+        }
+
+        initiateAutoChat(autoMessageText) {
+          // Create a chat session automatically for auto-messages
+          const chatData = {
+            customerId: this.customerId,
+            widgetId: WIDGET_ID,
+            initialMessage: \`Auto-message shown: "\${autoMessageText}"\`,
+            name: undefined,
+            email: undefined,
+            isAutoMessage: true
+          };
+          
+          console.log("Initiating auto-chat session", chatData);
+          this.socket.emit('customer:initiate_chat', chatData);
         }
       }
     

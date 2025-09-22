@@ -2012,22 +2012,28 @@ export class ChatGateway
       // Ensure client joins the room if they weren't already in it
       client.join(`chatSession:${chatSession._id.toString()}`);
 
-      // Create and send message from customer even for existing session
-      const newMessage = await this.chatMessageService.createMessage({
-        chatSessionId: chatSession._id,
-        senderId: new Types.ObjectId(client.customerId),
-        senderType: ChatMessageSenderType.CUSTOMER,
-        messageType: ChatMessageType.TEXT,
-        content: { text: payload.initialMessage },
-      });
+      // Create and send message from customer even for existing session (skip if auto-message)
+      if (!payload.isAutoMessage) {
+        const newMessage = await this.chatMessageService.createMessage({
+          chatSessionId: chatSession._id,
+          senderId: new Types.ObjectId(client.customerId),
+          senderType: ChatMessageSenderType.CUSTOMER,
+          messageType: ChatMessageType.TEXT,
+          content: { text: payload.initialMessage },
+        });
 
-      this.logger.debug(
-        '[handleCustomerInitiateChat]: sending message to existing session',
-        newMessage,
-      );
-      this.server
-        .to(`chatSession:${chatSession._id.toString()}`)
-        .emit('server:new_message', newMessage);
+        this.logger.debug(
+          '[handleCustomerInitiateChat]: sending message to existing session',
+          newMessage,
+        );
+        this.server
+          .to(`chatSession:${chatSession._id.toString()}`)
+          .emit('server:new_message', newMessage);
+      } else {
+        this.logger.debug(
+          '[handleCustomerInitiateChat]: skipping message creation for auto-message in existing session',
+        );
+      }
 
       // If the session doesn't have an assigned agent or is in a pending state, notify eligible agents
       if (
@@ -2071,22 +2077,28 @@ export class ChatGateway
     // For new session
     client.join(`chatSession:${chatSession._id.toString()}`);
 
-    // Create and send initial message from customer
-    const initialMessage = await this.chatMessageService.createMessage({
-      chatSessionId: chatSession._id,
-      senderId: new Types.ObjectId(client.customerId),
-      senderType: ChatMessageSenderType.CUSTOMER,
-      messageType: ChatMessageType.TEXT,
-      content: { text: payload.initialMessage },
-    });
+    // Create and send initial message from customer (skip if auto-message)
+    if (!payload.isAutoMessage) {
+      const initialMessage = await this.chatMessageService.createMessage({
+        chatSessionId: chatSession._id,
+        senderId: new Types.ObjectId(client.customerId),
+        senderType: ChatMessageSenderType.CUSTOMER,
+        messageType: ChatMessageType.TEXT,
+        content: { text: payload.initialMessage },
+      });
 
-    this.logger.debug(
-      '[handleCustomerInitiateChat]: sending message to session room',
-      initialMessage,
-    );
-    this.server
-      .to(`chatSession:${chatSession._id.toString()}`)
-      .emit('server:new_message', initialMessage);
+      this.logger.debug(
+        '[handleCustomerInitiateChat]: sending message to session room',
+        initialMessage,
+      );
+      this.server
+        .to(`chatSession:${chatSession._id.toString()}`)
+        .emit('server:new_message', initialMessage);
+    } else {
+      this.logger.debug(
+        '[handleCustomerInitiateChat]: skipping message creation for auto-message in new session',
+      );
+    }
 
     // Find eligible agents based on widget
     const eligibleAgents = await this.agentsService.getEligibleOnlineAgents(
