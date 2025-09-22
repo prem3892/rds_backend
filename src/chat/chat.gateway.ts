@@ -2217,7 +2217,7 @@ export class ChatGateway
     });
 
     const messageWithReadCount: ChatMessageDocument & { unreadCount: number } =
-      { ...message.toObject(), unreadCount: session.unreadCount };
+      { ...message.toObject(), unreadCount: (session.unreadCount || 0) + 1 };
 
     await this.chatSessionService.updateLastMessageTimestamp(
       session._id,
