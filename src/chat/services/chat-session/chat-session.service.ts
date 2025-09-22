@@ -432,9 +432,7 @@ export class ChatSessionService {
       .exec();
   }
 
-  async getActiveSessionsForAgent(
-    agentId: string,
-  ): Promise<ChatSessionDocument[]> {
+  async getActiveSessionsForAgent(agentId: string): Promise<any[]> {
     this.logger.log(`Getting active sessions for agent ${agentId}`);
 
     const sessions = await this.chatSessionModel
@@ -454,12 +452,13 @@ export class ChatSessionService {
       .exec();
 
     // Populate unread counts for all sessions
-    return this.populateUnreadCounts(sessions);
+    const sessionsWithUnreadCounts = await this.populateUnreadCounts(sessions);
+
+    // Populate appointment data for all sessions
+    return this.populateAppointmentData(sessionsWithUnreadCounts);
   }
 
-  async getPendingSessionsForAgent(
-    agentId: string,
-  ): Promise<ChatSessionDocument[]> {
+  async getPendingSessionsForAgent(agentId: string): Promise<any[]> {
     this.logger.log(`Getting pending sessions for agent ${agentId}`);
 
     // Get agent's accessible widgets based on department assignments
@@ -491,7 +490,10 @@ export class ChatSessionService {
       .exec();
 
     // Populate unread counts for all sessions
-    return this.populateUnreadCounts(sessions);
+    const sessionsWithUnreadCounts = await this.populateUnreadCounts(sessions);
+
+    // Populate appointment data for all sessions
+    return this.populateAppointmentData(sessionsWithUnreadCounts);
   }
 
   async getPendingAssignmentSessions(
