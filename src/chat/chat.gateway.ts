@@ -55,6 +55,7 @@ import { ChatNotificationService } from './services/chat-notification/chat-notif
 import { ChatTranscriptService } from './services/chat-transcript/chat-transcript.service';
 import { VisitorStateService } from './services/visitor-state/visitor-state.service';
 import { FingerprintUtil } from '../shared/utils/fingerprint.util';
+import { ChatMessageDocument } from 'src/schemas/chat-message.schema';
 
 interface AuthenticatedSocket extends Socket {
   user?: JwtPayload; // For agents
@@ -2178,6 +2179,7 @@ export class ChatGateway
 
     const session = await this.chatSessionService.findByIdOrFail(
       payload.chatSessionId,
+      { populateUnreadCount: true },
     );
     if (session.customerId.toString() !== client.customerId) {
       this.logger.debug(
@@ -2213,6 +2215,10 @@ export class ChatGateway
       messageType: messageType,
       content: payload.messageContent,
     });
+
+    const messageWithReadCount: ChatMessageDocument & { unreadCount: number } =
+      { ...message.toObject(), unreadCount: session.unreadCount };
+
     await this.chatSessionService.updateLastMessageTimestamp(
       session._id,
       message.timestamp,
@@ -2221,7 +2227,7 @@ export class ChatGateway
 
     this.server
       .to(`chatSession:${session._id.toString()}`)
-      .emit('server:new_message', message);
+      .emit('server:new_message', messageWithReadCount);
     return {
       event: 'server:message_sent_ack',
       data: { messageId: message._id.toString(), timestamp: message.timestamp },
