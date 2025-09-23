@@ -335,11 +335,11 @@ export function generateWidgetScript(
               <div class="space-y-3 flex flex-col flex-1">
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-1">Name (optional)</label>
-                  <input type="text" id="customer-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <input style="color: black;" type="text" id="customer-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
-                  <input type="email" id="customer-email" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <input  style="color: black;" type="email" id="customer-email" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div class="flex-1 flex flex-col">
                   <label class="block text-sm font-medium text-gray-700 mb-1">Message</label>
