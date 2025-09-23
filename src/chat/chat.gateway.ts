@@ -54,6 +54,7 @@ import { AgentProfileDocument } from 'src/schemas/agent-profile.schema';
 import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
 import { ChatTranscriptService } from './services/chat-transcript/chat-transcript.service';
 import { VisitorStateService } from './services/visitor-state/visitor-state.service';
+import { AgentStatusNotificationService } from './services/agent-status-notification/agent-status-notification.service';
 import { FingerprintUtil } from '../shared/utils/fingerprint.util';
 import { ChatMessageDocument } from 'src/schemas/chat-message.schema';
 
@@ -108,6 +109,8 @@ export class ChatGateway
     private readonly chatTranscriptService: ChatTranscriptService,
     @Inject(forwardRef(() => VisitorStateService))
     private readonly visitorStateService: VisitorStateService,
+    @Inject(forwardRef(() => AgentStatusNotificationService))
+    private readonly agentStatusNotificationService: AgentStatusNotificationService,
   ) {
     this.agentReconnectTimeoutMs =
       this.configService.get<number>('chatTimers.agentReconnectTimeoutMs') ||
@@ -129,6 +132,8 @@ export class ChatGateway
     this.chatNotificationService.setServer(server);
     // Set the server instance in the visitor state service
     this.visitorStateService.setServer(server);
+    // Set the server instance in the agent status notification service
+    this.agentStatusNotificationService.setServer(server);
   }
 
   async handleConnection(client: AuthenticatedSocket, ...args: any[]) {
@@ -961,115 +966,31 @@ export class ChatGateway
     const agentId = client.user.sub;
 
     try {
+      // Update the agent's online status in the database
       const agentProfile = await this.agentsService.setOnlineStatus(
         agentId,
         data.isOnline,
       );
 
-      // Get all sockets for this agent
-      const allAgentSockets =
-        await this.redisService.getAllSocketsForAgent(agentId);
-
-      this.logger.log(
-        `Agent ${agentId} set online status to ${data.isOnline} from socket ${client.id}. Broadcasting to ${allAgentSockets.length} socket(s): [${allAgentSockets.join(', ')}]`,
-      );
-
-      // Manage room membership for ALL agent's sockets
-      const organizationRoom = agentProfile?.adminId
-        ? `online_agents:${agentProfile.adminId.toString()}`
-        : null;
-
-      for (const socketId of allAgentSockets) {
-        try {
-          const sockets = await this.server.in(socketId).fetchSockets();
-          if (sockets.length > 0) {
-            const agentSocket = sockets[0]; // Should only be one socket with this ID
-            if (data.isOnline && organizationRoom) {
-              await agentSocket.join(organizationRoom);
-              this.logger.debug(
-                `Socket ${socketId} joined '${organizationRoom}' room`,
-              );
-            } else if (!data.isOnline && organizationRoom) {
-              await agentSocket.leave(organizationRoom);
-              this.logger.debug(
-                `Socket ${socketId} left '${organizationRoom}' room`,
-              );
-            }
-          } else {
-            this.logger.warn(
-              `Socket ${socketId} not found in server for agent ${agentId}`,
-            );
-          }
-        } catch (error) {
-          this.logger.error(
-            `Error managing room membership for socket ${socketId}: ${error.message}`,
-          );
-        }
-      }
-
-      // Broadcast acknowledgment to ALL agent's sockets (not just the triggering one)
-      const acknowledgmentData = {
-        event: 'server:online_status_updated',
-        data: {
-          success: true,
-          isOnline: agentProfile.isOnline,
-          triggeredBySocket: client.id, // Optional: let client know which device triggered the change
-          totalSockets: allAgentSockets.length,
-        },
-      };
-
-      // Send to all agent's sockets via the agent room
-      this.server
-        .to(`agent:${agentId}`)
-        .emit(acknowledgmentData.event, acknowledgmentData.data);
-
-      this.logger.log(
-        `Sent online status acknowledgment to all sockets for agent ${agentId}. Status: ${data.isOnline}`,
-      );
-
-      // Broadcast pool status update to other clients (widgets/potential customers)
-      //this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
-
-      // Notify customers in active chat sessions with this agent
-      await this.chatNotificationService.notifyCustomersOfAgentStatusChange(
+      // Use the new service to handle all socket notifications and room management
+      await this.agentStatusNotificationService.notifyAgentStatusChange(
         agentId,
         data.isOnline,
         agentProfile,
+        client.id, // Pass the triggering socket ID
       );
 
-      // Notify widget customers about agent status change
-      await this.chatNotificationService.notifyWidgetCustomersOfAgentStatusChange(
-        agentId,
-        data.isOnline,
-        agentProfile,
+      this.logger.log(
+        `Agent ${agentId} online status successfully updated to ${data.isOnline} via socket ${client.id}`,
       );
-
-      // Return acknowledgment to the triggering socket (this is the traditional response)
-      // Note: The triggering socket will receive this twice (once from room broadcast, once from return)
-      // but that's acceptable for backward compatibility
-      // return acknowledgmentData;
     } catch (error) {
       this.logger.error(
         `Failed to set online status for agent ${agentId}: ${error.message}`,
       );
 
-      // Broadcast error using the same event to ALL agent's sockets
-      const errorData = {
-        event: 'server:online_status_updated',
-        data: {
-          success: false,
-          error: error.message || 'Failed to update online status',
-          requestedStatus: data.isOnline,
-          triggeredBySocket: client.id,
-        },
-      };
-
-      // Send error to all agent's sockets via the agent room
-      this.server.to(`agent:${agentId}`).emit(errorData.event, errorData.data);
-
-      this.logger.log(
-        `Sent online status error to all sockets for agent ${agentId}. Error: ${error.message}`,
-      );
+      // The error handling is now managed by the notification service
+      // but we can still throw the exception for the WebSocket client
+      throw new WsException(error.message || 'Failed to update online status');
     }
   }
 
