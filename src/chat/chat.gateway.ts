@@ -348,7 +348,7 @@ export class ChatGateway
         this.logger.log(
           `Customer ${customerId} still has ${remainingSocketCount} active socket(s). Not triggering disconnect logic. Socket ${client.id} removed.`,
         );
-        return; // Exit early - customer is still connected on other devices
+        //return; // Exit early - customer is still connected on other devices
       }
 
       this.logger.log(

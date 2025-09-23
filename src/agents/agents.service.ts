@@ -469,9 +469,10 @@ export class AgentsService {
         await this.chatSessionService.countActiveChatsForAgent(agent.userId);
 
       // Check if agent is within their working hours
-      const isWithinShift = agent.shifts
-        ? this.shiftService.isAgentAvailable(agent.shifts, agent.timezone)
-        : true; // If no shifts defined, assume always available
+      const isWithinShift =
+        agent.shifts && agent.shifts.length > 0
+          ? this.shiftService.isAgentAvailable(agent.shifts, agent.timezone)
+          : true; // If no shifts defined, assume always available
 
       this.logger.debug(
         `Agent ${agent.userId} - Active chats: ${activeChats}/${agent.maxConcurrentChats}, Within shift: ${isWithinShift}`,
