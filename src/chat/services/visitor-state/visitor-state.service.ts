@@ -573,7 +573,8 @@ export class VisitorStateService {
   }
 
   /**
-   * Cleanup expired visitor states
+   * Cleanup disconnected visitor states
+   * Only removes visitors with status 'disconnected' after 30 seconds of inactivity
    */
   @Cron('0 */2 * * * *') // Every 2 minutes
   async cleanupExpiredVisitors(): Promise<VisitorCleanupResult> {
@@ -597,13 +598,25 @@ export class VisitorStateService {
           const now = new Date();
 
           for (const [customerId, stateStr] of Object.entries(visitorData)) {
+            this.logger.debug(
+              `Processing visitor ${customerId} with state ${stateStr}`,
+            );
             try {
               const visitor: VisitorState = JSON.parse(stateStr);
               const lastActivity = new Date(visitor.lastActivity);
               const timeSinceActivity = now.getTime() - lastActivity.getTime();
 
-              if (timeSinceActivity > this.gracePeriodMs) {
+              // Only clean up disconnected visitors with a short grace period (30 seconds)
+              const disconnectedGracePeriod = 30000; // 30 seconds
+
+              if (
+                visitor.status === VisitorStatus.DISCONNECTED &&
+                timeSinceActivity > disconnectedGracePeriod
+              ) {
                 expiredVisitors.push(customerId);
+                this.logger.debug(
+                  `Marking disconnected visitor ${customerId} for cleanup (inactive for ${timeSinceActivity}ms)`,
+                );
               }
 
               result.totalProcessed++;
@@ -658,7 +671,7 @@ export class VisitorStateService {
       }
 
       this.logger.log(
-        `Visitor cleanup completed: ${result.cleanedCount} expired visitors removed from ${result.totalProcessed} total processed`,
+        `Visitor cleanup completed: ${result.cleanedCount} disconnected visitors removed from ${result.totalProcessed} total processed`,
       );
 
       if (result.errors.length > 0) {
