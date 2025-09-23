@@ -505,10 +505,22 @@ export class AgentsService {
         isOnline: false,
       };
     }
+    ``;
 
-    const isWithinShift = agent.shifts
-      ? this.shiftService.isAgentAvailable(agent.shifts, agent.timezone)
-      : true;
+    if (agent.shifts && agent.shifts.length > 0) {
+      this.logger.debug(
+        `Checking availability for agent ${agent.userId} with shifts ${agent.shifts}`,
+      );
+    }
+
+    const isWithinShift =
+      agent.shifts && agent.shifts.length > 0
+        ? this.shiftService.isAgentAvailable(agent.shifts, agent.timezone)
+        : true;
+
+    this.logger.debug(
+      `Agent ${agent.userId} is within shift: ${isWithinShift}`,
+    );
 
     const nextAvailableTime =
       agent.shifts && !isWithinShift
