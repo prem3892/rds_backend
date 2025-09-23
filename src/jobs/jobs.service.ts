@@ -4,6 +4,7 @@ import { ChatSessionService } from '../chat/services/chat-session/chat-session.s
 import { ChatNotificationService } from '../chat/services/chat-notification/chat-notification.service';
 import { ChatMessageService } from '../chat/services/chat-message/chat-message.service';
 import { ChatTranscriptService } from '../chat/services/chat-transcript/chat-transcript.service';
+import { AgentStatusNotificationService } from '../chat/services/agent-status-notification/agent-status-notification.service';
 import { AgentsService } from '../agents/agents.service';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -25,6 +26,7 @@ export class JobsService {
     private readonly chatNotificationService: ChatNotificationService,
     private readonly chatMessageService: ChatMessageService,
     private readonly chatTranscriptService: ChatTranscriptService,
+    private readonly agentStatusNotificationService: AgentStatusNotificationService,
     private readonly agentsService: AgentsService,
     private readonly configService: ConfigService,
   ) {
@@ -281,11 +283,23 @@ export class JobsService {
               `Agent ${userId} is online but outside shift hours. Setting offline.`,
             );
 
-            await this.agentsService.setOnlineStatus(userId, false);
+            // Update the agent's online status in the database
+            const agentProfile = await this.agentsService.setOnlineStatus(
+              userId,
+              false,
+            );
             agentsSetOffline++;
 
+            // Use the notification service to emit socket events and handle all notifications
+            await this.agentStatusNotificationService.notifyAgentStatusChange(
+              userId,
+              false,
+              agentProfile,
+              'system', // Indicate this was triggered by the system/cron job
+            );
+
             this.logger.log(
-              `Agent ${userId} has been set offline due to being outside shift hours`,
+              `Agent ${userId} has been set offline due to being outside shift hours and all clients notified`,
             );
           }
         } catch (error) {

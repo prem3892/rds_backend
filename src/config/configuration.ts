@@ -67,7 +67,7 @@ export default () => ({
       10,
     ), // 2 minutes
     gracePeriodMs: parseInt(
-      process.env.VISITOR_GRACE_PERIOD_MS || '300000',
+      process.env.VISITOR_DISCONNECTED_GRACE_PERIOD_MS || '300000',
       10,
     ), // 5 minutes
     maxVisitorsPerAgent: parseInt(
