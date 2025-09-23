@@ -31,7 +31,7 @@ export class AgentProfile {
   })
   departmentIds: Types.ObjectId[] | DepartmentDocument[];
 
-  @Prop({ type: [String], index: true, default: [] })
+  @Prop({ type: [String], index: true, default: ['*'] })
   domainAccess: string[]; // Can be "*"
 
   @Prop({ default: false, index: true })
@@ -40,7 +40,7 @@ export class AgentProfile {
   @Prop({ default: false, index: true })
   isBlocked: boolean;
 
-  @Prop({ default: 3 })
+  @Prop({ default: 100 })
   maxConcurrentChats: number;
 
   @Prop()
@@ -49,7 +49,7 @@ export class AgentProfile {
   @Prop({ type: [DayShiftEntrySchema], default: [] })
   shifts: DayShiftEntry[];
 
-  @Prop({ default: 'UTC' })
+  @Prop({ default: 'America/Los_Angeles' })
   timezone: string;
 
   @Prop()
