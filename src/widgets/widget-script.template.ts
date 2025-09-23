@@ -403,13 +403,10 @@ export function generateWidgetScript(
                   flex: 1;
                   justify-content: center;
                 ">
-                  <span id="chat-header-text" style="font-weight: 500;">\${utils.escapeHtml(headerText)}</span>
+                  <span id="chat-header-text" style="font-weight: 500; text-align: center;">\${utils.escapeHtml(headerText)}</span>
                 </div>
                 <div id="minimize-btn" role="button" tabindex="0" style="
                   color: white;
-                  position: absolute;
-                  top: 16px;
-                  right: 16px;
                   cursor: pointer;
                   transition: color 0.2s ease;
                   user-select: none;
@@ -556,6 +553,7 @@ export function generateWidgetScript(
                            placeholder="Type your message..." 
                            style="
                              width: 100%;
+                             color: black;
                              padding: 8px 50px 8px 12px;
                              border: 1px solid #d1d5db;
                              border-radius: 8px;
