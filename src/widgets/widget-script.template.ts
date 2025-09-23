@@ -403,7 +403,7 @@ export function generateWidgetScript(
                   flex: 1;
                   justify-content: center;
                 ">
-                  <span style="font-weight: 500;">\${utils.escapeHtml(headerText)}</span>
+                  <span id="chat-header-text" style="font-weight: 500;">\${utils.escapeHtml(headerText)}</span>
                 </div>
                 <div id="minimize-btn" role="button" tabindex="0" style="
                   color: white;
@@ -1132,8 +1132,8 @@ export function generateWidgetScript(
         }
     
         updateHeaderText(agentsAvailable) {
-          // Target only the header text in the chat window, not the button text
-          const headerTextElement = document.querySelector('#chat-widget-container .p-4.rounded-t-lg .font-medium');
+          // Target the header text in the chat window
+          const headerTextElement = document.getElementById('chat-header-text');
           if (!headerTextElement) return;
           
           let displayText;
