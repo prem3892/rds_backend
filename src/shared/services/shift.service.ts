@@ -1,94 +1,28 @@
 import { Injectable } from '@nestjs/common';
-import {
-  WeeklyShift,
-  TimeSlot,
-  NamedShift,
-  DayShiftEntry,
-} from '../../schemas/shift.schema';
+import { TimeSlot, DayShiftEntry } from '../../schemas/shift.schema';
+import { toZonedTime, fromZonedTime, format } from 'date-fns-tz';
 
 @Injectable()
 export class ShiftService {
   /**
-   * Check if the current time falls within the agent's working hours (array version)
+   * Check if the current time falls within the agent's working hours
    */
   isAgentAvailable(
-    shifts: DayShiftEntry[] | NamedShift[] | WeeklyShift,
-    timezone: string = 'UTC',
-    currentTime?: Date,
-  ): boolean {
-    // Handle backward compatibility with old WeeklyShift structure
-    if (!Array.isArray(shifts)) {
-      return this.isAgentAvailableOld(shifts, timezone, currentTime);
-    }
-
-    if (!shifts || shifts.length === 0) {
-      return true; // If no shifts defined, assume always available
-    }
-
-    const now = currentTime || new Date();
-    const dayOfWeek = this.getDayOfWeek(now);
-
-    // Check if this is the new day-based array structure
-    if (shifts.length > 0 && 'dayOfWeek' in shifts[0]) {
-      return this.isAgentAvailableDayBased(
-        shifts as DayShiftEntry[],
-        timezone,
-        currentTime,
-      );
-    }
-
-    // Handle old NamedShift array structure
-    const activeShifts = (shifts as NamedShift[]).filter(
-      (shift) => shift.isActive !== false,
-    );
-
-    return activeShifts.some((shift) => {
-      const dayShift = this.getDayShift(shift.weeklySchedule, dayOfWeek);
-
-      if (!dayShift || !dayShift.isWorkingDay) {
-        return false;
-      }
-
-      if (!dayShift.timeSlots || dayShift.timeSlots.length === 0) {
-        return false;
-      }
-
-      const currentHour = now.getHours();
-      const currentMinute = now.getMinutes();
-      const currentTimeInMinutes = currentHour * 60 + currentMinute;
-
-      return dayShift.timeSlots.some((slot) => {
-        const startTimeInMinutes = slot.startHour * 60 + slot.startMinute;
-        const endTimeInMinutes = slot.endHour * 60 + slot.endMinute;
-
-        // Handle overnight shifts (e.g., 22:00 to 06:00)
-        if (endTimeInMinutes < startTimeInMinutes) {
-          return (
-            currentTimeInMinutes >= startTimeInMinutes ||
-            currentTimeInMinutes <= endTimeInMinutes
-          );
-        }
-
-        return (
-          currentTimeInMinutes >= startTimeInMinutes &&
-          currentTimeInMinutes <= endTimeInMinutes
-        );
-      });
-    });
-  }
-
-  /**
-   * Check if the current time falls within the agent's working hours (day-based array version)
-   */
-  private isAgentAvailableDayBased(
     shifts: DayShiftEntry[],
     timezone: string = 'UTC',
     currentTime?: Date,
   ): boolean {
-    const now = currentTime || new Date();
-    const dayOfWeek = this.getDayOfWeek(now);
+    if (!shifts || shifts.length === 0) {
+      return false; // If no shifts defined, agent is not available
+    }
 
-    // Find shifts for the current day of week
+    // Convert current time to agent's timezone
+    const now = currentTime || new Date();
+    const safeTimezone = this.getSafeTimezone(timezone);
+    const agentLocalTime = toZonedTime(now, safeTimezone);
+    const dayOfWeek = this.getDayOfWeek(agentLocalTime);
+
+    // Find shifts for the current day of week in agent's timezone
     const dayShifts = shifts.filter(
       (shift) => shift.dayOfWeek === dayOfWeek && shift.isActive !== false,
     );
@@ -97,8 +31,8 @@ export class ShiftService {
       return false;
     }
 
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
+    const currentHour = agentLocalTime.getHours();
+    const currentMinute = agentLocalTime.getMinutes();
     const currentTimeInMinutes = currentHour * 60 + currentMinute;
 
     return dayShifts.some((dayShift) => {
@@ -131,129 +65,20 @@ export class ShiftService {
   }
 
   /**
-   * Check if the current time falls within the agent's working hours (old version for backward compatibility)
-   */
-  private isAgentAvailableOld(
-    shifts: WeeklyShift,
-    timezone: string = 'UTC',
-    currentTime?: Date,
-  ): boolean {
-    if (!shifts) {
-      return true; // If no shifts defined, assume always available
-    }
-
-    const now = currentTime || new Date();
-    const dayOfWeek = this.getDayOfWeek(now);
-    const dayShift = this.getDayShift(shifts, dayOfWeek);
-
-    if (!dayShift || !dayShift.isWorkingDay) {
-      return false;
-    }
-
-    if (!dayShift.timeSlots || dayShift.timeSlots.length === 0) {
-      return false;
-    }
-
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
-    const currentTimeInMinutes = currentHour * 60 + currentMinute;
-
-    return dayShift.timeSlots.some((slot) => {
-      const startTimeInMinutes = slot.startHour * 60 + slot.startMinute;
-      const endTimeInMinutes = slot.endHour * 60 + slot.endMinute;
-
-      // Handle overnight shifts (e.g., 22:00 to 06:00)
-      if (endTimeInMinutes < startTimeInMinutes) {
-        return (
-          currentTimeInMinutes >= startTimeInMinutes ||
-          currentTimeInMinutes <= endTimeInMinutes
-        );
-      }
-
-      return (
-        currentTimeInMinutes >= startTimeInMinutes &&
-        currentTimeInMinutes <= endTimeInMinutes
-      );
-    });
-  }
-
-  /**
    * Get the next available time for an agent
    */
   getNextAvailableTime(
-    shifts: DayShiftEntry[] | NamedShift[] | WeeklyShift,
-    timezone: string = 'UTC',
-    currentTime?: Date,
-  ): Date | null {
-    // Handle backward compatibility with old WeeklyShift structure
-    if (!Array.isArray(shifts)) {
-      return this.getNextAvailableTimeOld(shifts, timezone, currentTime);
-    }
-
-    if (!shifts || shifts.length === 0) {
-      return null; // If no shifts defined, assume always available
-    }
-
-    const now = currentTime || new Date();
-    const daysToCheck = 7; // Check for the next week
-
-    // Check if this is the new day-based array structure
-    if (shifts.length > 0 && 'dayOfWeek' in shifts[0]) {
-      return this.getNextAvailableTimeDayBased(
-        shifts as DayShiftEntry[],
-        timezone,
-        currentTime,
-      );
-    }
-
-    // Handle old NamedShift array structure
-    const activeShifts = (shifts as NamedShift[]).filter(
-      (shift) => shift.isActive !== false,
-    );
-
-    // Sort shifts by priority (higher priority first)
-    const sortedShifts = activeShifts.sort(
-      (a, b) => (b.priority || 1) - (a.priority || 1),
-    );
-
-    for (let dayOffset = 0; dayOffset < daysToCheck; dayOffset++) {
-      const checkDate = new Date(now);
-      checkDate.setDate(now.getDate() + dayOffset);
-
-      const dayOfWeek = this.getDayOfWeek(checkDate);
-
-      // Check each shift in priority order
-      for (const shift of sortedShifts) {
-        const dayShift = this.getDayShift(shift.weeklySchedule, dayOfWeek);
-
-        if (dayShift && dayShift.isWorkingDay && dayShift.timeSlots) {
-          for (const slot of dayShift.timeSlots) {
-            const slotStart = new Date(checkDate);
-            slotStart.setHours(slot.startHour, slot.startMinute, 0, 0);
-
-            // If it's today, make sure the slot hasn't passed
-            if (dayOffset === 0 && slotStart <= now) {
-              continue;
-            }
-
-            return slotStart;
-          }
-        }
-      }
-    }
-
-    return null; // No available time found in the next week
-  }
-
-  /**
-   * Get the next available time for an agent (day-based array version)
-   */
-  private getNextAvailableTimeDayBased(
     shifts: DayShiftEntry[],
     timezone: string = 'UTC',
     currentTime?: Date,
   ): Date | null {
+    if (!shifts || shifts.length === 0) {
+      return null; // If no shifts defined, no available time
+    }
+
     const now = currentTime || new Date();
+    const safeTimezone = this.getSafeTimezone(timezone);
+    const agentLocalTime = toZonedTime(now, safeTimezone);
     const daysToCheck = 7; // Check for the next week
     const activeShifts = shifts.filter((shift) => shift.isActive !== false);
 
@@ -263,8 +88,8 @@ export class ShiftService {
     );
 
     for (let dayOffset = 0; dayOffset < daysToCheck; dayOffset++) {
-      const checkDate = new Date(now);
-      checkDate.setDate(now.getDate() + dayOffset);
+      const checkDate = new Date(agentLocalTime);
+      checkDate.setDate(agentLocalTime.getDate() + dayOffset);
 
       const dayOfWeek = this.getDayOfWeek(checkDate);
 
@@ -276,56 +101,20 @@ export class ShiftService {
       for (const dayShift of dayShifts) {
         if (dayShift.timeSlots && dayShift.timeSlots.length > 0) {
           for (const slot of dayShift.timeSlots) {
-            const slotStart = new Date(checkDate);
-            slotStart.setHours(slot.startHour, slot.startMinute, 0, 0);
+            // Create slot start time in agent's timezone
+            const slotStartLocal = new Date(checkDate);
+            slotStartLocal.setHours(slot.startHour, slot.startMinute, 0, 0);
+
+            // Convert to UTC for comparison and return
+            const slotStartUTC = fromZonedTime(slotStartLocal, safeTimezone);
 
             // If it's today, make sure the slot hasn't passed
-            if (dayOffset === 0 && slotStart <= now) {
+            if (dayOffset === 0 && slotStartUTC <= now) {
               continue;
             }
 
-            return slotStart;
+            return slotStartUTC;
           }
-        }
-      }
-    }
-
-    return null; // No available time found in the next week
-  }
-
-  /**
-   * Get the next available time for an agent (old version for backward compatibility)
-   */
-  private getNextAvailableTimeOld(
-    shifts: WeeklyShift,
-    timezone: string = 'UTC',
-    currentTime?: Date,
-  ): Date | null {
-    if (!shifts) {
-      return null; // If no shifts defined, assume always available
-    }
-
-    const now = currentTime || new Date();
-    const daysToCheck = 7; // Check for the next week
-
-    for (let dayOffset = 0; dayOffset < daysToCheck; dayOffset++) {
-      const checkDate = new Date(now);
-      checkDate.setDate(now.getDate() + dayOffset);
-
-      const dayOfWeek = this.getDayOfWeek(checkDate);
-      const dayShift = this.getDayShift(shifts, dayOfWeek);
-
-      if (dayShift && dayShift.isWorkingDay && dayShift.timeSlots) {
-        for (const slot of dayShift.timeSlots) {
-          const slotStart = new Date(checkDate);
-          slotStart.setHours(slot.startHour, slot.startMinute, 0, 0);
-
-          // If it's today, make sure the slot hasn't passed
-          if (dayOffset === 0 && slotStart <= now) {
-            continue;
-          }
-
-          return slotStart;
         }
       }
     }
@@ -388,24 +177,39 @@ export class ShiftService {
     return days[date.getDay()];
   }
 
-  private getDayShift(shifts: WeeklyShift, dayOfWeek: string) {
-    switch (dayOfWeek) {
-      case 'monday':
-        return shifts.monday;
-      case 'tuesday':
-        return shifts.tuesday;
-      case 'wednesday':
-        return shifts.wednesday;
-      case 'thursday':
-        return shifts.thursday;
-      case 'friday':
-        return shifts.friday;
-      case 'saturday':
-        return shifts.saturday;
-      case 'sunday':
-        return shifts.sunday;
-      default:
-        return null;
+  /**
+   * Validate if the timezone string is valid
+   */
+  private isValidTimezone(timezone: string): boolean {
+    try {
+      // Try to create a date in the timezone to validate it
+      toZonedTime(new Date(), timezone);
+      return true;
+    } catch (error) {
+      return false;
     }
+  }
+
+  /**
+   * Get a safe timezone, fallback to UTC if invalid
+   */
+  private getSafeTimezone(timezone: string): string {
+    if (!timezone || !this.isValidTimezone(timezone)) {
+      console.warn(`Invalid timezone "${timezone}", falling back to UTC`);
+      return 'UTC';
+    }
+    return timezone;
+  }
+
+  /**
+   * Get current time in agent's timezone (for debugging/logging)
+   */
+  getCurrentTimeInTimezone(timezone: string = 'UTC'): string {
+    const safeTimezone = this.getSafeTimezone(timezone);
+    const now = new Date();
+    const localTime = toZonedTime(now, safeTimezone);
+    return format(localTime, 'yyyy-MM-dd HH:mm:ss zzz', {
+      timeZone: safeTimezone,
+    });
   }
 }
