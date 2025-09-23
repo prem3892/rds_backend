@@ -66,7 +66,11 @@ export class VisitorStateService {
    * Generate Redis key for visitor state
    */
   private getVisitorStateKey(widgetId: string, domain: string): string {
-    return `${REDIS_VISITOR_STATE_PREFIX}${widgetId}:${domain}`;
+    // remove leading protocol (http:// or https://) and www
+    const strippedDomain = domain
+      .replace(/^https?:\/\//i, '')
+      .replace(/^www./i, '');
+    return `${REDIS_VISITOR_STATE_PREFIX}${widgetId}:${strippedDomain}`;
   }
 
   /**
