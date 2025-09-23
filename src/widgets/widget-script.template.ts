@@ -18,6 +18,27 @@ export function generateWidgetScript(
         console.warn('Chat widget already initialized');
         return;
       }
+      
+      // Add CSS animations
+      const style = document.createElement('style');
+      style.textContent = \`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+        
+        @keyframes bounce {
+          0%, 80%, 100% { 
+            transform: scale(0);
+            opacity: 0.5;
+          }
+          40% { 
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+      \`;
+      document.head.appendChild(style);
     
       // Widget configuration (injected from server)
       const WIDGET_ID = '${widgetId}';
@@ -108,38 +129,95 @@ export function generateWidgetScript(
           return \`#\${toHex(r)}\${toHex(g)}\${toHex(b)}\`;
         },
         
-        // Get positioning classes based on button_location
-        getPositionClasses(buttonLocation) {
+        // Get positioning styles based on button_location
+        getPositionStyles(buttonLocation) {
           const location = buttonLocation || 'bottom_right';
+          
+          const baseContainerStyle = {
+            position: 'fixed',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            zIndex: '2147483647'
+          };
+          
+          const baseChatWindowStyle = {
+            position: 'absolute',
+            width: '380px',
+            maxWidth: 'calc(100vw - 64px)', // Ensure it doesn't exceed viewport width minus margins
+            maxHeight: '80vh',
+            borderRadius: '8px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            border: '1px solid #e5e7eb',
+            display: 'none',
+            flexDirection: 'column',
+            overflow: 'hidden' // Prevent content from overflowing
+          };
           
           switch (location) {
             case 'bottom_left':
               return {
-                container: 'fixed bottom-8 left-8 font-sans',
-                chatWindow: 'absolute bottom-16 left-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
+                container: { ...baseContainerStyle, bottom: '32px', left: '32px' },
+                chatWindow: { ...baseChatWindowStyle, bottom: '64px', left: '0', minWidth: '320px' }
               };
             case 'bottom_right':
               return {
-                container: 'fixed bottom-8 right-8 font-sans',
-                chatWindow: 'absolute bottom-16 right-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
+                container: { ...baseContainerStyle, bottom: '32px', right: '32px' },
+                chatWindow: { ...baseChatWindowStyle, bottom: '64px', right: '0', minWidth: '320px' }
               };
             case 'top_left':
               return {
-                container: 'fixed top-8 left-8 font-sans',
-                chatWindow: 'absolute top-16 left-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
+                container: { ...baseContainerStyle, top: '32px', left: '32px' },
+                chatWindow: { ...baseChatWindowStyle, top: '64px', left: '0', minWidth: '320px' }
               };
             case 'top_right':
               return {
-                container: 'fixed top-8 right-8 font-sans',
-                chatWindow: 'absolute top-16 right-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
+                container: { ...baseContainerStyle, top: '32px', right: '32px' },
+                chatWindow: { ...baseChatWindowStyle, top: '64px', right: '0', minWidth: '320px' }
               };
             default:
               // Default to bottom_right
               return {
-                container: 'fixed bottom-8 right-8 font-sans',
-                chatWindow: 'absolute bottom-16 right-0 w-80 max-h-[80vh] rounded-lg shadow-2xl border hidden flex flex-col'
+                container: { ...baseContainerStyle, bottom: '32px', right: '32px' },
+                chatWindow: { ...baseChatWindowStyle, bottom: '64px', right: '0', minWidth: '320px' }
               };
           }
+        },
+        
+        // Apply styles to element
+        applyStyles(element, styles) {
+          Object.assign(element.style, styles);
+        },
+        
+        // Create button-like div with proper styling and accessibility
+        createButtonDiv(id, styles = {}) {
+          const div = document.createElement('div');
+          div.id = id;
+          div.setAttribute('role', 'button');
+          div.setAttribute('tabindex', '0');
+          div.style.cursor = 'pointer';
+          div.style.userSelect = 'none';
+          div.style.outline = 'none';
+          
+          // Apply default button styles
+          const defaultStyles = {
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s ease',
+            border: 'none',
+            background: 'none'
+          };
+          
+          this.applyStyles(div, { ...defaultStyles, ...styles });
+          
+          // Add keyboard support
+          div.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              div.click();
+            }
+          });
+          
+          return div;
         }
       };
     
@@ -168,9 +246,6 @@ export function generateWidgetScript(
         async init() {
           try {
             await this.loadConfig();
-            // Using Tailwind via a script tag can be slow and might conflict with the host page.
-            // A better long-term solution is to use a scoped CSS build.
-            await this.loadTailwindCSS(); 
             this.createUI();
             this.connectSocket();
             this.bindEvents();
@@ -186,35 +261,48 @@ export function generateWidgetScript(
           this.config = await response.json();
         }
     
-        async loadTailwindCSS() {
-          return new Promise((resolve, reject) => {
-            if (document.querySelector('script[src*="tailwindcss.com"]')) {
-              resolve();
-              return;
-            }
-            
-            const script = document.createElement('script');
-            script.src = 'https://cdn.tailwindcss.com';
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
-          });
-        }
+
     
         createUI() {
+          // Inject CSS for proper box-sizing within the widget
+          this.injectWidgetCSS();
+          
           const buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
-          const positionClasses = utils.getPositionClasses(buttonLocation);
+          const positionStyles = utils.getPositionStyles(buttonLocation);
           
           this.container = document.createElement('div');
           this.container.id = 'chat-widget-container';
-          this.container.className = positionClasses.container;
-          // Ensure maximum z-index to stay on top of everything
-          this.container.style.zIndex = '2147483647'; // Maximum 32-bit integer value
+          utils.applyStyles(this.container, positionStyles.container);
           
           this.createChatButton();
           this.createChatWindow();
           
           document.body.appendChild(this.container);
+        }
+        
+        injectWidgetCSS() {
+          // Only inject once
+          if (document.getElementById('chat-widget-styles')) return;
+          
+          const style = document.createElement('style');
+          style.id = 'chat-widget-styles';
+          style.textContent = \`
+            #chat-widget-container *, 
+            #chat-widget-container *::before, 
+            #chat-widget-container *::after {
+              box-sizing: border-box !important;
+            }
+            
+            #chat-widget-container {
+              font-family: system-ui, -apple-system, sans-serif !important;
+            }
+            
+            @keyframes pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0.5; }
+            }
+          \`;
+          document.head.appendChild(style);
         }
     
         createChatButton() {
@@ -223,13 +311,54 @@ export function generateWidgetScript(
           const textColor = this.config.widgetConfig?.widget_text_color || '#FFFFFF';
           
           this.chatButton = document.createElement('div');
-          this.chatButton.className = 'relative cursor-pointer transform transition-transform hover:scale-105';
+          utils.applyStyles(this.chatButton, {
+            position: 'relative',
+            cursor: 'pointer',
+            transform: 'scale(1)',
+            transition: 'transform 0.2s ease',
+            userSelect: 'none'
+          });
+          
+          // Add hover effect
+          this.chatButton.addEventListener('mouseenter', () => {
+            this.chatButton.style.transform = 'scale(1.05)';
+          });
+          this.chatButton.addEventListener('mouseleave', () => {
+            this.chatButton.style.transform = 'scale(1)';
+          });
           
           this.chatButton.innerHTML = \`
-            <div class="px-4 py-3 rounded-full shadow-lg flex items-center justify-center relative min-w-max" 
-                 style="background-color: \${primaryColor}; color: \${textColor};">
-              <span class="font-medium text-sm whitespace-nowrap">\${utils.escapeHtml(buttonLabel)}</span>
-              <div id="unread-badge" class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center hidden">
+            <div style="
+              padding: 12px 16px;
+              border-radius: 9999px;
+              box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              position: relative;
+              min-width: max-content;
+              background-color: \${primaryColor};
+              color: \${textColor};
+            ">
+              <span style="
+                font-weight: 500;
+                font-size: 14px;
+                white-space: nowrap;
+              ">\${utils.escapeHtml(buttonLabel)}</span>
+              <div id="unread-badge" style="
+                position: absolute;
+                top: -4px;
+                right: -4px;
+                background-color: #ef4444;
+                color: white;
+                font-size: 12px;
+                border-radius: 50%;
+                width: 20px;
+                height: 20px;
+                display: none;
+                align-items: center;
+                justify-content: center;
+              ">
                 <span id="unread-count">0</span>
               </div>
             </div>
@@ -245,125 +374,381 @@ export function generateWidgetScript(
           const headerText = this.config.widgetConfig?.headerText || 'Chat with us';
           const buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
           const bgColorWithOpacity = utils.hexToRgba(secondaryColor, 90);
-          const positionClasses = utils.getPositionClasses(buttonLocation);
+          const positionStyles = utils.getPositionStyles(buttonLocation);
           
           this.chatWindow = document.createElement('div');
-          // Fixed height and width, added max-height to ensure it fits on smaller screens
-          this.chatWindow.className = positionClasses.chatWindow;
+          utils.applyStyles(this.chatWindow, positionStyles.chatWindow);
           this.chatWindow.style.backgroundColor = bgColorWithOpacity;
           
           this.chatWindow.innerHTML = \`
             <!-- Header -->
-            <div class="p-4 rounded-t-lg text-white flex-shrink-0" style="background-color: \${primaryColor}">
+            <div style="
+              padding: 16px;
+              border-radius: 8px 8px 0 0;
+              color: white;
+              flex-shrink: 0;
+              background-color: \${primaryColor};
+            ">
               <!-- Header Row -->
-              <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center space-x-2 flex-1 justify-center">
-                  <span class="font-medium">\${utils.escapeHtml(headerText)}</span>
+              <div style="
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 12px;
+              ">
+                <div style="
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  flex: 1;
+                  justify-content: center;
+                ">
+                  <span style="font-weight: 500;">\${utils.escapeHtml(headerText)}</span>
                 </div>
-                <button id="minimize-btn" class="text-white hover:text-gray-200 absolute top-4 right-4">
-                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/>
+                <div id="minimize-btn" role="button" tabindex="0" style="
+                  color: white;
+                  position: absolute;
+                  top: 16px;
+                  right: 16px;
+                  cursor: pointer;
+                  transition: color 0.2s ease;
+                  user-select: none;
+                  outline: none;
+                " onmouseover="this.style.color='#d1d5db'" onmouseout="this.style.color='white'">
+                  <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                   </svg>
-                </button>
+                </div>
               </div>
               <!-- Agent Profiles Row -->
-              <div id="agent-profiles" class="flex items-center justify-center space-x-3"></div>
+              <div id="agent-profiles" style="
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 12px;
+              "></div>
             </div>
     
             <!-- Connection Status -->
-            <div id="connection-status" class="px-4 py-2 bg-yellow-50 border-b text-sm text-yellow-800 hidden flex-shrink-0">
-              <div class="flex items-center space-x-2">
-                <div class="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
+            <div id="connection-status" style="
+              padding: 8px 16px;
+              background-color: #fefce8;
+              border-bottom: 1px solid #e5e7eb;
+              font-size: 14px;
+              color: #92400e;
+              display: none;
+              flex-shrink: 0;
+            ">
+              <div style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+              ">
+                <div style="
+                  width: 8px;
+                  height: 8px;
+                  background-color: #fbbf24;
+                  border-radius: 50%;
+                  animation: pulse 2s infinite;
+                "></div>
                 <span>Connecting...</span>
               </div>
             </div>
     
             <!-- Chat Interface -->
-            <div id="chat-interface" class="flex-1 flex flex-col hidden overflow-hidden">
+            <div id="chat-interface" style="
+              flex: 1;
+              display: none;
+              flex-direction: column;
+              overflow: hidden;
+            ">
               <!-- Chat Header -->
-              <div id="chat-header" class="px-4 py-2 border-b bg-white flex-shrink-0">
-                <div class="flex items-center justify-between">
+              <div id="chat-header" style="
+                padding: 8px 16px;
+                border-bottom: 1px solid #e5e7eb;
+                background-color: white;
+                flex-shrink: 0;
+              ">
+                <div style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                ">
                   <div>
-                    <div class="text-xs text-gray-500" id="agent-status">Connecting...</div>
+                    <div style="
+                      font-size: 12px;
+                      color: #6b7280;
+                    " id="agent-status">Connecting...</div>
                   </div>
                 </div>
               </div>
     
               <!-- Messages Container - Fixed height issue with overflow -->
-              <div id="messages-container" class="flex-1 overflow-y-auto p-4 space-y-3">
+              <div id="messages-container" style="
+                flex: 1;
+                overflow-y: auto;
+                padding: 16px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+              ">
                 <!-- Messages will be populated here -->
               </div>
     
               <!-- Typing Indicator -->
-              <div id="typing-indicator" class="px-4 py-2 text-sm text-gray-500 hidden flex-shrink-0">
-                <div class="flex items-center space-x-2">
-                  <div class="flex space-x-1">
-                    <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                    <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
-                    <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+              <div id="typing-indicator" style="
+                padding: 8px 16px;
+                font-size: 14px;
+                color: #6b7280;
+                display: none;
+                flex-shrink: 0;
+              ">
+                <div style="
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                ">
+                  <div style="display: flex; gap: 4px;">
+                    <div style="
+                      width: 8px;
+                      height: 8px;
+                      background-color: #9ca3af;
+                      border-radius: 50%;
+                      animation: bounce 1.4s infinite ease-in-out both;
+                    "></div>
+                    <div style="
+                      width: 8px;
+                      height: 8px;
+                      background-color: #9ca3af;
+                      border-radius: 50%;
+                      animation: bounce 1.4s infinite ease-in-out both;
+                      animation-delay: 0.16s;
+                    "></div>
+                    <div style="
+                      width: 8px;
+                      height: 8px;
+                      background-color: #9ca3af;
+                      border-radius: 50%;
+                      animation: bounce 1.4s infinite ease-in-out both;
+                      animation-delay: 0.32s;
+                    "></div>
                   </div>
                   <span>Agent is typing...</span>
                 </div>
               </div>
     
               <!-- Message Input - Fixed to bottom -->
-              <div class="border-t p-4 flex-shrink-0 bg-white">
-                <div class="flex space-x-2">
-                  <div class="flex-1 relative">
+              <div style="
+                border-top: 1px solid #e5e7eb;
+                padding: 16px;
+                flex-shrink: 0;
+                background-color: white;
+              ">
+                <div style="
+                  display: flex;
+                  gap: 8px;
+                ">
+                  <div style="
+                    flex: 1;
+                    position: relative;
+                  ">
                     <input type="text" id="message-input" 
                            placeholder="Type your message..." 
-                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                    <input type="file" id="file-input" class="hidden" accept="image/*,.pdf,.doc,.docx,.txt">
-                    <button id="attach-btn" class="absolute right-10 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                           style="
+                             width: 100%;
+                             padding: 8px 50px 8px 12px;
+                             border: 1px solid #d1d5db;
+                             border-radius: 8px;
+                             outline: none;
+                             box-sizing: border-box;
+                             transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                           "
+                           onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
+                           onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
+                    <input type="file" id="file-input" style="display: none;" accept="image/*,.pdf,.doc,.docx,.txt">
+                    <div id="attach-btn" role="button" tabindex="0" style="
+                      position: absolute;
+                      right: 20px;
+                      top: 50%;
+                      transform: translateY(-50%);
+                      color: #9ca3af;
+                      cursor: pointer;
+                      transition: color 0.2s ease;
+                      user-select: none;
+                      outline: none;
+                    " onmouseover="this.style.color='#6b7280'" onmouseout="this.style.color='#9ca3af'">
+                      <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
                       </svg>
-                    </button>
+                    </div>
                   </div>
-                  <button id="send-btn" class="px-4 py-2 text-white rounded-lg hover:opacity-90 transition-opacity" 
-                          style="background-color: \${primaryColor}">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                  <div id="send-btn" role="button" tabindex="0" style="
+                    padding: 8px 16px;
+                    color: white;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    transition: opacity 0.2s ease;
+                    user-select: none;
+                    outline: none;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background-color: \${primaryColor};
+                  " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                    <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
                     </svg>
-                  </button>
+                  </div>
                 </div>
               </div>
             </div>
     
             <!-- Customer Info Form -->
-            <div id="customer-info-form" class="flex-1 p-4 border-t hidden flex flex-col overflow-y-auto bg-white">
-              <div class="space-y-3 flex flex-col flex-1">
+            <div id="customer-info-form" style="
+              flex: 1;
+              padding: 16px;
+              border-top: 1px solid #e5e7eb;
+              display: none;
+              flex-direction: column;
+              overflow-y: auto;
+              background-color: white;
+            ">
+              <div style="
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                flex: 1;
+              ">
                 <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">Name (optional)</label>
-                  <input style="color: black;" type="text" id="customer-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <label style="
+                    display: block;
+                    font-size: 14px;
+                    font-weight: 500;
+                    color: #374151;
+                    margin-bottom: 4px;
+                  ">Name (optional)</label>
+                  <input type="text" id="customer-name" style="
+                    width: 100%;
+                    padding: 8px 12px;
+                    border: 1px solid #d1d5db;
+                    border-radius: 8px;
+                    outline: none;
+                    color: black;
+                    box-sizing: border-box;
+                    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                  " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
+                     onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
-                  <input  style="color: black;" type="email" id="customer-email" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <label style="
+                    display: block;
+                    font-size: 14px;
+                    font-weight: 500;
+                    color: #374151;
+                    margin-bottom: 4px;
+                  ">Email (optional)</label>
+                  <input type="email" id="customer-email" style="
+                    width: 100%;
+                    padding: 8px 12px;
+                    border: 1px solid #d1d5db;
+                    border-radius: 8px;
+                    outline: none;
+                    color: black;
+                    box-sizing: border-box;
+                    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                  " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
+                     onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
                 </div>
-                <div class="flex-1 flex flex-col">
-                  <label class="block text-sm font-medium text-gray-700 mb-1">Message</label>
-                  <textarea id="initial-message" rows="3" class="flex-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="How can we help you?"></textarea>
+                <div style="
+                  flex: 1;
+                  display: flex;
+                  flex-direction: column;
+                ">
+                  <label style="
+                    display: block;
+                    font-size: 14px;
+                    font-weight: 500;
+                    color: #374151;
+                    margin-bottom: 4px;
+                  ">Message</label>
+                  <textarea id="initial-message" rows="3" placeholder="How can we help you?" style="
+                    flex: 1;
+                    width: 100%;
+                    padding: 8px 12px;
+                    border: 1px solid #d1d5db;
+                    border-radius: 8px;
+                    outline: none;
+                    resize: vertical;
+                    box-sizing: border-box;
+                    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                  " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
+                     onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'"></textarea>
                 </div>
-                <button id="start-chat-btn" class="w-full py-2 text-white rounded-lg hover:opacity-90 transition-opacity" 
-                        style="background-color: \${primaryColor}">
+                <div id="start-chat-btn" role="button" tabindex="0" style="
+                  width: 100%;
+                  padding: 8px;
+                  color: white;
+                  border-radius: 8px;
+                  cursor: pointer;
+                  transition: opacity 0.2s ease;
+                  user-select: none;
+                  outline: none;
+                  text-align: center;
+                  background-color: \${primaryColor};
+                " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
                   Start Chat
-                </button>
+                </div>
               </div>
             </div>
             
             <!-- Offline Thank You Message -->
-            <div id="offline-thank-you" class="flex-1 p-4 border-t hidden flex flex-col overflow-y-auto bg-white">
-              <div class="space-y-3 flex flex-col flex-1 items-center justify-center text-center">
-                <svg class="w-16 h-16 text-green-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div id="offline-thank-you" style="
+              flex: 1;
+              padding: 16px;
+              border-top: 1px solid #e5e7eb;
+              display: none;
+              flex-direction: column;
+              overflow-y: auto;
+              background-color: white;
+            ">
+              <div style="
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                flex: 1;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+              ">
+                <svg style="
+                  width: 64px;
+                  height: 64px;
+                  color: #10b981;
+                  margin-bottom: 8px;
+                " fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                 </svg>
-                <h3 class="text-xl font-medium text-gray-900">Thank you!</h3>
-                <p class="text-gray-600">We will get back to you via the email you provided.</p>
-                <button id="close-thank-you-btn" class="mt-4 px-4 py-2 text-white rounded-lg hover:opacity-90 transition-opacity" 
-                        style="background-color: \${primaryColor}">
+                <h3 style="
+                  font-size: 20px;
+                  font-weight: 500;
+                  color: #111827;
+                ">Thank you!</h3>
+                <p style="
+                  color: #6b7280;
+                ">We will get back to you via the email you provided.</p>
+                <div id="close-thank-you-btn" role="button" tabindex="0" style="
+                  margin-top: 16px;
+                  padding: 8px 16px;
+                  color: white;
+                  border-radius: 8px;
+                  cursor: pointer;
+                  transition: opacity 0.2s ease;
+                  user-select: none;
+                  outline: none;
+                  background-color: \${primaryColor};
+                " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
                   Close
-                </button>
+                </div>
               </div>
             </div>
           \`;
@@ -643,23 +1028,22 @@ export function generateWidgetScript(
         }
         
         showCustomerInfoForm() {
-          document.getElementById('chat-interface').classList.add('hidden');
-          document.getElementById('customer-info-form').classList.remove('hidden');
-          document.getElementById('customer-info-form').classList.add('flex');
+          document.getElementById('chat-interface').style.display = 'none';
+          const infoForm = document.getElementById('customer-info-form');
+          infoForm.style.display = 'flex';
         }
     
         showDepartmentSelection() {
-          document.getElementById('chat-interface').classList.add('hidden');
-          document.getElementById('customer-info-form').classList.remove('hidden');
-          document.getElementById('customer-info-form').classList.add('flex');
+          document.getElementById('chat-interface').style.display = 'none';
+          const infoForm = document.getElementById('customer-info-form');
+          infoForm.style.display = 'flex';
         }
     
         showChatInterface(departmentId = null) {
-          document.getElementById('customer-info-form').classList.add('hidden');
+          document.getElementById('customer-info-form').style.display = 'none';
           
           const chatInterface = document.getElementById('chat-interface');
-          chatInterface.classList.remove('hidden');
-          chatInterface.classList.add('flex');
+          chatInterface.style.display = 'flex';
           
           // Focus the input field for better UX
           setTimeout(() => {
@@ -739,9 +1123,9 @@ export function generateWidgetScript(
           // Disable the form to prevent multiple submissions
           nameInput.disabled = true;
           emailInput.disabled = true;
-          const submitBtn = nameInput.closest('.space-y-3').querySelector('button');
+          const submitBtn = document.getElementById(\`submit-info-request-\${formId}\`);
           if (submitBtn) {
-            submitBtn.disabled = true;
+            submitBtn.style.pointerEvents = 'none';
             submitBtn.textContent = 'Submitted';
             submitBtn.style.opacity = '0.5';
           }
@@ -786,7 +1170,7 @@ export function generateWidgetScript(
           if (emailLabel && emailInput) {
             if (agents.length === 0) {
               // Offline mode - email is required
-              emailLabel.innerHTML = 'Email <span class="text-red-500">*</span>';
+              emailLabel.innerHTML = 'Email <span style="color: #ef4444;">*</span>';
               emailInput.setAttribute('required', 'required');
             } else {
               // Online mode - email is optional
@@ -801,17 +1185,28 @@ export function generateWidgetScript(
           agentsToShow.forEach((agent, index) => {
             // Create agent profile container (vertical stack)
             const agentProfile = document.createElement('div');
-            agentProfile.className = 'flex flex-col items-center space-y-1';
+            utils.applyStyles(agentProfile, {
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px'
+            });
             
             // Create profile picture container with relative positioning for status dot
             const profilePicContainer = document.createElement('div');
-            profilePicContainer.className = 'relative';
+            profilePicContainer.style.position = 'relative';
             
             // Create profile picture
             if (agent.profilePicture) {
               const profileImg = document.createElement('img');
               profileImg.src = \`\${API_BASE}\${agent.profilePicture}\`;
-              profileImg.className = 'w-12 h-12 rounded-full border-2 border-white object-cover';
+              utils.applyStyles(profileImg, {
+                width: '48px',
+                height: '48px',
+                borderRadius: '50%',
+                border: '2px solid white',
+                objectFit: 'cover'
+              });
               profileImg.alt = 'Agent';
               
               // Add error handling for broken images
@@ -819,8 +1214,17 @@ export function generateWidgetScript(
                 // If image fails, show a default avatar
                 this.style.display = 'none';
                 const defaultAvatar = document.createElement('div');
-                defaultAvatar.className = 'w-8 h-8 rounded-full border-2 border-white bg-white bg-opacity-20 flex items-center justify-center';
-                defaultAvatar.innerHTML = '<span class="text-xs font-medium">A</span>';
+                utils.applyStyles(defaultAvatar, {
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  border: '2px solid white',
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                });
+                defaultAvatar.innerHTML = '<span style="font-size: 12px; font-weight: 500;">A</span>';
                 profilePicContainer.insertBefore(defaultAvatar, profilePicContainer.firstChild);
               };
               
@@ -828,21 +1232,43 @@ export function generateWidgetScript(
             } else {
               // Show default avatar if no profile picture
               const defaultAvatar = document.createElement('div');
-              defaultAvatar.className = 'w-8 h-8 rounded-full border-2 border-white bg-white bg-opacity-20 flex items-center justify-center';
-              defaultAvatar.innerHTML = '<span class="text-xs font-medium">A</span>';
+              utils.applyStyles(defaultAvatar, {
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                border: '2px solid white',
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              });
+              defaultAvatar.innerHTML = '<span style="font-size: 12px; font-weight: 500;">A</span>';
               profilePicContainer.appendChild(defaultAvatar);
             }
             
             // Add green status dot at bottom right
             const statusDot = document.createElement('div');
-            statusDot.className = 'w-2 h-2 bg-green-400 rounded-full absolute -bottom-0 -right-0';
+            utils.applyStyles(statusDot, {
+              width: '8px',
+              height: '8px',
+              backgroundColor: '#4ade80',
+              borderRadius: '50%',
+              position: 'absolute',
+              bottom: '0',
+              right: '0'
+            });
             profilePicContainer.appendChild(statusDot);
             
             agentProfile.appendChild(profilePicContainer);
             
             // Create name label
             const nameLabel = document.createElement('span');
-            nameLabel.className = 'text-xs font-medium text-white opacity-90';
+            utils.applyStyles(nameLabel, {
+              fontSize: '12px',
+              fontWeight: '500',
+              color: 'white',
+              opacity: '0.9'
+            });
             nameLabel.textContent = agent.firstName || 'Agent';
             agentProfile.appendChild(nameLabel);
             
@@ -913,11 +1339,11 @@ export function generateWidgetScript(
             // If the thank you message is currently displayed, and we have an active chat session,
             // switch to the chat interface to show the agent is now available
             const thankYouDiv = document.getElementById('offline-thank-you');
-            if (!thankYouDiv.classList.contains('hidden') && this.currentChatSession) {
+            if (thankYouDiv.style.display !== 'none' && this.currentChatSession) {
               this.showChatInterface();
               this.showAgentStatus('An agent is now available!');
               // remove the thankYouDiv from DOM
-              thankYouDiv.classList.add('hidden');
+              thankYouDiv.style.display = 'none';
             }
           }
         }
@@ -978,13 +1404,12 @@ export function generateWidgetScript(
         
         showOfflineThankYou() {
           // Hide other interfaces
-          document.getElementById('customer-info-form').classList.add('hidden');
-          document.getElementById('chat-interface').classList.add('hidden');
+          document.getElementById('customer-info-form').style.display = 'none';
+          document.getElementById('chat-interface').style.display = 'none';
           
           // Show thank you message
           const thankYouDiv = document.getElementById('offline-thank-you');
-          thankYouDiv.classList.remove('hidden');
-          thankYouDiv.classList.add('flex');
+          thankYouDiv.style.display = 'flex';
         }
     
         sendMessage() {
@@ -1084,7 +1509,10 @@ export function generateWidgetScript(
           const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
           const secondaryColor = this.config.widgetConfig?.secondaryColor || '#64748B';
           
-          messageDiv.className = \`flex \${isCustomer ? 'justify-end' : isSystem ? 'justify-center' : 'justify-start'}\`;
+          utils.applyStyles(messageDiv, {
+            display: 'flex',
+            justifyContent: isCustomer ? 'flex-end' : isSystem ? 'center' : 'flex-start'
+          });
           
           // Add message ID and sender type as data attributes for status updates
           if (message._id) {
@@ -1092,27 +1520,44 @@ export function generateWidgetScript(
           }
           messageDiv.setAttribute('data-sender-type', message.senderType);
           
+          // Add pending attribute for pending messages
+          if (isPending) {
+            messageDiv.setAttribute('data-pending', 'true');
+            messageDiv.setAttribute('data-pending-text', message.messageContent.text || '');
+          }
+          
           let messageContent = '';
           if (message.messageContent.type === 'customer_info_form') {
             const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
             const formId = message.messageContent.formId || message._id;
             messageContent = \`
-              <div class="space-y-3">
-                <div class="text-sm text-gray-700 mb-3">\${utils.escapeHtml(message.messageContent.text)}</div>
-                <div class="space-y-2">
+              <div style="display: flex; flex-direction: column; gap: 12px;">
+                <div style="font-size: 14px; color: #374151; margin-bottom: 12px;">\${utils.escapeHtml(message.messageContent.text)}</div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
                   <div>
-                    <label class="block text-xs font-medium text-gray-600 mb-1">Name *</label>
-                    <input type="text" id="info-request-name-\${formId}" class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" required>
+                    <label style="display: block; font-size: 12px; font-weight: 500; color: #4b5563; margin-bottom: 4px;">Name *</label>
+                    <input type="text" id="info-request-name-\${formId}" 
+                           style="width: 100%; padding: 4px 8px; font-size: 14px; border: 1px solid #d1d5db; border-radius: 4px; outline: none;" 
+                           onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 1px #3b82f6';"
+                           onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none';"
+                           required>
                   </div>
                   <div>
-                    <label class="block text-xs font-medium text-gray-600 mb-1">Email *</label>
-                    <input type="email" id="info-request-email-\${formId}" class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" required>
+                    <label style="display: block; font-size: 12px; font-weight: 500; color: #4b5563; margin-bottom: 4px;">Email *</label>
+                    <input type="email" id="info-request-email-\${formId}" 
+                           style="width: 100%; padding: 4px 8px; font-size: 14px; border: 1px solid #d1d5db; border-radius: 4px; outline: none;" 
+                           onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 1px #3b82f6';"
+                           onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none';"
+                           required>
                   </div>
-                  <div class="flex space-x-2 mt-3">
-                    <button id="submit-info-request-\${formId}" class="flex-1 py-1 px-3 text-xs text-white rounded hover:opacity-90 transition-opacity" 
-                            style="background-color: \${primaryColor}">
+                  <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <div id="submit-info-request-\${formId}" role="button" tabindex="0"
+                         style="flex: 1; padding: 4px 12px; font-size: 12px; color: white; border-radius: 4px; background-color: \${primaryColor}; cursor: pointer; transition: opacity 0.2s; text-align: center;"
+                         onmouseover="this.style.opacity='0.9'" 
+                         onmouseout="this.style.opacity='1'"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}">
                       Submit
-                    </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1122,13 +1567,16 @@ export function generateWidgetScript(
           } else if (message.messageContent.type === 'file') {
             const isImage = message.messageContent.mimeType?.startsWith('image/');
             messageContent = \`
-              <div class="border rounded-lg p-2 max-w-full">
-                \${isImage ? \`<img src="\${message.messageContent.url}" alt="\${utils.escapeHtml(message.messageContent.filename)}" class="max-w-48 rounded">\` : ''}
-                <div class="flex items-center space-x-2 mt-1">
-                  <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; max-width: 100%;">
+                \${isImage ? \`<img src="\${message.messageContent.url}" alt="\${utils.escapeHtml(message.messageContent.filename)}" style="max-width: 192px; border-radius: 4px;">\` : ''}
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                  <svg style="width: 16px; height: 16px; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                   </svg>
-                  <a href="\${message.messageContent.url}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline text-sm truncate">
+                  <a href="\${message.messageContent.url}" target="_blank" rel="noopener noreferrer" 
+                     style="color: #2563eb; font-size: 14px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;"
+                     onmouseover="this.style.textDecoration='underline'"
+                     onmouseout="this.style.textDecoration='none'">
                     \${utils.escapeHtml(message.messageContent.filename)}
                   </a>
                 </div>
@@ -1141,49 +1589,75 @@ export function generateWidgetScript(
           if (isCustomer && !isPending) {
             const isRead = message.readByAgent || false;
             statusIndicator = \`
-              <div class="message-status ml-2 flex items-center">
-                <span class="text-xs text-blue-200">\${isRead ? 'Seen' : 'Sent'}</span>
+              <div class="message-status" style="margin-left: 8px; display: flex; align-items: center;">
+                <span style="font-size: 12px; color: #bfdbfe;">\${isRead ? 'Seen' : 'Sent'}</span>
               </div>
             \`;
           } else if (isCustomer && isPending) {
             statusIndicator = \`
-              <div class="message-status ml-2 flex items-center">
-                <span class="text-xs text-blue-200">Sending...</span>
+              <div class="message-status" style="margin-left: 8px; display: flex; align-items: center;">
+                <span style="font-size: 12px; color: #bfdbfe;">Sending...</span>
               </div>
             \`;
           }
           
           // Special styling for customer info form
           const isInfoForm = message.messageContent.type === 'customer_info_form';
-          const maxWidthClass = isInfoForm ? 'max-w-sm lg:max-w-md' : 'max-w-xs lg:max-w-md';
+          const maxWidth = isInfoForm ? '384px' : '288px';
           
           // Check if this is an agent message (not customer, not system)
           const isAgent = !isCustomer && !isSystem;
           
+          // Build message styles
+          let messageStyles = \`
+            max-width: \${maxWidth};
+            padding: 8px 12px;
+            border-radius: 8px;
+            \${message.isUploading || isPending ? 'opacity: 0.5;' : ''}
+          \`;
+          
+          if (isCustomer) {
+            messageStyles += \`
+              color: white;
+              background-color: \${primaryColor};
+            \`;
+          } else if (isSystem) {
+            if (isInfoForm) {
+              messageStyles += \`
+                background-color: #eff6ff;
+                border: 1px solid #bfdbfe;
+                color: #1f2937;
+                width: 100%;
+              \`;
+            } else {
+              messageStyles += \`
+                background-color: #f3f4f6;
+                color: #374151;
+                font-size: 14px;
+                text-align: center;
+                width: 100%;
+              \`;
+            }
+          } else {
+            messageStyles += \`
+              color: white;
+              background-color: \${secondaryColor};
+            \`;
+          }
+          
+          // Build timestamp styles
+          const timestampColor = isCustomer ? '#bfdbfe' : isSystem ? '#6b7280' : '#d1d5db';
+          
           messageDiv.innerHTML = \`
-            <div class="flex flex-col">
-              <div class="\${maxWidthClass} px-3 py-2 rounded-lg \${
-                isCustomer 
-                  ? 'text-white' 
-                  : isSystem 
-                    ? isInfoForm 
-                      ? 'bg-blue-50 border border-blue-200 text-gray-800 w-full' 
-                      : 'bg-gray-100 text-gray-700 text-sm text-center w-full'
-                    : 'text-white'
-              } \${message.isUploading || isPending ? 'opacity-50' : ''}" \${
-                isCustomer 
-                  ? \`style="background-color: \${primaryColor}"\`
-                  : !isSystem 
-                    ? \`style="background-color: \${secondaryColor}"\`
-                    : ''
-              }>
+            <div style="display: flex; flex-direction: column;">
+              <div style="\${messageStyles}">
                 <div>\${messageContent}</div>
-                \${!isInfoForm ? \`<div class="text-xs text-right mt-1 \${isCustomer ? 'text-blue-100' : isSystem ? 'text-gray-500' : 'text-gray-200'} flex items-center justify-end">
+                \${!isInfoForm ? \`<div style="font-size: 12px; text-align: right; margin-top: 4px; color: \${timestampColor}; display: flex; align-items: center; justify-content: flex-end;">
                   <span>\${utils.formatTime(message.timestamp)}</span>
                   \${statusIndicator}
                 </div>\` : ''}
               </div>
-              \${isAgent && message.agentInfo?.fullName ? \`<div class="text-xs text-gray-500 mt-1 ml-1">\${utils.escapeHtml(message.agentInfo.fullName)}</div>\` : ''}
+              \${isAgent && message.agentInfo?.fullName ? \`<div style="font-size: 12px; color: #6b7280; margin-top: 4px; margin-left: 4px;">\${utils.escapeHtml(message.agentInfo.fullName)}</div>\` : ''}
             </div>
           \`;
           
@@ -1245,25 +1719,35 @@ export function generateWidgetScript(
         }
     
         showTypingIndicator() { 
-          document.getElementById('typing-indicator').classList.remove('hidden'); 
+          document.getElementById('typing-indicator').style.display = 'block'; 
           // Scroll to bottom when typing indicator appears
           const messagesContainer = document.getElementById('messages-container');
           utils.scrollToBottom(messagesContainer);
         }
         
-        hideTypingIndicator() { document.getElementById('typing-indicator').classList.add('hidden'); }
+        hideTypingIndicator() { document.getElementById('typing-indicator').style.display = 'none'; }
         showAgentStatus(status) { document.getElementById('agent-status').textContent = status; }
     
         showConnectionStatus(message, type = 'yellow') {
           const statusEl = document.getElementById('connection-status');
-          statusEl.classList.remove('hidden');
+          statusEl.style.display = 'block';
           statusEl.querySelector('span').textContent = message;
-          statusEl.className = \`px-4 py-2 border-b text-sm flex-shrink-0 \${
-            type === 'red' ? 'bg-red-50 text-red-800' : 'bg-yellow-50 text-yellow-800'
-          }\`;
+          
+          const baseStyles = {
+            padding: '8px 16px',
+            borderBottom: '1px solid #e5e7eb',
+            fontSize: '14px',
+            flexShrink: '0'
+          };
+          
+          const typeStyles = type === 'red' 
+            ? { backgroundColor: '#fef2f2', color: '#991b1b' }
+            : { backgroundColor: '#fffbeb', color: '#92400e' };
+            
+          utils.applyStyles(statusEl, { ...baseStyles, ...typeStyles });
         }
     
-        hideConnectionStatus() { document.getElementById('connection-status').classList.add('hidden'); }
+        hideConnectionStatus() { document.getElementById('connection-status').style.display = 'none'; }
     
         // Message management methods
         addPendingMessage(messageText) {
@@ -1272,17 +1756,14 @@ export function generateWidgetScript(
         
         removePendingMessage(messageText) {
           this.pendingMessages.delete(messageText);
-          // Remove pending message from UI
+          // Remove pending message from UI using data attributes
           const messagesContainer = document.getElementById('messages-container');
-          const messageElements = messagesContainer.querySelectorAll('.flex');
+          const pendingElements = messagesContainer.querySelectorAll('div[data-pending="true"]');
           
-          messageElements.forEach(element => {
-            const messageDiv = element.querySelector('div');
-            if (messageDiv && messageDiv.classList.contains('opacity-50')) {
-              const textContent = messageDiv.querySelector('div').textContent;
-              if (textContent === messageText) {
-                element.remove();
-              }
+          pendingElements.forEach(element => {
+            const pendingText = element.getAttribute('data-pending-text');
+            if (pendingText && pendingText.trim() === messageText.trim()) {
+              element.remove();
             }
           });
         }
@@ -1292,6 +1773,7 @@ export function generateWidgetScript(
           const messageElement = document.querySelector(\`[data-message-id="\${messageId}"]\`);
           
           if (messageElement) {
+            // Find the status span using the message-status class
             const statusElement = messageElement.querySelector('.message-status span');
             if (statusElement && status === 'seen') {
               // Update text to "Seen"
@@ -1380,7 +1862,7 @@ export function generateWidgetScript(
     
         toggleChat() {
           this.isMinimized = !this.isMinimized;
-          this.chatWindow.classList.toggle('hidden', this.isMinimized);
+          this.chatWindow.style.display = this.isMinimized ? 'none' : 'flex';
           if (!this.isMinimized) {
             this.resetUnreadCount();
             
@@ -1392,7 +1874,7 @@ export function generateWidgetScript(
             // If not in an active chat session, show customer info form directly
             if (!this.currentChatSession) {
               this.showCustomerInfoForm();
-            } else if (!document.getElementById('chat-interface').classList.contains('hidden')) {
+            } else if (document.getElementById('chat-interface').style.display !== 'none') {
               setTimeout(() => {
                 const messageInput = document.getElementById('message-input');
                 if (messageInput) messageInput.focus();
@@ -1412,10 +1894,10 @@ export function generateWidgetScript(
           const badge = document.getElementById('unread-badge');
           const count = document.getElementById('unread-count');
           if (this.unreadCount > 0) {
-            badge.classList.remove('hidden');
+            badge.style.display = 'flex';
             count.textContent = this.unreadCount > 99 ? '99+' : this.unreadCount;
           } else {
-            badge.classList.add('hidden');
+            badge.style.display = 'none';
           }
         }
     
@@ -1540,7 +2022,7 @@ export function generateWidgetScript(
           
           // Open the widget and show chat interface
           this.isMinimized = false;
-          this.chatWindow.classList.remove('hidden');
+          this.chatWindow.style.display = 'flex';
           this.showChatInterface();
           
           // Ensure connection status is hidden since we're connected
