@@ -1010,6 +1010,16 @@ export function generateWidgetScript(
             console.log('Customer info requested:', data);
             this.showCustomerInfoRequestForm();
           });
+
+          // Listen for appointment booked notification
+          this.socket.on('server:appointment_booked_notification', (data) => {
+            console.log('Appointment booked notification received:', data);
+            // Push event to dataLayer for Google Analytics/Tag Manager
+            window.dataLayer = window.dataLayer || [];
+            window.dataLayer.push({
+              event: 'convoia_chats_book_event'
+            });
+          });
         }
     
         connectWidget() {
@@ -1418,7 +1428,18 @@ export function generateWidgetScript(
         sendMessage() {
           const messageInput = document.getElementById('message-input');
           const messageText = messageInput.value.trim();
-          if (!messageText || !this.currentChatSession?.chatSessionId) return;
+          if (!messageText) return;
+          
+          // Check if this is the first message after auto message was shown
+          if (this.autoMessageShown && !this.currentChatSession) {
+            // Initiate chat session with the customer's message
+            this.initiateAutoChat(messageText);
+            messageInput.value = '';
+            return;
+          }
+          
+          // Normal message sending flow
+          if (!this.currentChatSession?.chatSessionId) return;
     
           const messageData = {
             chatSessionId: this.currentChatSession.chatSessionId,
@@ -2037,8 +2058,7 @@ export function generateWidgetScript(
           // Display the auto-message
           this.displayMessage(autoMessageObj);
           
-          // Automatically initiate a chat session for seamless experience
-          this.initiateAutoChat(autoMessage.message);
+          // Note: Chat session will be created when user sends their first message
           
           // Scroll to bottom to ensure message is visible
           setTimeout(() => {
@@ -2066,18 +2086,18 @@ export function generateWidgetScript(
           };
         }
 
-        initiateAutoChat(autoMessageText) {
-          // Create a chat session automatically for auto-messages
+        initiateAutoChat(customerMessage) {
+          // Create a chat session with the customer's first message
           const chatData = {
             customerId: this.customerId,
             widgetId: WIDGET_ID,
-            initialMessage: \`Auto-message shown: "\${autoMessageText}"\`,
+            initialMessage: customerMessage,
             name: undefined,
             email: undefined,
-            isAutoMessage: true
+            isAutoMessage: false
           };
           
-          console.log("Initiating auto-chat session", chatData);
+          console.log("Initiating auto-chat session with customer message", chatData);
           this.socket.emit('customer:initiate_chat', chatData);
         }
       }
