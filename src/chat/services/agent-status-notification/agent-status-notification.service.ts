@@ -102,12 +102,12 @@ export class AgentStatusNotificationService {
         `Sent online status acknowledgment to all sockets for agent ${agentId}. Status: ${isOnline}`,
       );
 
-      // Notify customers in active chat sessions with this agent
-      await this.chatNotificationService.notifyCustomersOfAgentStatusChange(
-        agentId,
-        isOnline,
-        agentProfile,
-      );
+      // // Notify customers in active chat sessions with this agent
+      // await this.chatNotificationService.notifyCustomersOfAgentStatusChange(
+      //   agentId,
+      //   isOnline,
+      //   agentProfile,
+      // );
 
       // Notify widget customers about agent status change
       await this.chatNotificationService.notifyWidgetCustomersOfAgentStatusChange(
