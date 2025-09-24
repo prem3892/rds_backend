@@ -1275,8 +1275,8 @@ export function generateWidgetScript(
         }
 
         handleAgentStatusChange(data) {
-          // Expected payload: { chatSessionId, agentId, agentName, isOnline, timestamp }
-          const { agentId, agentName, isOnline } = data;
+          // Expected payload: { chatSessionId, agentId, agentName, isOnline, timestamp, profilePicture }
+          const { agentId, agentName, isOnline, profilePicture } = data;
           
           // Store previous agent availability state to detect transitions
           const wasOffline = this.availableAgents.length === 0;
@@ -1294,11 +1294,16 @@ export function generateWidgetScript(
               this.availableAgents.push({
                 userId: agentId,
                 firstName: agentName,
-                isOnline: true
+                isOnline: true,
+                profilePicture: profilePicture
               });
             } else {
               // Agent already in list, update their status
               this.availableAgents[agentIndex].isOnline = true;
+              // Update profile picture if provided
+              if (profilePicture) {
+                this.availableAgents[agentIndex].profilePicture = profilePicture;
+              }
             }
           } else {
             // Agent went offline

@@ -8,6 +8,7 @@ import { AgentsService } from 'src/agents/agents.service';
 import { WidgetsService } from 'src/widgets/widgets.service';
 import { ChatSessionDocument } from 'src/schemas/chat-session.schema';
 import { UsersService } from 'src/users/users.service';
+import { AgentProfileDocument } from 'src/schemas/agent-profile.schema';
 
 @Injectable()
 export class ChatNotificationService {
@@ -510,7 +511,7 @@ export class ChatNotificationService {
   async notifyWidgetCustomersOfAgentStatusChange(
     agentId: string,
     isOnline: boolean,
-    agentProfile: any,
+    agentProfile: AgentProfileDocument,
   ) {
     try {
       if (!this.server) {
@@ -541,6 +542,7 @@ export class ChatNotificationService {
         agentName: agentName,
         isOnline: isOnline,
         timestamp: new Date().toISOString(),
+        profilePicture: agentProfile?.profilePicture || '',
       };
 
       // Broadcast to each widget's customer room

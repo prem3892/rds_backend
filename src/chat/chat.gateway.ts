@@ -972,6 +972,10 @@ export class ChatGateway
         data.isOnline,
       );
 
+      this.logger.debug(
+        `setOnlineStatus called for agentProfile: ${agentProfile}`,
+      );
+
       // Use the new service to handle all socket notifications and room management
       await this.agentStatusNotificationService.notifyAgentStatusChange(
         agentId,
