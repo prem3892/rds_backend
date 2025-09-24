@@ -1010,6 +1010,16 @@ export function generateWidgetScript(
             console.log('Customer info requested:', data);
             this.showCustomerInfoRequestForm();
           });
+
+          // Listen for appointment booked notification
+          this.socket.on('server:appointment_booked_notification', (data) => {
+            console.log('Appointment booked notification received:', data);
+            // Push event to dataLayer for Google Analytics/Tag Manager
+            window.dataLayer = window.dataLayer || [];
+            window.dataLayer.push({
+              event: 'convoia_chats_book_event'
+            });
+          });
         }
     
         connectWidget() {
