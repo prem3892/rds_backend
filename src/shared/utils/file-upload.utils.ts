@@ -1,6 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { writeFileSync, existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
 /**
  * File upload utility functions
@@ -154,4 +156,62 @@ export function getChatImageUrl(
   filename: string,
 ): string {
   return `/uploads/chat-images/${chatSessionId}/${filename}`;
+}
+
+/**
+ * Generate CSV content from failed bulk upload results
+ */
+export function generateFailedResultsCsv(
+  originalCsvData: any[],
+  failedRowNumbers: number[],
+  errors: string[],
+): string {
+  const headers = ['Row Number', 'shortCode', 'message', 'Error'];
+  const rows = [headers.join(',')];
+
+  failedRowNumbers.forEach((rowNumber, index) => {
+    const originalRow = originalCsvData[rowNumber - 2]; // -2 because CSV is 1-indexed and we skip header
+    const error = errors[index] || 'Unknown error';
+    
+    const row = [
+      rowNumber.toString(),
+      `"${(originalRow?.shortCode || originalRow?.title || '').replace(/"/g, '""')}"`,
+      `"${(originalRow?.message || originalRow?.content || '').replace(/"/g, '""')}"`,
+      `"${error.replace(/"/g, '""')}"`,
+    ];
+    
+    rows.push(row.join(','));
+  });
+
+  return rows.join('\n');
+}
+
+/**
+ * Save failed results CSV to file and return the file path
+ */
+export function saveFailedResultsCsv(
+  csvContent: string,
+  userId: string,
+): string {
+  const uploadPath = join(process.cwd(), 'uploads', 'failed-results');
+  
+  // Create upload directory if it doesn't exist
+  if (!existsSync(uploadPath)) {
+    mkdirSync(uploadPath, { recursive: true });
+  }
+
+  const timestamp = Date.now();
+  const filename = `failed-canned-messages-${userId}-${timestamp}.csv`;
+  const filePath = join(uploadPath, filename);
+
+  writeFileSync(filePath, csvContent, 'utf-8');
+  
+  return `/uploads/failed-results/${filename}`;
+}
+
+/**
+ * Get the upload directory path for failed results
+ */
+export function getFailedResultsUploadPath(): string {
+  return 'uploads/failed-results';
 }

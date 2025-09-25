@@ -28,6 +28,10 @@ import { ChatSessionService } from 'src/chat/services/chat-session/chat-session.
 import { WidgetsService } from 'src/widgets/widgets.service';
 import { CustomersService } from 'src/customers/customers.service';
 import { ShiftService } from '../shared/services/shift.service';
+import { parse } from 'csv-parse/sync';
+import { readFileSync, unlinkSync } from 'fs';
+import { BulkUploadCannedMessagesResponseDto } from './dto/bulk-upload-canned-messages.dto';
+import { generateFailedResultsCsv, saveFailedResultsCsv } from '../shared/utils/file-upload.utils';
 
 @Injectable()
 export class AgentsService {
@@ -717,6 +721,138 @@ export class AgentsService {
     }
 
     return populatedMessage;
+  }
+
+  /**
+   * Bulk upload canned messages from CSV file
+   */
+  async bulkUploadCannedMessages(
+    agentUserId: string,
+    filePath: string,
+  ): Promise<BulkUploadCannedMessagesResponseDto> {
+    const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
+    
+    let csvData: any[];
+    try {
+      // Read and parse CSV file
+      const fileContent = readFileSync(filePath, 'utf-8');
+      csvData = parse(fileContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to parse CSV file: ${error.message}`);
+      throw new BadRequestException('Invalid CSV file format');
+    }
+
+    if (!csvData || csvData.length === 0) {
+      throw new BadRequestException('CSV file is empty or has no valid data');
+    }
+
+    const result: BulkUploadCannedMessagesResponseDto = {
+      totalProcessed: csvData.length,
+      successCount: 0,
+      failureCount: 0,
+      errors: [],
+      createdMessageIds: [],
+    };
+
+    const failedRowNumbers: number[] = [];
+
+    // Process each row
+    for (let i = 0; i < csvData.length; i++) {
+      const row = csvData[i];
+      const rowNumber = i + 2; // +2 because CSV is 1-indexed and we skip header
+
+      try {
+        // Map CSV fields to canned message fields
+        const title = row.shortCode || row.title;
+        const content = row.message || row.content;
+
+        // Validate required fields
+        if (!title || !content) {
+          result.errors.push(
+            `Row ${rowNumber}: Title (shortCode) and content (message) are required`,
+          );
+          result.failureCount++;
+          failedRowNumbers.push(rowNumber);
+          continue;
+        }
+
+        // Create canned message
+        const cannedMessage = new this.cannedMessageModel({
+          title: title.trim(),
+          content: content.trim(),
+          agentId: agentProfile.userId,
+          adminId: agentProfile.adminId,
+          isGlobal: true, // Set to true for bulk upload as requested
+          departmentIds: [], // Keep empty as requested
+          tags: [], // Keep empty as requested
+        });
+
+        const savedMessage = await cannedMessage.save();
+        result.createdMessageIds.push((savedMessage._id as Types.ObjectId).toString());
+        result.successCount++;
+
+        this.logger.log(
+          `Bulk upload: Created canned message ${savedMessage._id} from row ${rowNumber}`,
+        );
+      } catch (error) {
+        let errorMessage = `Row ${rowNumber}: `;
+        
+        if (error.code === 11000 && error.keyPattern?.title) {
+          errorMessage += `A canned message with the title "${row.shortCode || row.title}" already exists for this admin.`;
+        } else {
+          errorMessage += error.message || 'Unknown error occurred';
+        }
+        
+        result.errors.push(errorMessage);
+        result.failureCount++;
+        failedRowNumbers.push(rowNumber);
+        
+        this.logger.error(
+          `Bulk upload failed for row ${rowNumber}: ${error.message}`,
+        );
+      }
+    }
+
+    // Generate failed results CSV if there are any failures
+    if (result.failureCount > 0) {
+      try {
+        const failedCsvContent = generateFailedResultsCsv(
+          csvData,
+          failedRowNumbers,
+          result.errors,
+        );
+        
+        result.failedResultsDownloadUrl = saveFailedResultsCsv(
+          failedCsvContent,
+          agentUserId,
+        );
+        
+        this.logger.log(
+          `Generated failed results CSV with ${result.failureCount} failed entries`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to generate failed results CSV: ${error.message}`,
+        );
+      }
+    }
+
+    // Clean up the uploaded file
+    try {
+      unlinkSync(filePath);
+    } catch (error) {
+      this.logger.warn(`Failed to delete uploaded file ${filePath}: ${error.message}`);
+    }
+
+    this.logger.log(
+      `Bulk upload completed: ${result.successCount} successful, ${result.failureCount} failed out of ${result.totalProcessed} total`,
+    );
+
+    return result;
   }
 
   /**

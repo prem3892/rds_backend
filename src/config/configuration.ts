@@ -29,7 +29,7 @@ export default () => ({
       10,
     ), // 90s
     maxPriorityAlerts: parseInt(
-      process.env.CHAT_MAX_PRIORITY_ALERTS || '3',
+      process.env.CHAT_MAX_PRIORITY_ALERTS || '1',
       10,
     ),
     agentReconnectTimeoutMs: parseInt(
@@ -70,7 +70,7 @@ export default () => ({
       process.env.VISITOR_DISCONNECTED_GRACE_PERIOD_MS || '300000',
       10,
     ), // 5 minutes
-    maxVisitorsPerAgent: parseInt(
+VisitorsPerAgent: parseInt(
       process.env.MAX_VISITORS_PER_AGENT || '1000',
       10,
     ),

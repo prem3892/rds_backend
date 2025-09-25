@@ -2,6 +2,7 @@ import { BadRequestException, Logger } from '@nestjs/common';
 import { diskStorage } from 'multer';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
 import {
   validateProfilePictureFile,
   generateProfilePictureFilename,
@@ -101,4 +102,88 @@ export function createChatImageUploadInterceptor() {
       }
     },
   });
+}
+
+/**
+ * Factory function to create CSV upload interceptor for canned messages
+ * Usage: @UseInterceptors(createCsvUploadInterceptor())
+ */
+export function createCsvUploadInterceptor() {
+  const uploadPath = join(process.cwd(), 'uploads', 'csv-uploads');
+
+  // Create upload directory if it doesn't exist
+  if (!existsSync(uploadPath)) {
+    mkdirSync(uploadPath, { recursive: true });
+  }
+
+  return FileInterceptor('file', {
+    storage: diskStorage({
+      destination: uploadPath,
+      filename: (req, file, callback) => {
+        try {
+          validateCsvFile(file);
+          const userId = req.user?.sub || 'anonymous';
+          const timestamp = Date.now();
+          const filename = `canned-messages-${userId}-${timestamp}.csv`;
+          callback(null, filename);
+        } catch (error) {
+          callback(error, null);
+        }
+      },
+    }),
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB
+    },
+    fileFilter: (req, file, callback) => {
+      try {
+        validateCsvFile(file);
+        callback(null, true);
+      } catch (error) {
+        callback(error, false);
+      }
+    },
+  });
+}
+
+/**
+ * Validate CSV file
+ */
+function validateCsvFile(file: any): void {
+  if (!file) {
+    throw new BadRequestException('No file provided');
+  }
+
+  // Check file type
+  const allowedMimeTypes = [
+    'text/csv',
+    'application/csv',
+    'text/plain',
+    'application/vnd.ms-excel',
+  ];
+  
+  if (!allowedMimeTypes.includes(file.mimetype)) {
+    throw new BadRequestException(
+      'Invalid file type. Only CSV files are allowed.',
+    );
+  }
+
+  // Check file extension
+  const allowedExtensions = ['.csv'];
+  const fileExtension = file.originalname
+    .toLowerCase()
+    .substring(file.originalname.lastIndexOf('.'));
+  
+  if (!allowedExtensions.includes(fileExtension)) {
+    throw new BadRequestException(
+      'Invalid file extension. Only .csv files are allowed.',
+    );
+  }
+
+  // Check file size (10MB limit)
+  const maxSize = 10 * 1024 * 1024; // 10MB
+  if (file.size > maxSize) {
+    throw new BadRequestException(
+      'File size too large. Maximum allowed size is 10MB.',
+    );
+  }
 }

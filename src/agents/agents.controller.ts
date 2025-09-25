@@ -36,6 +36,7 @@ import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto';
 import { CreateCannedMessageDto } from './dto/create-canned-message.dto';
 import { UpdateCannedMessageDto } from './dto/update-canned-message.dto';
 import { GetCannedMessagesDto } from './dto/get-canned-messages.dto';
+import { BulkUploadCannedMessagesResponseDto } from './dto/bulk-upload-canned-messages.dto';
 import {
   AgentProfileResponseDto,
   CannedMessageResponseDto,
@@ -51,7 +52,7 @@ import { UsersService } from '../users/users.service'; // For password updates
 import { UpdateUserDto } from 'src/users/dto/update-user.dto';
 import { Types } from 'mongoose';
 import { ChatNotificationService } from '../chat/services/chat-notification/chat-notification.service';
-import { createProfilePictureUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
+import { createProfilePictureUploadInterceptor, createCsvUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
 import { getProfilePictureUrl } from '../shared/utils/file-upload.utils';
 import {
   ErrorResponseDto,
@@ -553,7 +554,68 @@ export class AgentsController {
     @AuthenticatedUser() user: JwtPayload,
     @Body() createDto: CreateCannedMessageDto,
   ) {
-    return this.agentsService.createCannedMessage(user.sub, createDto);
+return this.agentsService.createCannedMessage(user.sub, createDto);
+  }
+
+  /**
+   * Bulk upload canned messages from CSV file
+   */
+  @Post('canned-messages/bulk-upload')
+  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @UseInterceptors(createCsvUploadInterceptor())
+  @ApiOperation({
+    summary: 'Bulk upload canned messages from CSV file',
+    description:
+      'Upload a CSV file containing canned messages to create multiple messages at once. The CSV should contain shortCode (mapped to title) and message (mapped to content) columns. All uploaded messages will be set as global with empty departments and tags. If any entries fail, a CSV file with failed results will be generated and a download URL will be provided in the response.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'CSV file containing canned messages',
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'CSV file with canned messages (shortCode, message columns)',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Bulk upload completed successfully',
+    type: BulkUploadCannedMessagesResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid CSV file or format',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent or Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  async bulkUploadCannedMessages(
+    @AuthenticatedUser() user: JwtPayload,
+    @UploadedFile() file: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No CSV file provided');
+    }
+
+    this.logger.log(
+      `User ${user.email} initiated bulk upload of canned messages from file: ${file.originalname}`,
+    );
+
+    return this.agentsService.bulkUploadCannedMessages(
+      user.sub,
+      file.path,
+    );
   }
 
   /**
