@@ -144,6 +144,7 @@ export function generateWidgetScript(
             width: '380px',
             maxWidth: 'calc(100vw - 64px)', // Ensure it doesn't exceed viewport width minus margins
             maxHeight: '80vh',
+            height: '80vh',
             borderRadius: '8px',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
             border: '1px solid #e5e7eb',
@@ -465,20 +466,10 @@ export function generateWidgetScript(
                 border-bottom: 1px solid #e5e7eb;
                 background-color: white;
                 flex-shrink: 0;
+                flex-grow: 1;
+                display: flex;
+                flex-direction: column;
               ">
-                <div style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                ">
-                  <div>
-                    <div style="
-                      font-size: 12px;
-                      color: #6b7280;
-                    " id="agent-status">Connecting...</div>
-                  </div>
-                </div>
-              </div>
     
               <!-- Messages Container - Fixed height issue with overflow -->
               <div id="messages-container" style="
@@ -1197,7 +1188,7 @@ export function generateWidgetScript(
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: '4px'
+              gap: '2px'
             });
             
             // Create profile picture container with relative positioning for status dot
@@ -1209,8 +1200,8 @@ export function generateWidgetScript(
               const profileImg = document.createElement('img');
               profileImg.src = \`\${API_BASE}\${agent.profilePicture}\`;
               utils.applyStyles(profileImg, {
-                width: '48px',
-                height: '48px',
+                width: '70px',
+                height: '70px',
                 borderRadius: '50%',
                 border: '2px solid white',
                 objectFit: 'cover'
@@ -1223,8 +1214,8 @@ export function generateWidgetScript(
                 this.style.display = 'none';
                 const defaultAvatar = document.createElement('div');
                 utils.applyStyles(defaultAvatar, {
-                  width: '32px',
-                  height: '32px',
+                  width: '70px',
+                  height: '70px',
                   borderRadius: '50%',
                   border: '2px solid white',
                   backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1257,13 +1248,13 @@ export function generateWidgetScript(
             // Add green status dot at bottom right
             const statusDot = document.createElement('div');
             utils.applyStyles(statusDot, {
-              width: '8px',
-              height: '8px',
+              width: '10px',
+              height: '10px',
               backgroundColor: '#4ade80',
               borderRadius: '50%',
               position: 'absolute',
-              bottom: '0',
-              right: '0'
+              bottom: '10px',
+              right: '8px'
             });
             profilePicContainer.appendChild(statusDot);
             
@@ -1272,7 +1263,7 @@ export function generateWidgetScript(
             // Create name label
             const nameLabel = document.createElement('span');
             utils.applyStyles(nameLabel, {
-              fontSize: '12px',
+              fontSize: '16px',
               fontWeight: '500',
               color: 'white',
               opacity: '0.9'
@@ -1750,7 +1741,7 @@ export function generateWidgetScript(
         }
         
         hideTypingIndicator() { document.getElementById('typing-indicator').style.display = 'none'; }
-        showAgentStatus(status) { document.getElementById('agent-status').textContent = status; }
+        //showAgentStatus(status) { document.getElementById('agent-status').textContent = status; }
     
         showConnectionStatus(message, type = 'yellow') {
           const statusEl = document.getElementById('connection-status');
