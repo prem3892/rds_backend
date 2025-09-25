@@ -384,12 +384,39 @@ export function generateWidgetScript(
           this.chatWindow.innerHTML = \`
             <!-- Header -->
             <div style="
-              padding: 16px;
               border-radius: 8px 8px 0 0;
               color: white;
               flex-shrink: 0;
               background-color: \${primaryColor};
+              padding-top: 17px;
             ">
+
+             <div id="minimize-btn" role="button" tabindex="0" style="
+                    color: white;
+                    cursor: pointer;
+                    transition: color 0.2s ease;
+                    user-select: none;
+                    outline: none;
+                    display: flex;
+                    justify-content: end;
+                    padding: 8px;
+                    position: absolute;
+                    right: 10px;
+                    top: 2px;
+                  " onmouseover="this.style.color='#d1d5db'" onmouseout="this.style.color='white'">
+                    <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                  </div>
+              
+              <!-- Agent Profiles Row -->
+              <div id="agent-profiles" style="
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 12px;
+              "></div>
+
               <!-- Header Row -->
               <div style="
                 display: flex;
@@ -406,25 +433,8 @@ export function generateWidgetScript(
                 ">
                   <span id="chat-header-text" style="font-weight: 500; text-align: center;">\${utils.escapeHtml(headerText)}</span>
                 </div>
-                <div id="minimize-btn" role="button" tabindex="0" style="
-                  color: white;
-                  cursor: pointer;
-                  transition: color 0.2s ease;
-                  user-select: none;
-                  outline: none;
-                " onmouseover="this.style.color='#d1d5db'" onmouseout="this.style.color='white'">
-                  <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                  </svg>
-                </div>
+                 
               </div>
-              <!-- Agent Profiles Row -->
-              <div id="agent-profiles" style="
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 12px;
-              "></div>
             </div>
     
             <!-- Connection Status -->
@@ -466,10 +476,21 @@ export function generateWidgetScript(
                 border-bottom: 1px solid #e5e7eb;
                 background-color: white;
                 flex-shrink: 0;
-                flex-grow: 1;
-                display: flex;
-                flex-direction: column;
+                display: none;
               ">
+                <div style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                ">
+                  <div>
+                    <div style="
+                      font-size: 12px;
+                      color: #6b7280;
+                    " id="agent-status">Connecting...</div>
+                  </div>
+                </div>
+              </div>
     
               <!-- Messages Container - Fixed height issue with overflow -->
               <div id="messages-container" style="
@@ -546,14 +567,12 @@ export function generateWidgetScript(
                              width: 100%;
                              color: black;
                              padding: 8px 50px 8px 12px;
-                             border: 1px solid #d1d5db;
-                             border-radius: 8px;
+                             border: none;
                              outline: none;
                              box-sizing: border-box;
                              transition: border-color 0.2s ease, box-shadow 0.2s ease;
                            "
-                           onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
-                           onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
+                           >
                     <input type="file" id="file-input" style="display: none;" accept="image/*,.pdf,.doc,.docx,.txt">
                     <div id="attach-btn" role="button" tabindex="0" style="
                       position: absolute;
@@ -1137,7 +1156,7 @@ export function generateWidgetScript(
           
           let displayText;
           if (agentsAvailable) {
-            displayText = this.config.widgetConfig?.headerText || 'Chat with us';
+            displayText = this.config.widgetConfig?.headerText || '';
           } else {
             displayText = this.config.widgetConfig?.offline_text || this.config.widgetConfig?.headerText || 'Chat with us';
           }
@@ -1188,7 +1207,7 @@ export function generateWidgetScript(
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: '2px'
+              gap: '4px'
             });
             
             // Create profile picture container with relative positioning for status dot
@@ -1200,8 +1219,8 @@ export function generateWidgetScript(
               const profileImg = document.createElement('img');
               profileImg.src = \`\${API_BASE}\${agent.profilePicture}\`;
               utils.applyStyles(profileImg, {
-                width: '70px',
-                height: '70px',
+                width: '76px',
+                height: '76px',
                 borderRadius: '50%',
                 border: '2px solid white',
                 objectFit: 'cover'
@@ -1214,8 +1233,8 @@ export function generateWidgetScript(
                 this.style.display = 'none';
                 const defaultAvatar = document.createElement('div');
                 utils.applyStyles(defaultAvatar, {
-                  width: '70px',
-                  height: '70px',
+                  width: '32px',
+                  height: '32px',
                   borderRadius: '50%',
                   border: '2px solid white',
                   backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1232,8 +1251,8 @@ export function generateWidgetScript(
               // Show default avatar if no profile picture
               const defaultAvatar = document.createElement('div');
               utils.applyStyles(defaultAvatar, {
-                width: '32px',
-                height: '32px',
+                width: '76px',
+                height: '76px',
                 borderRadius: '50%',
                 border: '2px solid white',
                 backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1254,7 +1273,7 @@ export function generateWidgetScript(
               borderRadius: '50%',
               position: 'absolute',
               bottom: '10px',
-              right: '8px'
+              right: '10px'
             });
             profilePicContainer.appendChild(statusDot);
             
@@ -1627,7 +1646,6 @@ export function generateWidgetScript(
           let messageStyles = \`
             max-width: \${maxWidth};
             padding: 8px 12px;
-            border-radius: 8px;
             \${message.isUploading || isPending ? 'opacity: 0.5;' : ''}
           \`;
           
@@ -1635,6 +1653,10 @@ export function generateWidgetScript(
             messageStyles += \`
               color: white;
               background-color: \${primaryColor};
+              border-top-left-radius: 8px;
+              border-top-right-radius: 18px;
+              border-bottom-left-radius: 8px;
+              border-bottom-right-radius: 0px;
             \`;
           } else if (isSystem) {
             if (isInfoForm) {
@@ -1643,6 +1665,7 @@ export function generateWidgetScript(
                 border: 1px solid #bfdbfe;
                 color: #1f2937;
                 width: 100%;
+                border-radius: 8px;
               \`;
             } else {
               messageStyles += \`
@@ -1651,12 +1674,17 @@ export function generateWidgetScript(
                 font-size: 14px;
                 text-align: center;
                 width: 100%;
+                border-radius: 8px;
               \`;
             }
           } else {
             messageStyles += \`
               color: white;
               background-color: \${secondaryColor};
+              border-top-right-radius: 8px;
+              border-top-left-radius: 18px;
+              border-bottom-right-radius: 8px;
+              border-bottom-left-radius: 0px;
             \`;
           }
           
@@ -1741,7 +1769,7 @@ export function generateWidgetScript(
         }
         
         hideTypingIndicator() { document.getElementById('typing-indicator').style.display = 'none'; }
-        //showAgentStatus(status) { document.getElementById('agent-status').textContent = status; }
+        showAgentStatus(status) { document.getElementById('agent-status').textContent = status; }
     
         showConnectionStatus(message, type = 'yellow') {
           const statusEl = document.getElementById('connection-status');
