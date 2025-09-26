@@ -1939,7 +1939,13 @@ export function generateWidgetScript(
             
             // If not in an active chat session, show customer info form directly
             if (!this.currentChatSession) {
-              this.showCustomerInfoForm();
+              if (this.autoMessageShown) {
+                console.log("Showing auto-message after reopening chat.");
+                this.showAutoMessage(this.processAutoMessages());
+              } else {
+                this.showCustomerInfoForm();
+              }
+              
             } else if (document.getElementById('chat-interface').style.display !== 'none') {
               setTimeout(() => {
                 const messageInput = document.getElementById('message-input');
