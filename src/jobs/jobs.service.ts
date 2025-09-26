@@ -57,7 +57,7 @@ export class JobsService {
    * If a customer has been inactive for more than the configured threshold (default 10 minutes),
    * the chat session is updated to ABANDONED_BY_CUSTOMER
    */
-  @Cron(CronExpression.EVERY_MINUTE)
+  @Cron(CronExpression.EVERY_5_MINUTES)
   async checkForInactiveParticipants() {
     this.logger.debug('Running scheduled job: checkForInactiveParticipants');
 
@@ -326,7 +326,7 @@ export class JobsService {
    * Sends priority notifications to eligible agents for pending sessions
    * and marks expired sessions as EXPIRED_PENDING_ASSIGNMENT
    */
-  @Cron(CronExpression.EVERY_30_SECONDS)
+  @Cron(CronExpression.EVERY_5_MINUTES)
   async handleUnattendedChatNotifications() {
     this.logger.debug('Running unattended chat notification job...');
 
