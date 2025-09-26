@@ -148,7 +148,6 @@ export function generateWidgetScript(
             border: '1px solid #e5e7eb',
             display: 'none',
             flexDirection: 'column',
-            min-width:
             overflow: 'hidden' // Prevent content from overflowing
           };
           
