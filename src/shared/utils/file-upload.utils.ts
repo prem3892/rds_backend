@@ -215,3 +215,20 @@ export function saveFailedResultsCsv(
 export function getFailedResultsUploadPath(): string {
   return 'uploads/failed-results';
 }
+
+/**
+ * Clean up content from CSV parsing - remove unwanted newlines and normalize whitespace
+ */
+export function cleanCsvContent(content: string): string {
+  if (!content) return '';
+  
+  return content
+    .trim()
+    .replace(/\\n/g, ' ') // Replace literal \n with space
+    .replace(/\\r/g, ' ') // Replace literal \r with space
+    .replace(/\n+/g, ' ') // Replace actual newlines with space
+    .replace(/\r+/g, ' ') // Replace actual carriage returns with space
+    .replace(/\t+/g, ' ') // Replace tabs with space
+    .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+    .trim();
+}

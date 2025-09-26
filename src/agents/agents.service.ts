@@ -28,10 +28,10 @@ import { ChatSessionService } from 'src/chat/services/chat-session/chat-session.
 import { WidgetsService } from 'src/widgets/widgets.service';
 import { CustomersService } from 'src/customers/customers.service';
 import { ShiftService } from '../shared/services/shift.service';
-import { parse } from 'csv-parse/sync';
+const { parse } = require('csv-parse/sync');
 import { readFileSync, unlinkSync } from 'fs';
 import { BulkUploadCannedMessagesResponseDto } from './dto/bulk-upload-canned-messages.dto';
-import { generateFailedResultsCsv, saveFailedResultsCsv } from '../shared/utils/file-upload.utils';
+import { generateFailedResultsCsv, saveFailedResultsCsv, cleanCsvContent } from '../shared/utils/file-upload.utils';
 
 @Injectable()
 export class AgentsService {
@@ -740,6 +740,9 @@ export class AgentsService {
         columns: true,
         skip_empty_lines: true,
         trim: true,
+        relax_column_count: true, // Allow flexible column count
+        quote: '"', // Handle quoted fields properly
+        escape: '"', // Handle escaped quotes
       });
     } catch (error) {
       this.logger.error(`Failed to parse CSV file: ${error.message}`);
@@ -780,10 +783,13 @@ export class AgentsService {
           continue;
         }
 
+        // Clean up content - remove unwanted newlines and normalize whitespace
+        const cleanedContent = cleanCsvContent(content);
+
         // Create canned message
         const cannedMessage = new this.cannedMessageModel({
           title: title.trim(),
-          content: content.trim(),
+          content: cleanedContent,
           agentId: agentProfile.userId,
           adminId: agentProfile.adminId,
           isGlobal: true, // Set to true for bulk upload as requested
