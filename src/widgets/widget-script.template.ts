@@ -342,7 +342,7 @@ export function generateWidgetScript(
               color: \${textColor};
             ">
               <span style="
-                font-weight: 500;
+                font-weight: 900;
                 font-size: 16px;
                 white-space: nowrap;
               ">\${utils.escapeHtml(buttonLabel)}</span>
