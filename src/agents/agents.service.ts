@@ -21,6 +21,7 @@ import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto';
 import { CreateCannedMessageDto } from './dto/create-canned-message.dto';
 import { UpdateCannedMessageDto } from './dto/update-canned-message.dto';
 import { GetCannedMessagesDto } from './dto/get-canned-messages.dto';
+import { GetAgentsDto } from './dto/get-agents.dto';
 import { UsersService } from '../users/users.service';
 import { UserRole } from '../shared/constants/enums';
 import { DepartmentsService } from 'src/departments/departments.service';
@@ -206,6 +207,250 @@ export class AgentsService {
           : null, // Attach only specific user fields
       };
     });
+  }
+
+  /**
+   * Get agents with pagination and filtering
+   */
+  async getAgentsWithPagination(
+    adminId: string | Types.ObjectId,
+    queryDto: GetAgentsDto,
+  ): Promise<{
+    items: any[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNext: boolean;
+      hasPrev: boolean;
+    };
+  }> {
+    this.logger.debug(
+      `Getting agents with pagination for admin ${adminId} with query: ${JSON.stringify(queryDto)}`,
+    );
+
+    // if adminId is not ObjectId, convert it to ObjectId
+    if (typeof adminId === 'string') adminId = new Types.ObjectId(adminId);
+
+    const {
+      search,
+      departmentIds,
+      isOnline,
+      isBlocked,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+    } = queryDto;
+
+    // Build query for agent profiles
+    const query: any = { adminId };
+
+    // Apply filters
+    if (isOnline !== undefined) {
+      query.isOnline = isOnline;
+    }
+
+    if (isBlocked !== undefined) {
+      query.isBlocked = isBlocked;
+    }
+
+    if (departmentIds && departmentIds.length > 0) {
+      query.departmentIds = {
+        $in: departmentIds.map((id) => new Types.ObjectId(id)),
+      };
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+
+    // Build sort object - handle user fields differently
+    const sort: any = {};
+    if (['firstName', 'lastName', 'email'].includes(sortBy)) {
+      // For user fields, we'll sort after joining
+      sort['createdAt'] = sortOrder === 'asc' ? 1 : -1; // Default sort for now
+    } else {
+      sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+    }
+
+    this.logger.debug(`Final query for agents: ${JSON.stringify(query)}`);
+    this.logger.debug(
+      `Sort: ${JSON.stringify(sort)}, Skip: ${skip}, Limit: ${limit}`,
+    );
+
+    // For search functionality, we need to get all matching records first
+    // then apply pagination, since search is on user fields
+    if (search) {
+      // Get all agent profiles matching the query (without pagination)
+      const allAgentProfiles = await this.agentProfileModel
+        .find(query)
+        .populate('departmentIds', 'name')
+        .lean()
+        .exec();
+
+      // Get user details for all agent profiles
+      const allUserIds = allAgentProfiles.map((profile) => profile.userId);
+      const allUsers = await this.usersService.findManyByIds(allUserIds);
+      const allUserMap = new Map(
+        allUsers.map((user) => [user._id.toString(), user]),
+      );
+
+      // Combine and filter by search
+      const escapedSearch = search.toLowerCase();
+      let filteredItems = allAgentProfiles
+        .map((profile) => {
+          const userDetails = allUserMap.get(profile.userId.toString());
+          return {
+            ...profile,
+            user: userDetails
+              ? {
+                  _id: userDetails._id,
+                  firstName: userDetails.firstName,
+                  lastName: userDetails.lastName,
+                  email: userDetails.email,
+                  role: userDetails.role,
+                  isEmailVerified: userDetails.isEmailVerified,
+                }
+              : null,
+          };
+        })
+        .filter((item) => {
+          if (!item.user) return false;
+          const fullName =
+            `${item.user.firstName} ${item.user.lastName}`.toLowerCase();
+          const email = item.user.email.toLowerCase();
+          return (
+            fullName.includes(escapedSearch) || email.includes(escapedSearch)
+          );
+        });
+
+      // Apply sorting for user fields
+      if (['firstName', 'lastName', 'email'].includes(sortBy)) {
+        filteredItems.sort((a, b) => {
+          const aValue = a.user?.[sortBy]?.toLowerCase() || '';
+          const bValue = b.user?.[sortBy]?.toLowerCase() || '';
+
+          if (sortOrder === 'asc') {
+            return aValue.localeCompare(bValue);
+          } else {
+            return bValue.localeCompare(aValue);
+          }
+        });
+      } else {
+        // Sort by agent profile fields
+        filteredItems.sort((a, b) => {
+          const aValue = a[sortBy];
+          const bValue = b[sortBy];
+
+          if (sortOrder === 'asc') {
+            return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
+          } else {
+            return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
+          }
+        });
+      }
+
+      // Apply pagination to filtered results
+      const total = filteredItems.length;
+      const items = filteredItems.slice(skip, skip + limit);
+
+      // Calculate pagination metadata
+      const totalPages = Math.ceil(total / limit);
+      const hasNext = page < totalPages;
+      const hasPrev = page > 1;
+
+      this.logger.debug(
+        `Retrieved ${items.length} agents for admin ${adminId} (page ${page}/${totalPages}), total found: ${total}`,
+      );
+
+      const meta = {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext,
+        hasPrev,
+      };
+
+      return {
+        items,
+        meta,
+      };
+    } else {
+      // No search - use database pagination
+      const [agentProfiles, total] = await Promise.all([
+        this.agentProfileModel
+          .find(query)
+          .populate('departmentIds', 'name')
+          .sort(sort)
+          .skip(skip)
+          .limit(limit)
+          .lean()
+          .exec(),
+        this.agentProfileModel.countDocuments(query).exec(),
+      ]);
+
+      // Get user details for the agent profiles
+      const userIds = agentProfiles.map((profile) => profile.userId);
+      const users = await this.usersService.findManyByIds(userIds);
+      const userMap = new Map(users.map((user) => [user._id.toString(), user]));
+
+      // Combine agent profiles with user details
+      let items = agentProfiles.map((profile) => {
+        const userDetails = userMap.get(profile.userId.toString());
+        return {
+          ...profile,
+          user: userDetails
+            ? {
+                _id: userDetails._id,
+                firstName: userDetails.firstName,
+                lastName: userDetails.lastName,
+                email: userDetails.email,
+                role: userDetails.role,
+                isEmailVerified: userDetails.isEmailVerified,
+              }
+            : null,
+        };
+      });
+
+      // Apply sorting for user fields after combining data
+      if (['firstName', 'lastName', 'email'].includes(sortBy)) {
+        items.sort((a, b) => {
+          const aValue = a.user?.[sortBy]?.toLowerCase() || '';
+          const bValue = b.user?.[sortBy]?.toLowerCase() || '';
+
+          if (sortOrder === 'asc') {
+            return aValue.localeCompare(bValue);
+          } else {
+            return bValue.localeCompare(aValue);
+          }
+        });
+      }
+
+      // Calculate pagination metadata
+      const totalPages = Math.ceil(total / limit);
+      const hasNext = page < totalPages;
+      const hasPrev = page > 1;
+
+      this.logger.debug(
+        `Retrieved ${items.length} agents for admin ${adminId} (page ${page}/${totalPages}), total found: ${total}`,
+      );
+
+      const meta = {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext,
+        hasPrev,
+      };
+
+      return {
+        items,
+        meta,
+      };
+    }
   }
 
   async updateAgentProfileByUserId(
