@@ -144,7 +144,6 @@ export function generateWidgetScript(
             width: '380px',
             maxWidth: 'calc(100vw - 64px)', // Ensure it doesn't exceed viewport width minus margins
             maxHeight: '80vh',
-            height: '80vh',
             borderRadius: '8px',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
             border: '1px solid #e5e7eb',
@@ -500,6 +499,7 @@ export function generateWidgetScript(
                 display: flex;
                 flex-direction: column;
                 gap: 12px;
+                min-height: 50vh
               ">
                 <!-- Messages will be populated here -->
               </div>
@@ -603,7 +603,7 @@ export function generateWidgetScript(
                     justify-content: center;
                     background-color: \${primaryColor};
                   " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-                    <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg style="width: 20px; height: 20px; rotate: 90deg;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
                     </svg>
                   </div>
@@ -679,7 +679,7 @@ export function generateWidgetScript(
                     color: #374151;
                     margin-bottom: 4px;
                   ">Message</label>
-                  <textarea id="initial-message" rows="3" placeholder="How can we help you?" style="
+                  <textarea id="initial-message" rows="4" placeholder="How can we help you?" style="
                     flex: 1;
                     width: 100%;
                     padding: 8px 12px;
