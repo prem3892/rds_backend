@@ -148,18 +148,19 @@ export function generateWidgetScript(
             border: '1px solid #e5e7eb',
             display: 'none',
             flexDirection: 'column',
+            min-width:
             overflow: 'hidden' // Prevent content from overflowing
           };
           
           switch (location) {
             case 'bottom_left':
               return {
-                container: { ...baseContainerStyle, bottom: '28px', left: '32px' },
+                container: { ...baseContainerStyle, bottom: '28px', left: '18px' },
                 chatWindow: { ...baseChatWindowStyle, bottom: '0', left: '0', minWidth: '320px' }
               };
             case 'bottom_right':
               return {
-                container: { ...baseContainerStyle, bottom: '28px', right: '32px' },
+                container: { ...baseContainerStyle, bottom: '28px', right: '18px' },
                 chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0', minWidth: '320px' }
               };
             case 'top_left':
@@ -175,7 +176,7 @@ export function generateWidgetScript(
             default:
               // Default to bottom_right
               return {
-                container: { ...baseContainerStyle, bottom: '28px', right: '32px' },
+                container: { ...baseContainerStyle, bottom: '28px', right: '18px' },
                 chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0', minWidth: '320px' }
               };
           }
