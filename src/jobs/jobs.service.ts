@@ -348,15 +348,15 @@ export class JobsService {
           session.domain,
         );
 
+        const updatedSession =
+          await this.chatSessionService.incrementPriorityNotificationCount(
+            session._id,
+          );
+
         if (eligibleAgents.length > 0) {
           this.logger.log(
             `Found ${eligibleAgents.length} eligible agents for session ${session._id}. Sending priority notification.`,
           );
-
-          const updatedSession =
-            await this.chatSessionService.incrementPriorityNotificationCount(
-              session._id,
-            );
 
           this.logger.log(
             `Incremented priority notification count for session ${session._id}. New count: ${
