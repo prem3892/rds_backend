@@ -36,6 +36,7 @@ import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto';
 import { CreateCannedMessageDto } from './dto/create-canned-message.dto';
 import { UpdateCannedMessageDto } from './dto/update-canned-message.dto';
 import { GetCannedMessagesDto } from './dto/get-canned-messages.dto';
+import { GetAgentsDto } from './dto/get-agents.dto';
 import {
   AgentProfileResponseDto,
   CannedMessageResponseDto,
@@ -79,14 +80,80 @@ export class AgentsController {
   @Get()
   @Roles(UserRole.ADMIN)
   @ApiOperation({
-    summary: 'Get all agents with profiles (Admin only)',
+    summary: 'Get agents with pagination and filtering (Admin only)',
     description:
-      'Retrieve a list of all agent profiles with associated user details. Only accessible by administrators.',
+      'Retrieve a paginated list of agent profiles with associated user details. Supports filtering by search term, departments, online status, blocked status, and sorting options. Only accessible by administrators.',
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Search text to filter agents by name or email',
+    example: 'john',
+  })
+  @ApiQuery({
+    name: 'departmentIds',
+    required: false,
+    description: 'Comma-separated list of department IDs to filter by',
+    example: '507f1f77bcf86cd799439011,507f1f77bcf86cd799439012',
+  })
+  @ApiQuery({
+    name: 'isOnline',
+    required: false,
+    description: 'Filter by online status',
+    example: true,
+    type: Boolean,
+  })
+  @ApiQuery({
+    name: 'isBlocked',
+    required: false,
+    description: 'Filter by blocked status',
+    example: false,
+    type: Boolean,
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Page number for pagination',
+    example: 1,
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Number of items per page',
+    example: 10,
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    description: 'Field to sort by',
+    example: 'createdAt',
+    enum: [
+      'createdAt',
+      'updatedAt',
+      'firstName',
+      'lastName',
+      'email',
+      'isOnline',
+      'lastSeen',
+    ],
+  })
+  @ApiQuery({
+    name: 'sortOrder',
+    required: false,
+    description: 'Sort order',
+    example: 'desc',
+    enum: ['asc', 'desc'],
   })
   @ApiResponse({
     status: 200,
-    description: 'List of agents retrieved successfully',
-    type: [AgentProfileResponseDto],
+    description: 'Agents retrieved successfully with pagination',
+    type: PaginatedResponseDto<AgentProfileResponseDto>,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid query parameters',
+    type: ErrorResponseDto,
   })
   @ApiUnauthorizedResponse({
     description: 'Authentication required',
@@ -96,8 +163,11 @@ export class AgentsController {
     description: 'Admin role required',
     type: ForbiddenResponseDto,
   })
-  async getAllAgentsWithProfiles(@AuthenticatedUser() adminUser: JwtPayload) {
-    return this.agentsService.getAllAgentProfilesWithUserDetails(adminUser.sub);
+  async getAllAgentsWithProfiles(
+    @AuthenticatedUser() adminUser: JwtPayload,
+    @Query() queryDto: GetAgentsDto,
+  ) {
+    return this.agentsService.getAgentsWithPagination(adminUser.sub, queryDto);
   }
 
   @Get('me/profile')
