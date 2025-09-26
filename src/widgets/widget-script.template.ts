@@ -634,7 +634,7 @@ export function generateWidgetScript(
                     font-weight: 500;
                     color: #374151;
                     margin-bottom: 4px;
-                  ">Name (optional)</label>
+                  ">Name *</label>
                   <input type="text" id="customer-name" style="
                     width: 100%;
                     padding: 8px 12px;
@@ -687,6 +687,7 @@ export function generateWidgetScript(
                     border-radius: 8px;
                     outline: none;
                     resize: vertical;
+                    color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
@@ -1376,6 +1377,11 @@ export function generateWidgetScript(
           const email = document.getElementById('customer-email').value.trim();
           const initialMessage = document.getElementById('initial-message').value.trim();
     
+          if (!name) {
+            alert('Please enter your name.');
+            return;
+          }
+    
           if (!initialMessage) {
             alert('Please enter a message to start the chat.');
             return;
@@ -1391,7 +1397,7 @@ export function generateWidgetScript(
             customerId: this.customerId,
             widgetId: WIDGET_ID,
             initialMessage: initialMessage,
-            name: name || undefined,
+            name: name,
             email: email || undefined
           };
           
@@ -2042,6 +2048,15 @@ export function generateWidgetScript(
           // Wait for socket connection before showing auto-message
           const showAutoMessageWhenReady = () => {
             if (this.isConnected) {
+              // Check if agents are available before showing auto message
+              if (this.availableAgents.length === 0) {
+                console.log('No agents available - showing customer contact form instead of auto message');
+                // Show customer info form instead of auto message when offline
+                this.isMinimized = false;
+                this.chatWindow.style.display = 'flex';
+                this.showCustomerInfoForm();
+                return;
+              }
               this.showAutoMessage(autoMessage);
             } else {
               // If not connected yet, wait a bit more and try again
