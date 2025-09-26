@@ -154,12 +154,12 @@ export function generateWidgetScript(
           switch (location) {
             case 'bottom_left':
               return {
-                container: { ...baseContainerStyle, bottom: '32px', left: '32px' },
+                container: { ...baseContainerStyle, bottom: '28px', left: '32px' },
                 chatWindow: { ...baseChatWindowStyle, bottom: '0', left: '0', minWidth: '320px' }
               };
             case 'bottom_right':
               return {
-                container: { ...baseContainerStyle, bottom: '32px', right: '32px' },
+                container: { ...baseContainerStyle, bottom: '28px', right: '32px' },
                 chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0', minWidth: '320px' }
               };
             case 'top_left':
@@ -175,7 +175,7 @@ export function generateWidgetScript(
             default:
               // Default to bottom_right
               return {
-                container: { ...baseContainerStyle, bottom: '32px', right: '32px' },
+                container: { ...baseContainerStyle, bottom: '28px', right: '32px' },
                 chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0', minWidth: '320px' }
               };
           }
