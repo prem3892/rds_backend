@@ -141,7 +141,6 @@ export function generateWidgetScript(
           
           const baseChatWindowStyle = {
             position: 'absolute',
-            width: '380px',
             maxWidth: 'calc(100vw - 64px)', // Ensure it doesn't exceed viewport width minus margins
             maxHeight: '80vh',
             borderRadius: '8px',
@@ -239,6 +238,7 @@ export function generateWidgetScript(
           this.availableAgents = []; // Track current agent availability
           this.isOfflineMode = false; // Track if we're in offline mode
           this.autoMessageShown = false; // Track if auto-message has been displayed
+          this.initialDataReceived = false; // Track if initial agent availability data has been received
           
           this.init();
         }
@@ -249,7 +249,8 @@ export function generateWidgetScript(
             this.createUI();
             this.connectSocket();
             this.bindEvents();
-            this.scheduleAutoMessage();
+            // Don't schedule auto message immediately - wait for initial data
+            // this.scheduleAutoMessage();
           } catch (error) {
             console.error('Failed to initialize chat widget:', error);
           }
@@ -329,7 +330,7 @@ export function generateWidgetScript(
           
           this.chatButton.innerHTML = \`
             <div style="
-              padding: 12px 16px;
+              padding: 15px 32px;
               border-radius: 9999px;
               box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
               display: flex;
@@ -342,7 +343,7 @@ export function generateWidgetScript(
             ">
               <span style="
                 font-weight: 500;
-                font-size: 14px;
+                font-size: 16px;
                 white-space: nowrap;
               ">\${utils.escapeHtml(buttonLabel)}</span>
               <div id="unread-badge" style="
@@ -809,6 +810,15 @@ export function generateWidgetScript(
           } else {
             this.establishSocketConnection();
           }
+          
+          // Fallback: if initial data doesn't arrive within 10 seconds, schedule auto message anyway
+          setTimeout(() => {
+            if (!this.initialDataReceived && !this.autoMessageShown && !this.currentChatSession) {
+              console.log('Initial data timeout - proceeding with auto message scheduling');
+              this.initialDataReceived = true; // Set to true to allow scheduling
+              this.scheduleAutoMessage();
+            }
+          }, 10000);
         }
     
         async loadSocketIO() {
@@ -857,6 +867,7 @@ export function generateWidgetScript(
             }
             
             this.availableAgents = uniqueAgents;
+            this.initialDataReceived = true;
             
             // Update header with agent profile pictures
             this.updateAgentProfilePictures(this.availableAgents);
@@ -865,6 +876,9 @@ export function generateWidgetScript(
               this.currentChatSession = data.activeSession;
               this.showChatInterface();
               this.loadChatHistory();
+            } else {
+              // Now that we have initial data, schedule auto message if appropriate
+              this.scheduleAutoMessage();
             }
           });
     
@@ -2038,6 +2052,12 @@ export function generateWidgetScript(
             return;
           }
 
+          // Don't schedule if we haven't received initial data yet
+          if (!this.initialDataReceived) {
+            console.log('Waiting for initial agent availability data before scheduling auto message');
+            return;
+          }
+
           const autoMessage = this.processAutoMessages();
           if (!autoMessage) {
             return;
@@ -2047,7 +2067,7 @@ export function generateWidgetScript(
           
           // Wait for socket connection before showing auto-message
           const showAutoMessageWhenReady = () => {
-            if (this.isConnected) {
+            if (this.isConnected && this.initialDataReceived) {
               // Check if agents are available before showing auto message
               if (this.availableAgents.length === 0) {
                 console.log('No agents available - showing customer contact form instead of auto message');
@@ -2059,7 +2079,7 @@ export function generateWidgetScript(
               }
               this.showAutoMessage(autoMessage);
             } else {
-              // If not connected yet, wait a bit more and try again
+              // If not connected or initial data not received yet, wait a bit more and try again
               setTimeout(showAutoMessageWhenReady, 500);
             }
           };
