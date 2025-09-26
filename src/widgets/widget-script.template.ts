@@ -569,7 +569,7 @@ export function generateWidgetScript(
                              width: 100%;
                              color: black;
                              padding: 8px 50px 8px 12px;
-                             border: none;
+                             border: none !important;
                              outline: none;
                              box-sizing: border-box;
                              transition: border-color 0.2s ease, box-shadow 0.2s ease;
