@@ -155,28 +155,28 @@ export function generateWidgetScript(
             case 'bottom_left':
               return {
                 container: { ...baseContainerStyle, bottom: '32px', left: '32px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '64px', left: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', left: '0', minWidth: '320px' }
               };
             case 'bottom_right':
               return {
                 container: { ...baseContainerStyle, bottom: '32px', right: '32px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '64px', right: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0', minWidth: '320px' }
               };
             case 'top_left':
               return {
                 container: { ...baseContainerStyle, top: '32px', left: '32px' },
-                chatWindow: { ...baseChatWindowStyle, top: '64px', left: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, top: '0', left: '0', minWidth: '320px' }
               };
             case 'top_right':
               return {
                 container: { ...baseContainerStyle, top: '32px', right: '32px' },
-                chatWindow: { ...baseChatWindowStyle, top: '64px', right: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, top: '0', right: '0', minWidth: '320px' }
               };
             default:
               // Default to bottom_right
               return {
                 container: { ...baseContainerStyle, bottom: '32px', right: '32px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '64px', right: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0', minWidth: '320px' }
               };
           }
         },
@@ -431,7 +431,7 @@ export function generateWidgetScript(
                   flex: 1;
                   justify-content: center;
                 ">
-                  <span id="chat-header-text" style="font-weight: 500; text-align: center;">\${utils.escapeHtml(headerText)}</span>
+                  <span id="chat-header-text" style="font-size: 18px; text-align: center; padding: 16px 12px 0 12px">\${utils.escapeHtml(headerText)}</span>
                 </div>
                  
               </div>
@@ -500,7 +500,7 @@ export function generateWidgetScript(
                 display: flex;
                 flex-direction: column;
                 gap: 12px;
-                min-height: 50vh
+                min-height: 40vh
               ">
                 <!-- Messages will be populated here -->
               </div>
@@ -1222,7 +1222,6 @@ export function generateWidgetScript(
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: '4px'
             });
             
             // Create profile picture container with relative positioning for status dot
@@ -1234,8 +1233,8 @@ export function generateWidgetScript(
               const profileImg = document.createElement('img');
               profileImg.src = \`\${API_BASE}\${agent.profilePicture}\`;
               utils.applyStyles(profileImg, {
-                width: '76px',
-                height: '76px',
+                width: '74px',
+                height: '74px',
                 borderRadius: '50%',
                 border: '2px solid white',
                 objectFit: 'cover'
@@ -1926,6 +1925,10 @@ export function generateWidgetScript(
         toggleChat() {
           this.isMinimized = !this.isMinimized;
           this.chatWindow.style.display = this.isMinimized ? 'none' : 'flex';
+          
+          // Hide/show chat button based on minimized state
+          this.chatButton.style.display = this.isMinimized ? 'block' : 'none';
+          
           if (!this.isMinimized) {
             this.resetUnreadCount();
             
@@ -2074,6 +2077,7 @@ export function generateWidgetScript(
                 // Show customer info form instead of auto message when offline
                 this.isMinimized = false;
                 this.chatWindow.style.display = 'flex';
+                this.chatButton.style.display = 'none'; // Hide chat button when opening for offline form
                 this.showCustomerInfoForm();
                 return;
               }
@@ -2101,6 +2105,7 @@ export function generateWidgetScript(
           // Open the widget and show chat interface
           this.isMinimized = false;
           this.chatWindow.style.display = 'flex';
+          this.chatButton.style.display = 'none'; // Hide chat button when auto message opens
           this.showChatInterface();
           
           // Ensure connection status is hidden since we're connected
