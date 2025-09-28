@@ -29,6 +29,7 @@ import { ChatSessionService } from 'src/chat/services/chat-session/chat-session.
 import { WidgetsService } from 'src/widgets/widgets.service';
 import { CustomersService } from 'src/customers/customers.service';
 import { ShiftService } from '../shared/services/shift.service';
+import { RedisService } from '../shared/redis/redis.service';
 
 @Injectable()
 export class AgentsService {
@@ -47,6 +48,7 @@ export class AgentsService {
     @Inject(forwardRef(() => CustomersService))
     private readonly customersService: CustomersService,
     private readonly shiftService: ShiftService,
+    private readonly redisService: RedisService,
   ) {}
 
   async createAgentProfile(
@@ -670,17 +672,28 @@ export class AgentsService {
       `Got widget ${JSON.stringify(widget)} for widgetId ${widgetId}`,
     );
 
-    // Find all online agents from the same organization as the widget
-    const onlineAgents = await this.agentProfileModel
+    // Find all potentially online agents from the same organization as the widget
+    // We'll check effective online status (including grace period) for each agent
+    const potentialAgents = await this.agentProfileModel
       .find({
-        isOnline: true, // First check: agent must be online
         isBlocked: { $ne: true }, // Exclude blocked agents
         adminId: widget.createdBy, // CRITICAL: Only agents from the same organization
       })
       .exec();
 
+    // Filter agents by effective online status (considering grace period)
+    const onlineAgents: AgentProfileDocument[] = [];
+    for (const agent of potentialAgents) {
+      const isEffectivelyOnline = await this.isAgentEffectivelyOnline(
+        agent.userId.toString(),
+      );
+      if (isEffectivelyOnline) {
+        onlineAgents.push(agent);
+      }
+    }
+
     this.logger.debug(
-      `Found ${onlineAgents.length} online agents from organization ${widget.createdBy} for widget ${widgetId}`,
+      `Found ${onlineAgents.length} effectively online agents from organization ${widget.createdBy} for widget ${widgetId}`,
     );
 
     // Filter agents by department match and domain access
@@ -776,10 +789,13 @@ export class AgentsService {
           ) || undefined
         : undefined;
 
+    // Use effective online status (considering grace period)
+    const isEffectivelyOnline = await this.isAgentEffectivelyOnline(agentId);
+
     return {
-      isAvailable: agent.isOnline && isWithinShift,
+      isAvailable: isEffectivelyOnline && isWithinShift,
       isWithinShift,
-      isOnline: agent.isOnline,
+      isOnline: isEffectivelyOnline,
       nextAvailableTime,
     };
   }
@@ -1255,16 +1271,29 @@ export class AgentsService {
   }
 
   /**
-   * Get all online agents
+   * Get all online agents (considering effective online status including grace period)
    */
   async getAllOnlineAgents(): Promise<AgentProfileDocument[]> {
-    return this.agentProfileModel
+    // Get all non-blocked agents
+    const potentialAgents = await this.agentProfileModel
       .find({
-        isOnline: true,
         isBlocked: { $ne: true }, // Exclude blocked agents
       })
       .populate('departmentIds')
       .exec();
+
+    // Filter by effective online status
+    const onlineAgents: AgentProfileDocument[] = [];
+    for (const agent of potentialAgents) {
+      const isEffectivelyOnline = await this.isAgentEffectivelyOnline(
+        agent.userId.toString(),
+      );
+      if (isEffectivelyOnline) {
+        onlineAgents.push(agent);
+      }
+    }
+
+    return onlineAgents;
   }
 
   /**
@@ -1320,5 +1349,46 @@ export class AgentsService {
     );
 
     return updatedProfile;
+  }
+
+  /**
+   * Check if an agent is effectively online, considering both DB status and grace period
+   * This helps solve race conditions during page refresh where API calls happen before socket reconnection
+   */
+  async isAgentEffectivelyOnline(agentId: string): Promise<boolean> {
+    try {
+      // First check the database status
+      const agentProfile = await this.findAgentProfileByUserId(agentId);
+      if (!agentProfile) {
+        return false;
+      }
+
+      // If agent is online in DB, they're definitely online
+      if (agentProfile.isOnline) {
+        return true;
+      }
+
+      // If agent is offline in DB, check if they're in grace period
+      // During grace period, we consider them still online for API purposes
+      const graceStillActive = await this.redisService.get(
+        `agent_disconnect_grace:${agentId}`,
+      );
+      if (graceStillActive === 'true') {
+        this.logger.debug(
+          `Agent ${agentId} is in grace period, considering them online for API purposes`,
+        );
+        return true;
+      }
+
+      // Agent is offline and not in grace period
+      return false;
+    } catch (error) {
+      this.logger.error(
+        `Error checking effective online status for agent ${agentId}: ${error.message}`,
+      );
+      // In case of error, fall back to DB status only
+      const agentProfile = await this.findAgentProfileByUserId(agentId);
+      return agentProfile?.isOnline || false;
+    }
   }
 }
