@@ -14,14 +14,12 @@ export function generateWidgetScript(
       'use strict';
       
       // Prevent multiple initializations
-
-      console.log('ChatWidget', window.ChatWidget);
       if (window.ChatWidget) {
         console.warn('Chat widget already initialized');
         return;
       }
       
-      // Add CSS animations and responsive styles
+      // Add CSS animations
       const style = document.createElement('style');
       style.textContent = \`
         @keyframes pulse {
@@ -39,8 +37,6 @@ export function generateWidgetScript(
             opacity: 1;
           }
         }
-        
-       
       \`;
       document.head.appendChild(style);
     
@@ -72,13 +68,6 @@ export function generateWidgetScript(
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             timestamp: new Date().toISOString()
           };
-        },
-        // Detect iOS Safari to handle input focus zoom behavior
-        isIOSSafari() {
-          const ua = navigator.userAgent || navigator.vendor 
-          const isIOS = /iPad|iPhone|iPod/.test(ua);
-          const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS|OPiOS/.test(ua);
-          return isIOS && isSafari;
         },
         
         formatTime(date) {
@@ -152,8 +141,8 @@ export function generateWidgetScript(
           
           const baseChatWindowStyle = {
             position: 'absolute',
-            maxWidth: 'calc(100vw - 64px)', // Desktop-safe default margin
-            maxHeight: '65vh',
+            maxWidth: 'calc(100vw - 64px)', // Ensure it doesn't exceed viewport width minus margins
+            maxHeight: '80vh',
             borderRadius: '8px',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
             border: '1px solid #e5e7eb',
@@ -166,28 +155,28 @@ export function generateWidgetScript(
             case 'bottom_left':
               return {
                 container: { ...baseContainerStyle, bottom: '28px', left: '18px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '0', left: '0' ,minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', left: '0', minWidth: '320px' }
               };
             case 'bottom_right':
               return {
                 container: { ...baseContainerStyle, bottom: '28px', right: '18px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0',minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0', minWidth: '320px' }
               };
             case 'top_left':
               return {
                 container: { ...baseContainerStyle, top: '32px', left: '32px' },
-                chatWindow: { ...baseChatWindowStyle, top: '0', left: '0',minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, top: '0', left: '0', minWidth: '320px' }
               };
             case 'top_right':
               return {
                 container: { ...baseContainerStyle, top: '32px', right: '32px' },
-                chatWindow: { ...baseChatWindowStyle, top: '0', right: '0',minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, top: '0', right: '0', minWidth: '320px' }
               };
             default:
               // Default to bottom_right
               return {
                 container: { ...baseContainerStyle, bottom: '28px', right: '18px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0',minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0', minWidth: '320px' }
               };
           }
         },
@@ -258,8 +247,6 @@ export function generateWidgetScript(
           try {
             await this.loadConfig();
             this.createUI();
-            this.applyResponsiveSizing && this.applyResponsiveSizing();
-            window.addEventListener('resize', () => this.applyResponsiveSizing && this.applyResponsiveSizing());
             this.connectSocket();
             this.bindEvents();
             // Don't schedule auto message immediately - wait for initial data
@@ -310,14 +297,6 @@ export function generateWidgetScript(
             #chat-widget-container {
               font-family: system-ui, -apple-system, sans-serif !important;
             }
-
-            /* Prevent iOS Safari auto-zoom by keeping inputs at >=16px */
-            #chat-widget-container input,
-            #chat-widget-container textarea,
-            #chat-widget-container select,
-            #chat-widget-container button {
-              font-size: 16px !important;
-            }
             
             @keyframes pulse {
               0%, 100% { opacity: 1; }
@@ -351,7 +330,7 @@ export function generateWidgetScript(
           
           this.chatButton.innerHTML = \`
             <div style="
-              padding: 10px 17px;
+              padding: 15px 32px;
               border-radius: 9999px;
               box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
               display: flex;
@@ -361,14 +340,7 @@ export function generateWidgetScript(
               min-width: max-content;
               background-color: \${primaryColor};
               color: \${textColor};
-              border: 2px solid white;
-            "
-            class="chat-wrap">
-              <div class="chat-bubble">
-             <svg xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px" height="24px" width="24px" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-  <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
-</svg>
-              </div>
+            ">
               <span style="
                 font-weight: 900;
                 font-size: 16px;
@@ -406,7 +378,6 @@ export function generateWidgetScript(
           const positionStyles = utils.getPositionStyles(buttonLocation);
           
           this.chatWindow = document.createElement('div');
-          // this.chatWindow.className = 'chat-widget-window';
           utils.applyStyles(this.chatWindow, positionStyles.chatWindow);
           this.chatWindow.style.backgroundColor = bgColorWithOpacity;
           
@@ -460,7 +431,7 @@ export function generateWidgetScript(
                   flex: 1;
                   justify-content: center;
                 ">
-                  <span id="chat-header-text" style="font-size: 1rem; text-align: center; padding: 16px 12px 0 12px">\${utils.escapeHtml(headerText)}</span>
+                  <span id="chat-header-text" style="font-size: 18px; text-align: center; padding: 16px 12px 0 12px">\${utils.escapeHtml(headerText)}</span>
                 </div>
                  
               </div>
@@ -529,10 +500,7 @@ export function generateWidgetScript(
                 display: flex;
                 flex-direction: column;
                 gap: 12px;
-                // min-height: 310px;
-                min-height: 40vh;
-
-                
+                min-height: 40vh
               ">
                 <!-- Messages will be populated here -->
               </div>
@@ -582,10 +550,9 @@ export function generateWidgetScript(
               <!-- Message Input - Fixed to bottom -->
               <div style="
                 border-top: 1px solid #e5e7eb;
-                padding: 1rem 0.5rem;
+                padding: 16px;
                 flex-shrink: 0;
                 background-color: white;
-            
               ">
                 <div style="
                   display: flex;
@@ -605,7 +572,6 @@ export function generateWidgetScript(
                              outline: none;
                              box-sizing: border-box;
                              transition: border-color 0.2s ease, box-shadow 0.2s ease;
-                             font-size: 16px; /* iOS: avoid zoom */
                            "
                            >
                     <input type="file" id="file-input" style="display: none;" accept="image/*,.pdf,.doc,.docx,.txt">
@@ -679,7 +645,6 @@ export function generateWidgetScript(
                     color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
-                    font-size: 16px;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
                      onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
                 </div>
@@ -700,7 +665,6 @@ export function generateWidgetScript(
                     color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
-                    font-size: 16px;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
                      onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
                 </div>
@@ -727,7 +691,6 @@ export function generateWidgetScript(
                     color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
-                    font-size: 16px;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
                      onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'"></textarea>
                 </div>
@@ -1117,48 +1080,9 @@ export function generateWidgetScript(
           
           // Focus the input field for better UX
           setTimeout(() => {
-            if (!utils.isIOSSafari()) {
-              const messageInput = document.getElementById('message-input');
-              if (messageInput) messageInput.focus();
-            }
-          }, 100);
-        }
-
-        // Apply sizing tweaks for small screens to better fit mobile
-        applyResponsiveSizing() {
-          try {
-            const isCompact = window.innerWidth <= 420; // mobile threshold
-            if (!this.chatWindow) return;
-
-            // Chat window width constraints
-            this.chatWindow.style.maxWidth = isCompact ? 'calc(100vw - 12px)' : 'calc(100vw - 64px)';
-            this.chatWindow.style.minWidth = isCompact ? '260px' : '320px';
-
-            // Header text size
-            const headerTextEl = document.getElementById('chat-header-text');
-            if (headerTextEl) {
-              headerTextEl.style.fontSize = isCompact ? '0.9rem' : '1rem';
-            }
-
-            // Messages container spacing
-            const messagesContainer = document.getElementById('messages-container');
-            if (messagesContainer) {
-              messagesContainer.style.padding = isCompact ? '12px' : '16px';
-              messagesContainer.style.gap = isCompact ? '8px' : '12px';
-            }
-
-            // Input sizes
             const messageInput = document.getElementById('message-input');
-            if (messageInput) {
-              messageInput.style.padding = isCompact ? '6px 44px 6px 10px' : '8px 50px 8px 12px';
-              messageInput.style.fontSize = '16px';
-            }
-
-            const sendBtn = document.getElementById('send-btn');
-            if (sendBtn) {
-              sendBtn.style.padding = isCompact ? '6px 12px' : '8px 16px';
-            }
-          } catch (e) { /* no-op */ }
+            if (messageInput) messageInput.focus();
+          }, 100);
         }
 
         showCustomerInfoRequestForm() {
@@ -1291,10 +1215,6 @@ export function generateWidgetScript(
           // Show max 3 agents
           const agentsToShow = agents.slice(0, 3);
           
-          const isMobile = window.innerWidth <= 420;
-          const avatarSize = isMobile ? 54 : 74;
-          const nameFontSize = isMobile ? '12px' : '16px';
-
           agentsToShow.forEach((agent, index) => {
             // Create agent profile container (vertical stack)
             const agentProfile = document.createElement('div');
@@ -1313,8 +1233,8 @@ export function generateWidgetScript(
               const profileImg = document.createElement('img');
               profileImg.src = \`\${API_BASE}\${agent.profilePicture}\`;
               utils.applyStyles(profileImg, {
-                width: avatarSize + 'px',
-                height: avatarSize + 'px',
+                width: '74px',
+                height: '74px',
                 borderRadius: '50%',
                 border: '2px solid white',
                 objectFit: 'cover'
@@ -1327,8 +1247,8 @@ export function generateWidgetScript(
                 this.style.display = 'none';
                 const defaultAvatar = document.createElement('div');
                 utils.applyStyles(defaultAvatar, {
-                  width: avatarSize + 'px',
-                  height: avatarSize + 'px',
+                  width: '76px',
+                  height: '76px',
                   borderRadius: '50%',
                   border: '2px solid white',
                   backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1345,8 +1265,8 @@ export function generateWidgetScript(
               // Show default avatar if no profile picture
               const defaultAvatar = document.createElement('div');
               utils.applyStyles(defaultAvatar, {
-                width: avatarSize + 'px',
-                height: avatarSize + 'px',
+                width: '76px',
+                height: '76px',
                 borderRadius: '50%',
                 border: '2px solid white',
                 backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1360,17 +1280,14 @@ export function generateWidgetScript(
             
             // Add green status dot at bottom right
             const statusDot = document.createElement('div');
-            statusDot.classList.add('greenDot');
-   
             utils.applyStyles(statusDot, {
-              width: (isMobile ? 8 : 10) + 'px',
-              height: (isMobile ? 8 : 10) + 'px',
+              width: '10px',
+              height: '10px',
               backgroundColor: '#4ade80',
               borderRadius: '50%',
               position: 'absolute',
               bottom: '10px',
               right: '10px'
-
             });
             profilePicContainer.appendChild(statusDot);
             
@@ -1379,7 +1296,7 @@ export function generateWidgetScript(
             // Create name label
             const nameLabel = document.createElement('span');
             utils.applyStyles(nameLabel, {
-              fontSize: nameFontSize,
+              fontSize: '16px',
               fontWeight: '500',
               color: 'white',
               opacity: '0.9'
@@ -1739,8 +1656,7 @@ export function generateWidgetScript(
           
           // Special styling for customer info form
           const isInfoForm = message.messageContent.type === 'customer_info_form';
-          const isMobile = window.innerWidth <= 420;
-          const maxWidth = isInfoForm ? (isMobile ? '320px' : '384px') : (isMobile ? '240px' : '288px');
+          const maxWidth = isInfoForm ? '384px' : '288px';
           
           // Check if this is an agent message (not customer, not system)
           const isAgent = !isCustomer && !isSystem;
@@ -1797,7 +1713,7 @@ export function generateWidgetScript(
           messageDiv.innerHTML = \`
             <div style="display: flex; flex-direction: column;">
               <div style="\${messageStyles}">
-                <div style="font-size: \${isMobile ? '14px' : '16px'};">\${messageContent}</div>
+                <div>\${messageContent}</div>
                 \${!isInfoForm ? \`<div style="font-size: 12px; text-align: right; margin-top: 4px; color: \${timestampColor}; display: flex; align-items: center; justify-content: flex-end;">
                   <span>\${utils.formatTime(message.timestamp)}</span>
                   \${statusIndicator}
