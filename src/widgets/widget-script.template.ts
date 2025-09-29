@@ -14,6 +14,8 @@ export function generateWidgetScript(
       'use strict';
       
       // Prevent multiple initializations
+
+      console.log('ChatWidget', window.ChatWidget);
       if (window.ChatWidget) {
         console.warn('Chat widget already initialized');
         return;
@@ -70,6 +72,13 @@ export function generateWidgetScript(
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             timestamp: new Date().toISOString()
           };
+        },
+        // Detect iOS Safari to handle input focus zoom behavior
+        isIOSSafari() {
+          const ua = navigator.userAgent || navigator.vendor 
+          const isIOS = /iPad|iPhone|iPod/.test(ua);
+          const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS|OPiOS/.test(ua);
+          return isIOS && isSafari;
         },
         
         formatTime(date) {
@@ -143,7 +152,7 @@ export function generateWidgetScript(
           
           const baseChatWindowStyle = {
             position: 'absolute',
-            maxWidth: 'calc(100vw - 64px)', // Ensure it doesn't exceed viewport width minus margins
+            maxWidth: 'calc(100vw - 64px)', // Desktop-safe default margin
             maxHeight: '80vh',
             borderRadius: '8px',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
@@ -249,6 +258,8 @@ export function generateWidgetScript(
           try {
             await this.loadConfig();
             this.createUI();
+            this.applyResponsiveSizing && this.applyResponsiveSizing();
+            window.addEventListener('resize', () => this.applyResponsiveSizing && this.applyResponsiveSizing());
             this.connectSocket();
             this.bindEvents();
             // Don't schedule auto message immediately - wait for initial data
@@ -298,6 +309,14 @@ export function generateWidgetScript(
             
             #chat-widget-container {
               font-family: system-ui, -apple-system, sans-serif !important;
+            }
+
+            /* Prevent iOS Safari auto-zoom by keeping inputs at >=16px */
+            #chat-widget-container input,
+            #chat-widget-container textarea,
+            #chat-widget-container select,
+            #chat-widget-container button {
+              font-size: 16px !important;
             }
             
             @keyframes pulse {
@@ -586,6 +605,7 @@ export function generateWidgetScript(
                              outline: none;
                              box-sizing: border-box;
                              transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                             font-size: 16px; /* iOS: avoid zoom */
                            "
                            >
                     <input type="file" id="file-input" style="display: none;" accept="image/*,.pdf,.doc,.docx,.txt">
@@ -659,6 +679,7 @@ export function generateWidgetScript(
                     color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                    font-size: 16px;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
                      onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
                 </div>
@@ -679,6 +700,7 @@ export function generateWidgetScript(
                     color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                    font-size: 16px;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
                      onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
                 </div>
@@ -705,6 +727,7 @@ export function generateWidgetScript(
                     color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                    font-size: 16px;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
                      onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'"></textarea>
                 </div>
@@ -1094,9 +1117,48 @@ export function generateWidgetScript(
           
           // Focus the input field for better UX
           setTimeout(() => {
-            const messageInput = document.getElementById('message-input');
-            if (messageInput) messageInput.focus();
+            if (!utils.isIOSSafari()) {
+              const messageInput = document.getElementById('message-input');
+              if (messageInput) messageInput.focus();
+            }
           }, 100);
+        }
+
+        // Apply sizing tweaks for small screens to better fit mobile
+        applyResponsiveSizing() {
+          try {
+            const isCompact = window.innerWidth <= 420; // mobile threshold
+            if (!this.chatWindow) return;
+
+            // Chat window width constraints
+            this.chatWindow.style.maxWidth = isCompact ? 'calc(100vw - 12px)' : 'calc(100vw - 64px)';
+            this.chatWindow.style.minWidth = isCompact ? '260px' : '320px';
+
+            // Header text size
+            const headerTextEl = document.getElementById('chat-header-text');
+            if (headerTextEl) {
+              headerTextEl.style.fontSize = isCompact ? '0.9rem' : '1rem';
+            }
+
+            // Messages container spacing
+            const messagesContainer = document.getElementById('messages-container');
+            if (messagesContainer) {
+              messagesContainer.style.padding = isCompact ? '12px' : '16px';
+              messagesContainer.style.gap = isCompact ? '8px' : '12px';
+            }
+
+            // Input sizes
+            const messageInput = document.getElementById('message-input');
+            if (messageInput) {
+              messageInput.style.padding = isCompact ? '6px 44px 6px 10px' : '8px 50px 8px 12px';
+              messageInput.style.fontSize = '16px';
+            }
+
+            const sendBtn = document.getElementById('send-btn');
+            if (sendBtn) {
+              sendBtn.style.padding = isCompact ? '6px 12px' : '8px 16px';
+            }
+          } catch (e) { /* no-op */ }
         }
 
         showCustomerInfoRequestForm() {
@@ -1229,6 +1291,10 @@ export function generateWidgetScript(
           // Show max 3 agents
           const agentsToShow = agents.slice(0, 3);
           
+          const isMobile = window.innerWidth <= 420;
+          const avatarSize = isMobile ? 54 : 74;
+          const nameFontSize = isMobile ? '12px' : '16px';
+
           agentsToShow.forEach((agent, index) => {
             // Create agent profile container (vertical stack)
             const agentProfile = document.createElement('div');
@@ -1247,8 +1313,8 @@ export function generateWidgetScript(
               const profileImg = document.createElement('img');
               profileImg.src = \`\${API_BASE}\${agent.profilePicture}\`;
               utils.applyStyles(profileImg, {
-                width: '74px',
-                height: '74px',
+                width: avatarSize + 'px',
+                height: avatarSize + 'px',
                 borderRadius: '50%',
                 border: '2px solid white',
                 objectFit: 'cover'
@@ -1261,8 +1327,8 @@ export function generateWidgetScript(
                 this.style.display = 'none';
                 const defaultAvatar = document.createElement('div');
                 utils.applyStyles(defaultAvatar, {
-                  width: '76px',
-                  height: '76px',
+                  width: avatarSize + 'px',
+                  height: avatarSize + 'px',
                   borderRadius: '50%',
                   border: '2px solid white',
                   backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1279,8 +1345,8 @@ export function generateWidgetScript(
               // Show default avatar if no profile picture
               const defaultAvatar = document.createElement('div');
               utils.applyStyles(defaultAvatar, {
-                width: '76px',
-                height: '76px',
+                width: avatarSize + 'px',
+                height: avatarSize + 'px',
                 borderRadius: '50%',
                 border: '2px solid white',
                 backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1294,14 +1360,17 @@ export function generateWidgetScript(
             
             // Add green status dot at bottom right
             const statusDot = document.createElement('div');
+            statusDot.classList.add('greenDot');
+   
             utils.applyStyles(statusDot, {
-              width: '10px',
-              height: '10px',
+              width: (isMobile ? 8 : 10) + 'px',
+              height: (isMobile ? 8 : 10) + 'px',
               backgroundColor: '#4ade80',
               borderRadius: '50%',
               position: 'absolute',
               bottom: '10px',
               right: '10px'
+
             });
             profilePicContainer.appendChild(statusDot);
             
@@ -1310,7 +1379,7 @@ export function generateWidgetScript(
             // Create name label
             const nameLabel = document.createElement('span');
             utils.applyStyles(nameLabel, {
-              fontSize: '16px',
+              fontSize: nameFontSize,
               fontWeight: '500',
               color: 'white',
               opacity: '0.9'
@@ -1670,7 +1739,8 @@ export function generateWidgetScript(
           
           // Special styling for customer info form
           const isInfoForm = message.messageContent.type === 'customer_info_form';
-          const maxWidth = isInfoForm ? '384px' : '288px';
+          const isMobile = window.innerWidth <= 420;
+          const maxWidth = isInfoForm ? (isMobile ? '320px' : '384px') : (isMobile ? '240px' : '288px');
           
           // Check if this is an agent message (not customer, not system)
           const isAgent = !isCustomer && !isSystem;
@@ -1727,7 +1797,7 @@ export function generateWidgetScript(
           messageDiv.innerHTML = \`
             <div style="display: flex; flex-direction: column;">
               <div style="\${messageStyles}">
-                <div>\${messageContent}</div>
+                <div style="font-size: \${isMobile ? '14px' : '16px'};">\${messageContent}</div>
                 \${!isInfoForm ? \`<div style="font-size: 12px; text-align: right; margin-top: 4px; color: \${timestampColor}; display: flex; align-items: center; justify-content: flex-end;">
                   <span>\${utils.formatTime(message.timestamp)}</span>
                   \${statusIndicator}
