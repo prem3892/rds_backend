@@ -153,7 +153,7 @@ export function generateWidgetScript(
           const baseChatWindowStyle = {
             position: 'absolute',
             maxWidth: 'calc(100vw - 64px)', // Desktop-safe default margin
-            maxHeight: '65vh',
+            maxHeight: '80vh',
             borderRadius: '8px',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
             border: '1px solid #e5e7eb',
@@ -499,7 +499,8 @@ export function generateWidgetScript(
               flex: 1;
               display: none;
               flex-direction: column;
-              overflow: scroll;
+              overflow: hidden;
+              position: relative;
             ">
               <!-- Chat Header -->
               <div id="chat-header" style="
@@ -532,7 +533,7 @@ export function generateWidgetScript(
                 flex-direction: column;
                 gap: 12px;
                 // min-height: 310px;
-                min-height: 35vh;
+                min-height: 38vh;
 
                 
               ">
@@ -541,11 +542,19 @@ export function generateWidgetScript(
     
               <!-- Typing Indicator -->
               <div id="typing-indicator" style="
+                position: absolute;
+                bottom: 55px;
+                left: 5px;
+                right: 16px;
                 padding: 8px 16px;
-                font-size: 14px;
+                width: 100%;
+                font-size: 12px;
                 color: #6b7280;
+             
+               
+              
                 display: none;
-                flex-shrink: 0;
+                z-index: 10;
               ">
                 <div style="
                   display: flex;
@@ -592,6 +601,7 @@ export function generateWidgetScript(
               ">
                 <div style="
                   display: flex;
+                  
                   gap: 8px;
                 ">
                   <div style="
@@ -608,7 +618,7 @@ export function generateWidgetScript(
                              outline: none;
                              box-sizing: border-box;
                              transition: border-color 0.2s ease, box-shadow 0.2s ease;
-                             font-size: 16px; /* iOS: avoid zoom */
+                             font-size: '14px !important';
                            "
                            >
                     <input type="file" id="file-input" style="display: none;" accept="image/*,.pdf,.doc,.docx,.txt">
@@ -629,7 +639,7 @@ export function generateWidgetScript(
                     </div>
                   </div>
                   <div id="send-btn" role="button" tabindex="0" style="
-                    padding: 8px 16px;
+                    padding: 6px 12px;
                     color: white;
                     border-radius: 8px;
                     cursor: pointer;
@@ -1868,13 +1878,21 @@ export function generateWidgetScript(
         }
     
         showTypingIndicator() { 
-          document.getElementById('typing-indicator').style.display = 'block'; 
-          // Scroll to bottom when typing indicator appears
-          const messagesContainer = document.getElementById('messages-container');
-          utils.scrollToBottom(messagesContainer);
+          const typingIndicator = document.getElementById('typing-indicator');
+          if (typingIndicator) {
+            typingIndicator.style.display = 'block';
+            // Scroll to bottom when typing indicator appears
+            const messagesContainer = document.getElementById('messages-container');
+            utils.scrollToBottom(messagesContainer);
+          }
         }
         
-        hideTypingIndicator() { document.getElementById('typing-indicator').style.display = 'none'; }
+        hideTypingIndicator() { 
+          const typingIndicator = document.getElementById('typing-indicator');
+          if (typingIndicator) {
+            typingIndicator.style.display = 'none';
+          }
+        }
         showAgentStatus(status) { document.getElementById('agent-status').textContent = status; }
     
         showConnectionStatus(message, type = 'yellow') {
