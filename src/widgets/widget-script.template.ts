@@ -19,7 +19,7 @@ export function generateWidgetScript(
         return;
       }
       
-      // Add CSS animations
+      // Add CSS animations and responsive styles
       const style = document.createElement('style');
       style.textContent = \`
         @keyframes pulse {
@@ -37,6 +37,8 @@ export function generateWidgetScript(
             opacity: 1;
           }
         }
+        
+       
       \`;
       document.head.appendChild(style);
     
@@ -155,28 +157,28 @@ export function generateWidgetScript(
             case 'bottom_left':
               return {
                 container: { ...baseContainerStyle, bottom: '28px', left: '18px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '0', left: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', left: '0' ,minWidth: '320px' }
               };
             case 'bottom_right':
               return {
                 container: { ...baseContainerStyle, bottom: '28px', right: '18px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0',minWidth: '320px' }
               };
             case 'top_left':
               return {
                 container: { ...baseContainerStyle, top: '32px', left: '32px' },
-                chatWindow: { ...baseChatWindowStyle, top: '0', left: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, top: '0', left: '0',minWidth: '320px' }
               };
             case 'top_right':
               return {
                 container: { ...baseContainerStyle, top: '32px', right: '32px' },
-                chatWindow: { ...baseChatWindowStyle, top: '0', right: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, top: '0', right: '0',minWidth: '320px' }
               };
             default:
               // Default to bottom_right
               return {
                 container: { ...baseContainerStyle, bottom: '28px', right: '18px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0',minWidth: '320px' }
               };
           }
         },
@@ -330,7 +332,7 @@ export function generateWidgetScript(
           
           this.chatButton.innerHTML = \`
             <div style="
-              padding: 15px 32px;
+              padding: 10px 17px;
               border-radius: 9999px;
               box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
               display: flex;
@@ -340,7 +342,14 @@ export function generateWidgetScript(
               min-width: max-content;
               background-color: \${primaryColor};
               color: \${textColor};
-            ">
+              border: 2px solid white;
+            "
+            class="chat-wrap">
+              <div class="chat-bubble">
+             <svg xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px" height="24px" width="24px" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+  <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+</svg>
+              </div>
               <span style="
                 font-weight: 900;
                 font-size: 16px;
@@ -378,6 +387,7 @@ export function generateWidgetScript(
           const positionStyles = utils.getPositionStyles(buttonLocation);
           
           this.chatWindow = document.createElement('div');
+          // this.chatWindow.className = 'chat-widget-window';
           utils.applyStyles(this.chatWindow, positionStyles.chatWindow);
           this.chatWindow.style.backgroundColor = bgColorWithOpacity;
           
@@ -431,7 +441,7 @@ export function generateWidgetScript(
                   flex: 1;
                   justify-content: center;
                 ">
-                  <span id="chat-header-text" style="font-size: 18px; text-align: center; padding: 16px 12px 0 12px">\${utils.escapeHtml(headerText)}</span>
+                  <span id="chat-header-text" style="font-size: 1rem; text-align: center; padding: 16px 12px 0 12px">\${utils.escapeHtml(headerText)}</span>
                 </div>
                  
               </div>
@@ -500,7 +510,10 @@ export function generateWidgetScript(
                 display: flex;
                 flex-direction: column;
                 gap: 12px;
-                min-height: 40vh
+                // min-height: 310px;
+                min-height: 40vh;
+
+                
               ">
                 <!-- Messages will be populated here -->
               </div>
@@ -550,9 +563,10 @@ export function generateWidgetScript(
               <!-- Message Input - Fixed to bottom -->
               <div style="
                 border-top: 1px solid #e5e7eb;
-                padding: 16px;
+                padding: 1rem 0.5rem;
                 flex-shrink: 0;
                 background-color: white;
+            
               ">
                 <div style="
                   display: flex;
