@@ -148,8 +148,7 @@ export function generateWidgetScript(
             border: '1px solid #e5e7eb',
             display: 'none',
             flexDirection: 'column',
-            overflow: 'hidden', // Prevent content from overflowing
-            // paddingBottom: '0.5rem',
+            overflow: 'hidden' // Prevent content from overflowing
           };
           
           switch (location) {
@@ -390,7 +389,6 @@ export function generateWidgetScript(
               flex-shrink: 0;
               background-color: \${primaryColor};
               padding-top: 17px;
-
             ">
 
              <div id="minimize-btn" role="button" tabindex="0" style="
@@ -470,7 +468,7 @@ export function generateWidgetScript(
               flex: 1;
               display: none;
               flex-direction: column;
-              overflow: scroll;
+              overflow: hidden;
             ">
               <!-- Chat Header -->
               <div id="chat-header" style="
@@ -502,10 +500,7 @@ export function generateWidgetScript(
                 display: flex;
                 flex-direction: column;
                 gap: 12px;
-                // min-height: 310px;
-                min-height: 35vh;
-
-                
+                min-height: 40vh
               ">
                 <!-- Messages will be populated here -->
               </div>
@@ -555,11 +550,9 @@ export function generateWidgetScript(
               <!-- Message Input - Fixed to bottom -->
               <div style="
                 border-top: 1px solid #e5e7eb;
-                padding: 1rem 0.5rem;
-                padding-bottom: 0.5rem;
+                padding: 16px;
                 flex-shrink: 0;
                 background-color: white;
-                
               ">
                 <div style="
                   display: flex;
@@ -1086,49 +1079,10 @@ export function generateWidgetScript(
           chatInterface.style.display = 'flex';
           
           // Focus the input field for better UX
-        //   setTimeout(() => {
-        //     if (!utils.isIOSSafari()) {
-        //       const messageInput = document.getElementById('message-input');
-        //       if (messageInput) messageInput.focus();
-        //     }
-        //   }, 100);
-        // }
-
-        // Apply sizing tweaks for small screens to better fit mobile
-        applyResponsiveSizing() {
-          try {
-            const isCompact = window.innerWidth <= 420; // mobile threshold
-            if (!this.chatWindow) return;
-
-            // Chat window width constraints
-            this.chatWindow.style.maxWidth = isCompact ? 'calc(100vw - 12px)' : 'calc(100vw - 64px)';
-            this.chatWindow.style.minWidth = isCompact ? '260px' : '320px';
-
-            // Header text size
-            const headerTextEl = document.getElementById('chat-header-text');
-            if (headerTextEl) {
-              headerTextEl.style.fontSize = isCompact ? '0.9rem' : '1rem';
-            }
-
-            // Messages container spacing
-            const messagesContainer = document.getElementById('messages-container');
-            if (messagesContainer) {
-              messagesContainer.style.padding = isCompact ? '12px' : '16px';
-              messagesContainer.style.gap = isCompact ? '8px' : '12px';
-            }
-
-            // Input sizes
+          setTimeout(() => {
             const messageInput = document.getElementById('message-input');
-            if (messageInput) {
-              messageInput.style.padding = isCompact ? '6px 44px 6px 10px' : '8px 50px 8px 12px';
-              messageInput.style.fontSize = '16px';
-            }
-
-            const sendBtn = document.getElementById('send-btn');
-            if (sendBtn) {
-              sendBtn.style.padding = isCompact ? '6px 12px' : '8px 16px';
-            }
-          } catch (e) { /* no-op */ }
+            if (messageInput) messageInput.focus();
+          }, 100);
         }
 
         showCustomerInfoRequestForm() {
@@ -1673,7 +1627,7 @@ export function generateWidgetScript(
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                   </svg>
                   <a href="\${message.messageContent.url}" target="_blank" rel="noopener noreferrer" 
-                     style="color: #2563eb; font-size: 14px; text-overflow: ellipsis; overflow: scroll; white-space: nowrap;"
+                     style="color: #2563eb; font-size: 14px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;"
                      onmouseover="this.style.textDecoration='underline'"
                      onmouseout="this.style.textDecoration='none'">
                     \${utils.escapeHtml(message.messageContent.filename)}
