@@ -159,7 +159,8 @@ export function generateWidgetScript(
             border: '1px solid #e5e7eb',
             display: 'none',
             flexDirection: 'column',
-            overflow: 'hidden' // Prevent content from overflowing
+            overflow: 'hidden', // Prevent content from overflowing
+            // paddingBottom: '0.5rem',
           };
           
           switch (location) {
@@ -364,11 +365,11 @@ export function generateWidgetScript(
               border: 2px solid white;
             "
             class="chat-wrap">
-              <div class="chat-bubble">
+              
              <svg xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px" height="24px" width="24px" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
   <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
 </svg>
-              </div>
+             
               <span style="
                 font-weight: 900;
                 font-size: 16px;
@@ -418,6 +419,7 @@ export function generateWidgetScript(
               flex-shrink: 0;
               background-color: \${primaryColor};
               padding-top: 17px;
+
             ">
 
              <div id="minimize-btn" role="button" tabindex="0" style="
@@ -497,7 +499,7 @@ export function generateWidgetScript(
               flex: 1;
               display: none;
               flex-direction: column;
-              overflow: hidden;
+              overflow: scroll;
             ">
               <!-- Chat Header -->
               <div id="chat-header" style="
@@ -530,7 +532,7 @@ export function generateWidgetScript(
                 flex-direction: column;
                 gap: 12px;
                 // min-height: 310px;
-                min-height: 40vh;
+                min-height: 35vh;
 
                 
               ">
@@ -583,9 +585,10 @@ export function generateWidgetScript(
               <div style="
                 border-top: 1px solid #e5e7eb;
                 padding: 1rem 0.5rem;
+                padding-bottom: 0.5rem;
                 flex-shrink: 0;
                 background-color: white;
-            
+                
               ">
                 <div style="
                   display: flex;
@@ -1116,13 +1119,13 @@ export function generateWidgetScript(
           chatInterface.style.display = 'flex';
           
           // Focus the input field for better UX
-          setTimeout(() => {
-            if (!utils.isIOSSafari()) {
-              const messageInput = document.getElementById('message-input');
-              if (messageInput) messageInput.focus();
-            }
-          }, 100);
-        }
+        //   setTimeout(() => {
+        //     if (!utils.isIOSSafari()) {
+        //       const messageInput = document.getElementById('message-input');
+        //       if (messageInput) messageInput.focus();
+        //     }
+        //   }, 100);
+        // }
 
         // Apply sizing tweaks for small screens to better fit mobile
         applyResponsiveSizing() {
@@ -1710,7 +1713,7 @@ export function generateWidgetScript(
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                   </svg>
                   <a href="\${message.messageContent.url}" target="_blank" rel="noopener noreferrer" 
-                     style="color: #2563eb; font-size: 14px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;"
+                     style="color: #2563eb; font-size: 14px; text-overflow: ellipsis; overflow: scroll; white-space: nowrap;"
                      onmouseover="this.style.textDecoration='underline'"
                      onmouseout="this.style.textDecoration='none'">
                     \${utils.escapeHtml(message.messageContent.filename)}
