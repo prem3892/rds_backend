@@ -153,7 +153,7 @@ export function generateWidgetScript(
           const baseChatWindowStyle = {
             position: 'absolute',
             maxWidth: 'calc(100vw - 64px)', // Desktop-safe default margin
-            maxHeight: '80vh',
+            maxHeight: '65vh',
             borderRadius: '8px',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
             border: '1px solid #e5e7eb',

@@ -4,7 +4,7 @@ export default () => ({
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/nestjs_chat_app',
   },
   internal: {
-    baseurl: process.env.INTERNAL_BASE_URL || 'https://7b7d86c14ffc84d38665fff8033c4e48.serveo.net',
+    baseurl: process.env.INTERNAL_BASE_URL || 'http://localhost:8888',
   },
   jwt: {
     secret: process.env.JWT_SECRET || 'yourSecretKey',
