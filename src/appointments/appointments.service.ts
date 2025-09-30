@@ -53,7 +53,8 @@ export class AppointmentsService {
     // }
     if (
       requestingUser.role === UserRole.AGENT ||
-      requestingUser.role === UserRole.ADMIN
+      requestingUser.role === UserRole.ADMIN ||
+      requestingUser.role === UserRole.MANAGER
     ) {
       agentIdToAssign = new Types.ObjectId(createDto.agentId);
       // Ensure agent is assigned to the chat or has permission
@@ -130,9 +131,10 @@ export class AppointmentsService {
   ): Promise<AppointmentDocument> {
     const appointment = await this.findById(id);
 
-    // Authorization: Only assigned agent or admin can update status
+    // Authorization: Only assigned agent or admin/manager can update status
     if (
       requestingUser.role !== UserRole.ADMIN &&
+      requestingUser.role !== UserRole.MANAGER &&
       appointment.agentId.toString() !== requestingUser.sub
     ) {
       throw new ForbiddenException(

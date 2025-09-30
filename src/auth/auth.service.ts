@@ -67,7 +67,7 @@ export class AuthService {
       validatedUser._id,
     );
 
-    // Check if agent is blocked (only for agents, not admins)
+    // Check if agent is blocked (only for agents, not admins or managers)
     if (validatedUser.role === UserRole.AGENT && agentProfile?.isBlocked) {
       throw new UnauthorizedException(
         'Your account has been blocked. Please contact your administrator.',
@@ -117,8 +117,8 @@ export class AuthService {
       adminId,
     );
 
-    // If the user is an agent, create agent profile with shifts and default department
-    if (user.role === UserRole.AGENT) {
+    // If the user is an agent or manager, create agent profile with shifts and default department
+    if (user.role === UserRole.AGENT || user.role === UserRole.MANAGER) {
       const agentProfileData: any = {};
 
       if (shifts) {
@@ -470,7 +470,7 @@ export class AuthService {
     }
 
     // Send appropriate verification email based on user role
-    if (user.role === UserRole.ADMIN) {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
       return this.sendAdminVerificationEmail(user);
     } else {
       return this.sendUserVerificationEmail(user);
@@ -483,8 +483,10 @@ export class AuthService {
       throw new NotFoundException('User with this email does not exist');
     }
 
-    if (user.role !== UserRole.ADMIN) {
-      throw new BadRequestException('This endpoint is only for admin accounts');
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
+      throw new BadRequestException(
+        'This endpoint is only for admin and manager accounts',
+      );
     }
 
     if (user.isEmailVerified) {
@@ -711,8 +713,10 @@ export class AuthService {
       throw new NotFoundException('User with this email does not exist');
     }
 
-    if (user.role !== UserRole.ADMIN) {
-      throw new BadRequestException('This endpoint is only for admin accounts');
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
+      throw new BadRequestException(
+        'This endpoint is only for admin and manager accounts',
+      );
     }
 
     if (user.isEmailVerified) {

@@ -50,7 +50,7 @@ import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 @ApiTags('Visitor Tracking')
 @Controller('api/agents/visitors')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.AGENT, UserRole.ADMIN)
+@Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
 export class VisitorTrackingController {
   private readonly logger = new Logger(VisitorTrackingController.name);
 
@@ -103,7 +103,7 @@ export class VisitorTrackingController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiInternalServerErrorResponse({
@@ -223,7 +223,7 @@ export class VisitorTrackingController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiInternalServerErrorResponse({
@@ -342,7 +342,7 @@ export class VisitorTrackingController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiInternalServerErrorResponse({
@@ -423,10 +423,10 @@ export class VisitorTrackingController {
    * GET /api/agents/visitors/stats
    */
   @Get('stats')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Get visitor statistics (Admin only)',
+    summary: 'Get visitor statistics (Admin/Manager only)',
     description:
       'Retrieve comprehensive visitor statistics including totals and widget breakdown',
   })
@@ -440,7 +440,7 @@ export class VisitorTrackingController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiInternalServerErrorResponse({
@@ -477,10 +477,10 @@ export class VisitorTrackingController {
    * GET /api/agents/visitors/debug-redis
    */
   @Get('debug-redis')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Debug Redis visitor keys (Admin only)',
+    summary: 'Debug Redis visitor keys (Admin/Manager only)',
     description: 'Get all visitor-related Redis keys for debugging',
   })
   @ApiResponse({
@@ -535,10 +535,10 @@ export class VisitorTrackingController {
    * POST /api/agents/visitors/cleanup
    */
   @Post('cleanup')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Trigger manual visitor cleanup (Admin only)',
+    summary: 'Trigger manual visitor cleanup (Admin/Manager only)',
     description: 'Manually trigger cleanup of expired visitors from the system',
   })
   @ApiResponse({
@@ -551,7 +551,7 @@ export class VisitorTrackingController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiInternalServerErrorResponse({

@@ -41,7 +41,7 @@ import {
 @ApiTags('Departments')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN)
+@Roles(UserRole.ADMIN, UserRole.MANAGER)
 @Controller('departments')
 export class DepartmentsController {
   constructor(private readonly departmentsService: DepartmentsService) {}
@@ -59,9 +59,9 @@ export class DepartmentsController {
 
   @Get()
   @ApiOperation({
-    summary: 'Get all departments (Admin only)',
+    summary: 'Get all departments (Admin/Manager only)',
     description:
-      'Retrieve all departments created by the authenticated admin user.',
+      'Retrieve all departments created by the authenticated admin or manager user.',
   })
   @ApiResponse({
     status: 200,
@@ -73,7 +73,7 @@ export class DepartmentsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   findAll(@AuthenticatedUser() user: JwtPayload) {

@@ -26,7 +26,7 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async create(
     @AuthenticatedUser() admin: JwtPayload,
     @Body() createUserDto: CreateUserDto,
@@ -40,7 +40,7 @@ export class UsersController {
   }
 
   @Get()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async findAll(): Promise<Omit<UserDocument, 'password'>[]> {
     const users = await this.usersService.findAll();
     return users.map((user) => {
@@ -50,7 +50,7 @@ export class UsersController {
   }
 
   @Get(':userId')
-  @Roles(UserRole.ADMIN) // Or allow user to get their own profile
+  @Roles(UserRole.ADMIN, UserRole.MANAGER) // Or allow user to get their own profile
   async findOne(
     @Param('userId') userId: string,
   ): Promise<Omit<UserDocument, 'password'>> {
@@ -60,7 +60,7 @@ export class UsersController {
   }
 
   @Put(':userId')
-  @Roles(UserRole.ADMIN) // Or allow user to update their own profile
+  @Roles(UserRole.ADMIN, UserRole.MANAGER) // Or allow user to update their own profile
   async update(
     @AuthenticatedUser() admin: JwtPayload,
     @Param('userId') userId: string,
@@ -78,7 +78,7 @@ export class UsersController {
   }
 
   @Delete(':userId')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async remove(
     @Param('userId') userId: string,
   ): Promise<Omit<UserDocument, 'password'>> {

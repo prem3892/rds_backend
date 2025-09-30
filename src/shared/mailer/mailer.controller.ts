@@ -15,7 +15,7 @@ import { UserRole } from '../constants/enums';
 @ApiTags('Mailer (Testing)')
 @Controller('mailer')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN)
+@Roles(UserRole.ADMIN, UserRole.MANAGER)
 @ApiBearerAuth('JWT-auth')
 export class MailerController {
   constructor(private readonly mailerService: MailerService) {}

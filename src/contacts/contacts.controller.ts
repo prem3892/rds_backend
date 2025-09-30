@@ -48,7 +48,7 @@ export class ContactsController {
   constructor(private readonly contactsService: ContactsService) {}
 
   @Post()
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Create a new contact',
     description: 'Create a new contact associated with a customer.',
@@ -67,7 +67,7 @@ export class ContactsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiNotFoundResponse({
@@ -86,7 +86,7 @@ export class ContactsController {
   }
 
   @Get()
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Get contacts with pagination and filtering',
     description:
@@ -106,7 +106,7 @@ export class ContactsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   findAll(
@@ -121,7 +121,7 @@ export class ContactsController {
   }
 
   @Get(':id')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Get a contact by ID',
     description:
@@ -146,7 +146,7 @@ export class ContactsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiNotFoundResponse({
@@ -165,7 +165,7 @@ export class ContactsController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Update a contact',
     description:
@@ -190,7 +190,7 @@ export class ContactsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiNotFoundResponse({
@@ -210,7 +210,7 @@ export class ContactsController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Delete a contact',
     description: 'Delete a contact by its ID.',
@@ -234,7 +234,7 @@ export class ContactsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiNotFoundResponse({
@@ -254,7 +254,7 @@ export class ContactsController {
   }
 
   @Get('customer/:customerId')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Get contacts by customer ID',
     description: 'Retrieve all contacts associated with a specific customer.',
@@ -278,7 +278,7 @@ export class ContactsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   findByCustomer(
