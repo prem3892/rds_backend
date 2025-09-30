@@ -652,7 +652,9 @@ export class ChatGateway
     const jwtPayload = await this.authService.validateSocketToken(data.token);
     if (
       !jwtPayload ||
-      (jwtPayload.role !== UserRole.ADMIN && jwtPayload.role !== UserRole.AGENT)
+      (jwtPayload.role !== UserRole.ADMIN &&
+        jwtPayload.role !== UserRole.MANAGER &&
+        jwtPayload.role !== UserRole.AGENT)
     ) {
       // Ensure it's an agent or admin
       this.logger.warn(
@@ -2580,7 +2582,8 @@ export class ChatGateway
     if (
       !client.user ||
       (client.user.role !== UserRole.AGENT &&
-        client.user.role !== UserRole.ADMIN)
+        client.user.role !== UserRole.ADMIN &&
+        client.user.role !== UserRole.MANAGER)
     )
       throw new WsException(
         'Only admin/agents can book appointments via this event.',

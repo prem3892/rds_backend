@@ -8,6 +8,7 @@ import {
   HttpStatus,
   Get,
   Query,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -58,11 +59,16 @@ import {
   UnauthorizedResponseDto,
   ForbiddenResponseDto,
 } from '../shared/dto/common-responses.dto';
+import { AdminResolverUtil } from 'src/shared/utils/admin-resolver.util';
+import { AgentsService } from 'src/agents/agents.service';
 
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly agentsService: AgentsService,
+  ) {}
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -109,13 +115,13 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Post('register')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Register new user with email verification (Admin only)',
+    summary: 'Register new user with email verification (Admin/Manager only)',
     description:
-      'Admin can register new agents or other admins in the system. A verification email will be sent to the new user, and they must verify their email before login. For agents, working hours can be specified using the shifts field.',
+      'Admin can register new agents, managers, or other admins in the system. Only admins can register managers. A verification email will be sent to the new user, and they must verify their email before login. For agents and managers, working hours can be specified using the shifts field.',
   })
   @ApiBody({ type: RegisterDto })
   @ApiResponse({
@@ -132,16 +138,31 @@ export class AuthController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   async register(
     @AuthenticatedUser() admin: JwtPayload,
     @Body() registerDto: RegisterDto,
   ): Promise<Omit<UserDocument, 'password'>> {
+    // Only admins can register managers
+    if (
+      registerDto.role === UserRole.MANAGER &&
+      admin.role !== UserRole.ADMIN &&
+      admin.role !== UserRole.MANAGER
+    ) {
+      throw new ForbiddenException(
+        'Only admins and managers can register managers',
+      );
+    }
+
+    // Resolve admin ID based on user's role
+    let adminId = admin.sub;
+    adminId = await AdminResolverUtil.resolveAdminId(admin, this.agentsService);
+
     const user = await this.authService.register(
       registerDto,
-      new Types.ObjectId(admin.sub),
+      new Types.ObjectId(adminId),
     );
     const { password, ...result } = user.toObject();
     return result;

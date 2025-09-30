@@ -85,8 +85,19 @@ export class RedisIoAdapter extends IoAdapter {
   }
 
   createIOServer(port: number, options?: any): any {
-    const server = super.createIOServer(port, options);
+    const corsOptions = {
+      origin: '*',
+      methods: ['GET', 'POST'],
+      credentials: true,
+    };
+
+    const server = super.createIOServer(port, {
+      ...options,
+      cors: corsOptions,
+    });
+
     server.adapter(this.adapterConstructor);
+
     Logger.log(
       `Socket.IO server initialized with Redis adapter on port ${port}`,
       'RedisIoAdapter',
@@ -181,7 +192,7 @@ async function bootstrap() {
     )
     .addTag(
       'Block Customer Management',
-      'Admin-only customer blocking and unblocking operations',
+      'Admin/Manager-only customer blocking and unblocking operations',
     )
     .addTag('Chat', 'Real-time chat sessions and message management')
     .addTag(

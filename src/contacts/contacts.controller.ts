@@ -30,6 +30,7 @@ import { RolesGuard } from '../shared/guards/roles.guard';
 import { Roles } from '../shared/decorators/roles.decorator';
 import { GetUser } from '../shared/decorators/get-user.decorator';
 import { UserRole } from '../shared/constants/enums';
+import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 import { Types } from 'mongoose';
 import {
   ErrorResponseDto,
@@ -39,16 +40,21 @@ import {
   SuccessMessageResponseDto,
   PaginatedResponseDto,
 } from '../shared/dto/common-responses.dto';
+import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
+import { AgentsService } from '../agents/agents.service';
 
 @ApiTags('Contacts')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('contacts')
 export class ContactsController {
-  constructor(private readonly contactsService: ContactsService) {}
+  constructor(
+    private readonly contactsService: ContactsService,
+    private readonly agentsService: AgentsService,
+  ) {}
 
   @Post()
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Create a new contact',
     description: 'Create a new contact associated with a customer.',
@@ -67,7 +73,7 @@ export class ContactsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiNotFoundResponse({
@@ -86,7 +92,7 @@ export class ContactsController {
   }
 
   @Get()
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Get contacts with pagination and filtering',
     description:
@@ -106,22 +112,27 @@ export class ContactsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
-  findAll(
+  async findAll(
     @Query() queryDto: GetContactsDto,
-    @GetUser()
-    user: { sub: string; email: string; role: UserRole; type: string },
+    @GetUser() user: JwtPayload,
   ) {
+    // For ADMIN/MANAGER roles, resolve the adminId
+    let userId = user.sub;
+    if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
+      userId = await AdminResolverUtil.resolveAdminId(user, this.agentsService);
+    }
+
     return this.contactsService.findAll(queryDto, {
-      _id: new Types.ObjectId(user.sub),
+      _id: new Types.ObjectId(userId),
       role: user.role,
     });
   }
 
   @Get(':id')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Get a contact by ID',
     description:
@@ -146,26 +157,28 @@ export class ContactsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiNotFoundResponse({
     description: 'Contact not found',
     type: NotFoundResponseDto,
   })
-  findOne(
-    @Param('id') id: string,
-    @GetUser()
-    user: { sub: string; email: string; role: UserRole; type: string },
-  ) {
+  async findOne(@Param('id') id: string, @GetUser() user: JwtPayload) {
+    // For ADMIN/MANAGER roles, resolve the adminId
+    let userId = user.sub;
+    if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
+      userId = await AdminResolverUtil.resolveAdminId(user, this.agentsService);
+    }
+
     return this.contactsService.findOne(id, {
-      _id: new Types.ObjectId(user.sub),
+      _id: new Types.ObjectId(userId),
       role: user.role,
     });
   }
 
   @Patch(':id')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Update a contact',
     description:
@@ -190,27 +203,32 @@ export class ContactsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiNotFoundResponse({
     description: 'Contact not found',
     type: NotFoundResponseDto,
   })
-  update(
+  async update(
     @Param('id') id: string,
     @Body() updateContactDto: UpdateContactDto,
-    @GetUser()
-    user: { sub: string; email: string; role: UserRole; type: string },
+    @GetUser() user: JwtPayload,
   ) {
+    // For ADMIN/MANAGER roles, resolve the adminId
+    let userId = user.sub;
+    if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
+      userId = await AdminResolverUtil.resolveAdminId(user, this.agentsService);
+    }
+
     return this.contactsService.update(id, updateContactDto, {
-      _id: new Types.ObjectId(user.sub),
+      _id: new Types.ObjectId(userId),
       role: user.role,
     });
   }
 
   @Delete(':id')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Delete a contact',
     description: 'Delete a contact by its ID.',
@@ -234,27 +252,29 @@ export class ContactsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiNotFoundResponse({
     description: 'Contact not found',
     type: NotFoundResponseDto,
   })
-  async remove(
-    @Param('id') id: string,
-    @GetUser()
-    user: { sub: string; email: string; role: UserRole; type: string },
-  ) {
+  async remove(@Param('id') id: string, @GetUser() user: JwtPayload) {
+    // For ADMIN/MANAGER roles, resolve the adminId
+    let userId = user.sub;
+    if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
+      userId = await AdminResolverUtil.resolveAdminId(user, this.agentsService);
+    }
+
     await this.contactsService.remove(id, {
-      _id: new Types.ObjectId(user.sub),
+      _id: new Types.ObjectId(userId),
       role: user.role,
     });
     return { message: 'Contact deleted successfully' };
   }
 
   @Get('customer/:customerId')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Get contacts by customer ID',
     description: 'Retrieve all contacts associated with a specific customer.',
@@ -278,7 +298,7 @@ export class ContactsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   findByCustomer(

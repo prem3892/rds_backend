@@ -44,18 +44,23 @@ import {
   NotFoundResponseDto,
   SuccessMessageResponseDto,
 } from '../shared/dto/common-responses.dto';
+import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
+import { AgentsService } from '../agents/agents.service';
 
 @ApiTags('Auto Messages')
 @Controller('auto-messages')
 export class AutoMessagesController {
-  constructor(private readonly autoMessagesService: AutoMessagesService) {}
+  constructor(
+    private readonly autoMessagesService: AutoMessagesService,
+    private readonly agentsService: AgentsService,
+  ) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Post()
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Create a new auto message (Admin only)',
+    summary: 'Create a new auto message (Admin/Manager only)',
     description:
       'Create an auto message that will be displayed on specific pages of a widget',
   })
@@ -73,25 +78,26 @@ export class AutoMessagesController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
-  create(
+  async create(
     @Body() createAutoMessageDto: CreateAutoMessageDto,
     @AuthenticatedUser() user: JwtPayload,
   ) {
-    return this.autoMessagesService.create(
-      createAutoMessageDto,
-      new Types.ObjectId(user.sub),
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
     );
+    return this.autoMessagesService.create(createAutoMessageDto, adminId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Get()
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Get auto messages with filtering (Admin only)',
+    summary: 'Get auto messages with filtering (Admin/Manager only)',
     description:
       'Retrieve auto messages with optional filtering by widget, domain, etc.',
   })
@@ -109,25 +115,26 @@ export class AutoMessagesController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
-  findAll(
+  async findAll(
     @Query() query: GetAutoMessagesDto,
     @AuthenticatedUser() user: JwtPayload,
   ) {
-    return this.autoMessagesService.findAll(
-      query,
-      new Types.ObjectId(user.sub),
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
     );
+    return this.autoMessagesService.findAll(query, adminId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Get(':id')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Get auto message by ID (Admin only)',
+    summary: 'Get auto message by ID (Admin/Manager only)',
     description: 'Retrieve a specific auto message by its ID',
   })
   @ApiParam({
@@ -153,19 +160,26 @@ export class AutoMessagesController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
-  findOne(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
-    return this.autoMessagesService.findById(id, new Types.ObjectId(user.sub));
+  async findOne(
+    @Param('id') id: string,
+    @AuthenticatedUser() user: JwtPayload,
+  ) {
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
+    );
+    return this.autoMessagesService.findById(id, adminId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Put(':id')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Update auto message (Admin only)',
+    summary: 'Update auto message (Admin/Manager only)',
     description: 'Update an existing auto message',
   })
   @ApiParam({
@@ -228,27 +242,27 @@ export class AutoMessagesController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
-  update(
+  async update(
     @Param('id') id: string,
     @Body() updateAutoMessageDto: UpdateAutoMessageDto,
     @AuthenticatedUser() user: JwtPayload,
   ) {
-    return this.autoMessagesService.update(
-      id,
-      updateAutoMessageDto,
-      new Types.ObjectId(user.sub),
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
     );
+    return this.autoMessagesService.update(id, updateAutoMessageDto, adminId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Delete(':id')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Delete auto message (Admin only)',
+    summary: 'Delete auto message (Admin/Manager only)',
     description: 'Delete an existing auto message',
   })
   @ApiParam({
@@ -274,10 +288,14 @@ export class AutoMessagesController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
-  remove(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
-    return this.autoMessagesService.remove(id, new Types.ObjectId(user.sub));
+  async remove(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
+    );
+    return this.autoMessagesService.remove(id, adminId);
   }
 }

@@ -63,6 +63,7 @@ import {
 } from '../shared/dto/common-responses.dto';
 import { createChatImageUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
 import { getChatImageUrl } from '../shared/utils/file-upload.utils';
+import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
 
 @ApiTags('Chat')
 @ApiBearerAuth('JWT-auth')
@@ -87,11 +88,11 @@ export class ChatController {
   ) {}
 
   @Get('sessions')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Get chat sessions',
     description:
-      'Retrieve a paginated list of chat sessions with filtering options including appointment status. Admins can only see sessions assigned to their managed agents, agents can only see their own assigned sessions.',
+      'Retrieve a paginated list of chat sessions with filtering options including appointment status. Admins and managers can only see sessions assigned to their managed agents, agents can only see their own assigned sessions.',
   })
   @ApiResponse({
     status: 200,
@@ -103,7 +104,7 @@ export class ChatController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin or Agent role required',
+    description: 'Admin, Manager, or Agent role required',
     type: ForbiddenResponseDto,
   })
   async getAllChatSessions(
@@ -116,11 +117,15 @@ export class ChatController {
       queryDto.agentId = user.sub;
     }
 
-    // For admins, filter to only sessions assigned to their managed agents
-    if (user.role === UserRole.ADMIN) {
+    // For admins and managers, filter to only sessions assigned to their managed agents
+    if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
+      const adminId = await AdminResolverUtil.resolveAdminId(
+        user,
+        this.agentsService,
+      );
       return this.chatSessionService.findAllPaginatedForAdmin(
         queryDto,
-        user.sub,
+        adminId,
       );
     }
 
@@ -128,7 +133,7 @@ export class ChatController {
   }
 
   @Get('sessions/my-active')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Get current user active chat sessions',
     description:
@@ -144,7 +149,7 @@ export class ChatController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   async getMyActiveSessions(@AuthenticatedUser() user: JwtPayload) {
@@ -157,7 +162,7 @@ export class ChatController {
   }
 
   @Get('sessions/pending')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Get pending chat sessions for current user',
     description:
@@ -173,7 +178,7 @@ export class ChatController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiBadRequestResponse({
@@ -216,9 +221,9 @@ export class ChatController {
     return sessions;
   }
 
-  // Admin/Agent: View messages for a specific historic/active chat, paginated
+  // Admin/Agent/Manager: View messages for a specific historic/active chat, paginated
   @Get('sessions/:sessionId/messages')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.MANAGER)
   async getMessagesForSession(
     @Param('sessionId') sessionId: string,
     @Query(new ValidationPipe({ transform: true }))
@@ -234,26 +239,32 @@ export class ChatController {
     if (user.role === UserRole.AGENT) {
       if (!session.agentId || session.agentId._id.toString() !== user.sub) {
         // Check if agent was EVER part of this chat, even if reassigned or closed?
-        // For simplicity now, only current agent or admin.
+        // For simplicity now, only current agent, admin, or manager.
         throw new ForbiddenException(
           'You do not have permission to view messages for this session.',
         );
       }
     }
 
-    // Authorization: Admin can only access sessions assigned to their managed agents
-    if (user.role === UserRole.ADMIN) {
+    // Authorization: Admin and Manager can only access sessions assigned to their managed agents
+    if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
       if (!session.agentId) {
         throw new ForbiddenException(
           'You do not have permission to view messages for this unassigned session.',
         );
       }
 
+      // Resolve adminId for managers
+      const adminId = await AdminResolverUtil.resolveAdminId(
+        user,
+        this.agentsService,
+      );
+
       // Check if the session's agent is managed by this admin
       const isAuthorized =
         await this.chatSessionService.isSessionAccessibleByAdmin(
           sessionId,
-          user.sub,
+          adminId,
         );
 
       if (!isAuthorized) {
@@ -274,7 +285,7 @@ export class ChatController {
   }
 
   @Post('initiate')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Initiate chat with customer',
     description:
@@ -293,7 +304,7 @@ export class ChatController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   @ApiBadRequestResponse({
@@ -520,7 +531,7 @@ export class ChatController {
   // ==================== IMAGE UPLOAD ENDPOINTS ====================
 
   @Post('upload-image')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.AGENT, UserRole.MANAGER)
   @UseInterceptors(createChatImageUploadInterceptor())
   @ApiOperation({
     summary: 'Upload image for chat',
@@ -600,13 +611,19 @@ export class ChatController {
           'You do not have permission to upload images to this chat session.',
         );
       }
-    } else if (user.role === UserRole.ADMIN) {
-      // Admin can upload to sessions assigned to their managed agents
+    } else if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
+      // Admin/Manager can upload to sessions assigned to their managed agents
       if (session.agentId) {
+        // Resolve adminId for managers
+        const adminId = await AdminResolverUtil.resolveAdminId(
+          user,
+          this.agentsService,
+        );
+
         const isAuthorized =
           await this.chatSessionService.isSessionAccessibleByAdmin(
             uploadDto.chatSessionId,
-            user.sub,
+            adminId,
           );
         if (!isAuthorized) {
           throw new ForbiddenException(

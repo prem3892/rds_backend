@@ -3,6 +3,8 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -20,6 +22,7 @@ import {
   ChatSession,
   ChatSessionDocument,
 } from 'src/schemas/chat-session.schema';
+import { AgentsService } from 'src/agents/agents.service';
 
 @Injectable()
 export class AppointmentsService {
@@ -29,6 +32,8 @@ export class AppointmentsService {
     private readonly chatSessionService: ChatSessionService,
     private readonly usersService: UsersService,
     private readonly customersService: CustomersService,
+    @Inject(forwardRef(() => AgentsService))
+    private readonly agentsService: AgentsService,
   ) {}
 
   async create(
@@ -53,7 +58,8 @@ export class AppointmentsService {
     // }
     if (
       requestingUser.role === UserRole.AGENT ||
-      requestingUser.role === UserRole.ADMIN
+      requestingUser.role === UserRole.ADMIN ||
+      requestingUser.role === UserRole.MANAGER
     ) {
       agentIdToAssign = new Types.ObjectId(createDto.agentId);
       // Ensure agent is assigned to the chat or has permission
@@ -83,16 +89,50 @@ export class AppointmentsService {
     return appointment.save();
   }
 
-  async findAll(filters: {
-    agentId?: string;
-    customerId?: string;
-    status?: AppointmentStatus;
-  }): Promise<AppointmentDocument[]> {
+  async findAll(
+    filters: {
+      agentId?: string;
+      customerId?: string;
+      status?: AppointmentStatus;
+    },
+    adminId?: string,
+  ): Promise<AppointmentDocument[]> {
     const query: any = {};
     if (filters.agentId) query.agentId = new Types.ObjectId(filters.agentId);
     if (filters.customerId)
       query.customerId = new Types.ObjectId(filters.customerId);
     if (filters.status) query.status = filters.status;
+
+    // If adminId is provided, we need to filter appointments by agents belonging to this admin
+    // This requires a lookup to agent profiles to get agents with matching adminId
+    if (adminId) {
+      // First, get all agent profiles that belong to this admin
+      const agentProfiles =
+        await this.agentsService.getAllAgentProfilesWithUserDetails(adminId);
+      const agentUserIds = agentProfiles.map((profile) => profile.userId);
+
+      // Filter appointments to only include those with agents from this admin
+      if (agentUserIds.length > 0) {
+        // If a specific agentId filter was provided, ensure it's in the allowed list
+        if (filters.agentId) {
+          const requestedAgentId = filters.agentId;
+          const isAgentAllowed = agentUserIds.some(
+            (id) => id.toString() === requestedAgentId,
+          );
+          if (!isAgentAllowed) {
+            // Requested agent doesn't belong to this admin, return empty
+            return [];
+          }
+          // Keep the specific agentId filter
+        } else {
+          // No specific agent requested, filter by all agents of this admin
+          query.agentId = { $in: agentUserIds };
+        }
+      } else {
+        // If no agents found for this admin, return empty array
+        return [];
+      }
+    }
 
     return this.appointmentModel
       .find(query)
@@ -130,9 +170,10 @@ export class AppointmentsService {
   ): Promise<AppointmentDocument> {
     const appointment = await this.findById(id);
 
-    // Authorization: Only assigned agent or admin can update status
+    // Authorization: Only assigned agent or admin/manager can update status
     if (
       requestingUser.role !== UserRole.ADMIN &&
+      requestingUser.role !== UserRole.MANAGER &&
       appointment.agentId.toString() !== requestingUser.sub
     ) {
       throw new ForbiddenException(

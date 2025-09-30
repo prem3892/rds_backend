@@ -134,7 +134,7 @@ export class CustomersService {
     userId: Types.ObjectId,
     userRole: UserRole,
   ): Promise<Types.ObjectId> {
-    if (userRole === UserRole.ADMIN) {
+    if (userRole === UserRole.ADMIN || userRole === UserRole.MANAGER) {
       return userId;
     } else if (userRole === UserRole.AGENT) {
       const agentProfile = await this.agentProfileModel
@@ -198,9 +198,13 @@ export class CustomersService {
     userRole: UserRole,
     queryDto: GetBlockedCustomersDto,
   ): Promise<PaginatedResponseDto<CustomerDocument>> {
-    if (userRole !== UserRole.ADMIN && userRole !== UserRole.AGENT) {
+    if (
+      userRole !== UserRole.ADMIN &&
+      userRole !== UserRole.MANAGER &&
+      userRole !== UserRole.AGENT
+    ) {
       throw new ForbiddenException(
-        'Only admins and agents can view the blocked customers list',
+        'Only admins, managers and agents can view the blocked customers list',
       );
     }
 

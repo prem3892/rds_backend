@@ -24,9 +24,9 @@ import { ShiftService } from '../shared/services/shift.service';
       { name: CannedMessage.name, schema: CannedMessageSchema },
     ]),
     forwardRef(() => UsersModule), // To update user details like password
-    DepartmentsModule, // To validate departmentIds
+    forwardRef(() => DepartmentsModule), // To validate departmentIds
     forwardRef(() => ChatModule), // To get active chat counts
-    WidgetsModule, // For widget access
+    forwardRef(() => WidgetsModule), // For widget access
     forwardRef(() => CustomersModule), // For customer access validation
   ],
   controllers: [AgentsController],

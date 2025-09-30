@@ -54,6 +54,7 @@ import { Types } from 'mongoose';
 import { ChatNotificationService } from '../chat/services/chat-notification/chat-notification.service';
 import { createProfilePictureUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
 import { getProfilePictureUrl } from '../shared/utils/file-upload.utils';
+import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
 import {
   ErrorResponseDto,
   UnauthorizedResponseDto,
@@ -78,11 +79,11 @@ export class AgentsController {
   ) {}
 
   @Get()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
-    summary: 'Get agents with pagination and filtering (Admin only)',
+    summary: 'Get agents with pagination and filtering (Admin/Manager only)',
     description:
-      'Retrieve a paginated list of agent profiles with associated user details. Supports filtering by search term, departments, online status, blocked status, and sorting options. Only accessible by administrators.',
+      'Retrieve a paginated list of agent profiles with associated user details. Supports filtering by search term, departments, online status, blocked status, and sorting options. Only accessible by administrators and managers.',
   })
   @ApiQuery({
     name: 'search',
@@ -160,18 +161,23 @@ export class AgentsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   async getAllAgentsWithProfiles(
     @AuthenticatedUser() adminUser: JwtPayload,
     @Query() queryDto: GetAgentsDto,
   ) {
-    return this.agentsService.getAgentsWithPagination(adminUser.sub, queryDto);
+    // Resolve adminId - handles both ADMIN and MANAGER roles
+    const adminId = await AdminResolverUtil.resolveAdminId(
+      adminUser,
+      this.agentsService,
+    );
+    return this.agentsService.getAgentsWithPagination(adminId, queryDto);
   }
 
   @Get('me/profile')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Get current user agent profile',
     description:
@@ -191,7 +197,7 @@ export class AgentsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   async getMyProfile(@AuthenticatedUser() user: JwtPayload) {
@@ -216,7 +222,7 @@ export class AgentsController {
 
   // Agent/Admin: Update their own profile (limited fields + password via usersService)
   @Put('me/profile')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Update own agent profile',
     description:
@@ -287,8 +293,8 @@ export class AgentsController {
       }
     }
 
-    // Handle USER schema fields (firstName, lastName, email) - only for admins
-    if (user.role === UserRole.ADMIN) {
+    // Handle USER schema fields (firstName, lastName, email) - only for admins and managers
+    if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
       const userUpdatePayload: UpdateUserDto = {};
       if (updateDto.firstName)
         userUpdatePayload.firstName = updateDto.firstName;
@@ -357,16 +363,16 @@ export class AgentsController {
 
   // Admin: Update any agent's profile
   @Put(':agentId/profile')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Update agent profile by admin',
     description:
-      'Update any agent profile by admin. Supports updating all agent profile fields including shifts, timezone, departments, domain access, and user details (firstName, lastName, email, password). Admin can only update profiles they created.',
+      'Update any agent profile by admin or manager. Supports updating all agent profile fields including shifts, timezone, departments, domain access, and user details (firstName, lastName, email, password, role). Admin or manager can only update profiles they created. Note: Only ADMIN users can change roles, not MANAGER users.',
   })
   @ApiBody({
     type: UpdateAgentProfileDto,
     description:
-      'Agent profile update data with optional user fields (firstName, lastName, email, password)',
+      'Agent profile update data with optional user fields (firstName, lastName, email, password, role). Role changes are restricted to ADMIN users only.',
   })
   @ApiResponse({
     status: 200,
@@ -375,7 +381,7 @@ export class AgentsController {
   })
   @ApiBadRequestResponse({
     description:
-      'Invalid agent ID format, agent not found, or unauthorized access',
+      'Invalid agent ID format, agent not found, unauthorized access, or managers attempting to change roles',
     type: ErrorResponseDto,
   })
   @ApiNotFoundResponse({
@@ -383,7 +389,7 @@ export class AgentsController {
     type: ErrorResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   async updateAgentProfileByAdmin(
@@ -395,11 +401,18 @@ export class AgentsController {
       firstName?: string;
       lastName?: string;
       email?: string;
+      role?: UserRole;
     },
   ) {
     if (!Types.ObjectId.isValid(agentId)) {
       throw new BadRequestException('Invalid agent ID format');
     }
+
+    // Resolve adminId - handles both ADMIN and MANAGER roles
+    const resolvedAdminId = await AdminResolverUtil.resolveAdminId(
+      adminUser,
+      this.agentsService,
+    );
 
     // First check if the agent profile exists using agentId (not userId)
     const existingAgentProfile =
@@ -411,10 +424,10 @@ export class AgentsController {
     // Check if the current admin is the one who created this agent profile
     if (
       existingAgentProfile.adminId &&
-      existingAgentProfile.adminId.toString() !== adminUser.sub
+      existingAgentProfile.adminId.toString() !== resolvedAdminId
     ) {
       Logger.warn(
-        `Admin ${adminUser.sub} attempted to update agent ${agentId} created by admin ${existingAgentProfile.adminId}`,
+        `User ${adminUser.sub} (role: ${adminUser.role}) attempted to update agent ${agentId} created by admin ${existingAgentProfile.adminId}`,
       );
       throw new BadRequestException(
         'You can only update agent profiles that you created',
@@ -433,17 +446,34 @@ export class AgentsController {
     const userToUpdate = await this.usersService.findByIdOrFail(userId);
     if (
       userToUpdate.role !== UserRole.AGENT &&
-      userToUpdate.role !== UserRole.ADMIN
+      userToUpdate.role !== UserRole.ADMIN &&
+      userToUpdate.role !== UserRole.MANAGER
     ) {
-      throw new BadRequestException('This user is not an agent or admin.');
+      throw new BadRequestException(
+        'This user is not an agent, admin or manager.',
+      );
     }
 
-    // Handle USER schema fields (firstName, lastName, email, password)
+    // Check if role change is attempted - only ADMIN can change roles
+    if (updateDto.role !== undefined) {
+      if (adminUser.role !== UserRole.ADMIN) {
+        throw new BadRequestException(
+          'Only administrators can change user roles. Managers do not have permission to modify roles.',
+        );
+      }
+      // Log role change attempt for audit purposes
+      this.logger.log(
+        `Admin ${adminUser.sub} is changing role of user ${userId} from ${userToUpdate.role} to ${updateDto.role}`,
+      );
+    }
+
+    // Handle USER schema fields (firstName, lastName, email, password, role)
     const userUpdatePayload: UpdateUserDto = {};
     if (updateDto.password) userUpdatePayload.password = updateDto.password;
     if (updateDto.firstName) userUpdatePayload.firstName = updateDto.firstName;
     if (updateDto.lastName) userUpdatePayload.lastName = updateDto.lastName;
     if (updateDto.email) userUpdatePayload.email = updateDto.email;
+    if (updateDto.role) userUpdatePayload.role = updateDto.role;
 
     // Update user fields if any are provided
     if (Object.keys(userUpdatePayload).length > 0) {
@@ -461,7 +491,7 @@ export class AgentsController {
       await this.chatNotificationService.notifyAgentAboutStatusChangeByAdmin(
         userId.toString(),
         updateDto.isOnline,
-        adminUser.sub,
+        resolvedAdminId,
       );
     }
 
@@ -503,7 +533,7 @@ export class AgentsController {
 
   // For REST-based status updates (though primary is WebSocket)
   @Patch('status') // Or use /me/status for agent's own
-  @Roles(UserRole.AGENT, UserRole.ADMIN) // Both agents and admins can set status
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER) // Both agents and admins can set status
   async setOnlineStatus(
     @AuthenticatedUser() user: JwtPayload,
     @Body() body: { isOnline: boolean },
@@ -520,7 +550,7 @@ export class AgentsController {
   // ==================== PROFILE PICTURE ENDPOINTS ====================
 
   @Post('profile-picture/upload')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @UseInterceptors(createProfilePictureUploadInterceptor())
   @ApiOperation({
     summary: 'Upload profile picture',
@@ -569,7 +599,7 @@ export class AgentsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   async uploadProfilePicture(
@@ -596,7 +626,7 @@ export class AgentsController {
   // ==================== CANNED MESSAGES ENDPOINTS ====================
 
   @Post('canned-messages')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Create a new canned message',
     description:
@@ -616,7 +646,7 @@ export class AgentsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   async createCannedMessage(
@@ -630,7 +660,7 @@ export class AgentsController {
    * Get canned messages with pagination and filtering
    */
   @Get('canned-messages')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Get canned messages with pagination and filtering',
     description:
@@ -650,7 +680,7 @@ export class AgentsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   async getCannedMessages(
@@ -665,7 +695,7 @@ export class AgentsController {
    * Get a specific canned message by ID
    */
   @Get('canned-messages/:id')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   async getCannedMessageById(
     @AuthenticatedUser() user: JwtPayload,
     @Param('id') messageId: string,
@@ -681,7 +711,7 @@ export class AgentsController {
    * Update a canned message
    */
   @Put('canned-messages/:id')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Update a canned message',
     description:
@@ -702,7 +732,8 @@ export class AgentsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required, or not the message creator',
+    description:
+      'Agent, Admin, or Manager role required, or not the message creator',
     type: ForbiddenResponseDto,
   })
   @ApiNotFoundResponse({
@@ -728,7 +759,7 @@ export class AgentsController {
    * Delete a canned message
    */
   @Delete('canned-messages/:id')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   async deleteCannedMessage(
     @AuthenticatedUser() user: JwtPayload,
     @Param('id') messageId: string,
@@ -744,7 +775,7 @@ export class AgentsController {
    * Check agent availability based on shift schedule
    */
   @Get('me/availability')
-  @Roles(UserRole.AGENT, UserRole.ADMIN)
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Check agent availability',
     description:
@@ -810,7 +841,7 @@ export class AgentsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Agent or Admin role required',
+    description: 'Agent, Admin, or Manager role required',
     type: ForbiddenResponseDto,
   })
   async getMyAvailability(@AuthenticatedUser() user: JwtPayload) {
@@ -818,11 +849,11 @@ export class AgentsController {
   }
 
   @Patch(':agentId/block')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
-    summary: 'Block/Unblock agent account (Admin only)',
+    summary: 'Block/Unblock agent account (Admin/Manager only)',
     description:
-      'Block or unblock an agent account. When blocked, the agent cannot access the system or handle chats. Only accessible by administrators.',
+      'Block or unblock an agent account. When blocked, the agent cannot access the system or handle chats. Only accessible by administrators and managers.',
   })
   @ApiParam({
     name: 'agentId',
@@ -862,7 +893,7 @@ export class AgentsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   async blockUnblockAgent(
@@ -893,11 +924,11 @@ export class AgentsController {
   }
 
   @Get(':agentId')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
-    summary: 'Get agent profile by ID (Admin only)',
+    summary: 'Get agent profile by ID (Admin/Manager only)',
     description:
-      'Retrieve a specific agent profile with associated user details by agent ID. Only accessible by administrators.',
+      'Retrieve a specific agent profile with associated user details by agent ID. Only accessible by administrators and managers.',
   })
   @ApiParam({
     name: 'agentId',
@@ -923,7 +954,7 @@ export class AgentsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   async getAgentById(
@@ -956,6 +987,7 @@ export class AgentsController {
             email: userDetails.email,
             firstName: userDetails.firstName,
             lastName: userDetails.lastName,
+            role: userDetails.role,
           }
         : null,
     };

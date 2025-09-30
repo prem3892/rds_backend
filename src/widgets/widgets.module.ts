@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Widget, WidgetSchema } from 'src/schemas/widget.schema';
 import {
@@ -11,6 +11,7 @@ import { WidgetsController } from './widgets.controller';
 import { AutoMessagesController } from './auto-messages.controller';
 import { DepartmentsModule } from 'src/departments/departments.module'; // To validate departmentIds
 import { ConfigModule } from '@nestjs/config';
+import { AgentsModule } from 'src/agents/agents.module';
 
 @Module({
   imports: [
@@ -18,8 +19,9 @@ import { ConfigModule } from '@nestjs/config';
       { name: Widget.name, schema: WidgetSchema },
       { name: AutoMessage.name, schema: AutoMessageSchema },
     ]),
-    DepartmentsModule,
+    forwardRef(() => DepartmentsModule),
     ConfigModule,
+    forwardRef(() => AgentsModule),
   ],
   controllers: [WidgetsController, AutoMessagesController],
   providers: [WidgetsService, AutoMessagesService],
