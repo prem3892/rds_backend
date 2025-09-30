@@ -40,6 +40,31 @@ export function generateWidgetScript(
           }
         }
         
+        @keyframes dots {
+          0%, 20% {
+            color: rgba(0,0,0,0);
+            text-shadow:
+              .3em 0 0 rgba(0,0,0,0),
+              .6em 0 0 rgba(0,0,0,0);
+          }
+          40% {
+            color: #9ca3af;
+            text-shadow:
+              .3em 0 0 rgba(0,0,0,0),
+              .6em 0 0 rgba(0,0,0,0);
+          }
+          60% {
+            text-shadow:
+              .3em 0 0 #9ca3af,
+              .6em 0 0 rgba(0,0,0,0);
+          }
+          80%, 100% {
+            text-shadow:
+              .3em 0 0 #9ca3af,
+              .6em 0 0 #9ca3af;
+          }
+        }
+        
        
       \`;
       document.head.appendChild(style);
@@ -504,25 +529,14 @@ export function generateWidgetScript(
             ">
               <!-- Chat Header -->
               <div id="chat-header" style="
-                padding: 8px 16px;
+                padding: 0px 16px;
                 border-bottom: 1px solid #e5e7eb;
-                background-color: white;
+                // background-color: white;
                 flex-shrink: 0;
-                display: none;
+                display: hidden;
               ">
-                <div style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                ">
-                  <div>
-                    <div style="
-                      font-size: 12px;
-                      color: #6b7280;
-                    " id="agent-status">Connecting...</div>
-                  </div>
-                </div>
-              </div>
+                <!-- Agent status removed from header -->
+              </div> 
     
               <!-- Messages Container - Fixed height issue with overflow -->
               <div id="messages-container" style="
@@ -590,6 +604,22 @@ export function generateWidgetScript(
                 </div>
               </div>
     
+              <!-- Agent Status - Above message input -->
+              <div id="agent-status-container" style="
+                padding: 12px 16px;
+                text-align: center;
+                flex-shrink: 0;
+                background-color: transparent;
+                display: none;
+              ">
+                <div id="agent-status" style="
+                  font-size: 14px;
+                  color: #6b7280;
+                  font-weight: 400;
+                  line-height: 1.4;
+                ">Connecting...</div>
+              </div>
+
               <!-- Message Input - Fixed to bottom -->
               <div style="
                 border-top: 1px solid #e5e7eb;
@@ -1049,7 +1079,7 @@ export function generateWidgetScript(
           this.socket.on('server:agent_typing_start', () => this.showTypingIndicator());
           this.socket.on('server:agent_typing_stop', () => this.hideTypingIndicator());
           this.socket.on('server:no_agents_available_for_request', () => this.showAgentStatus('No agents available. We\\'ll respond soon.'));
-          this.socket.on('server:chat_session_pending', () => this.showAgentStatus('Looking for an available agent...'));
+          this.socket.on('server:chat_session_pending', () => this.showAgentStatus('Getting a live chat agent for you...'));
           
           // Listen for message seen by agent event
           this.socket.on('server:message_seen_by_agent', (data) => {
@@ -1127,6 +1157,11 @@ export function generateWidgetScript(
           
           const chatInterface = document.getElementById('chat-interface');
           chatInterface.style.display = 'flex';
+          
+          // Show initial status if no specific status has been set
+          // if (!this.currentChatSession || !this.currentChatSession.agentName) {
+          //   this.showAgentStatus('Getting a live chat agent for you');
+          // }
           
           // Focus the input field for better UX
         //   setTimeout(() => {
@@ -1893,7 +1928,61 @@ export function generateWidgetScript(
             typingIndicator.style.display = 'none';
           }
         }
-        showAgentStatus(status) { document.getElementById('agent-status').textContent = status; }
+        showAgentStatus(status) {
+          console.log('Showing agent status:', status);
+          const statusContainer = document.getElementById('agent-status-container');
+          const statusElement = document.getElementById('agent-status');
+          
+          if (!statusContainer || !statusElement) return;
+          
+          // Hide status if it's "Chatting with [agentName]" or if we have an active chat session with an agent
+          if ((status && (status.includes('Chatting with') || status.includes('chatting with'))) || 
+              (this.currentChatSession && this.currentChatSession.agentName)) {
+            statusContainer.style.display = 'none';
+            return;
+          }
+          
+          // Show the container
+          statusContainer.style.display = 'block';
+          
+          // Check if this is a "Looking for" or similar message that should have animated dots
+          if (status && (status.includes('Looking for') || status.includes('available agent') || status.includes('Getting a live chat agent'))) {
+            // Use the exact text from the image with the same dots as typing indicator
+            const baseText = status.includes('Getting a live chat agent') ? status : 'Getting a live chat agent for you';
+            statusElement.innerHTML = \`
+              <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <span>\${baseText}</span>
+                <div style="display: flex; gap: 4px;">
+                  <div style="
+                    width: 8px;
+                    height: 8px;
+                    background-color: #9ca3af;
+                    border-radius: 50%;
+                    animation: bounce 1.4s infinite ease-in-out both;
+                  "></div>
+                  <div style="
+                    width: 8px;
+                    height: 8px;
+                    background-color: #9ca3af;
+                    border-radius: 50%;
+                    animation: bounce 1.4s infinite ease-in-out both;
+                    animation-delay: 0.16s;
+                  "></div>
+                  <div style="
+                    width: 8px;
+                    height: 8px;
+                    background-color: #9ca3af;
+                    border-radius: 50%;
+                    animation: bounce 1.4s infinite ease-in-out both;
+                    animation-delay: 0.32s;
+                  "></div>
+                </div>
+              </div>
+            \`;
+          } else {
+            statusElement.textContent = status;
+          }
+        }
     
         showConnectionStatus(message, type = 'yellow') {
           const statusEl = document.getElementById('connection-status');
@@ -1902,7 +1991,7 @@ export function generateWidgetScript(
           
           const baseStyles = {
             padding: '8px 16px',
-            borderBottom: '1px solid #e5e7eb',
+            borderBottom: '1px solid #e5e7eb', 
             fontSize: '14px',
             flexShrink: '0'
           };
@@ -1912,6 +2001,8 @@ export function generateWidgetScript(
             : { backgroundColor: '#fffbeb', color: '#92400e' };
             
           utils.applyStyles(statusEl, { ...baseStyles, ...typeStyles });
+
+
         }
     
         hideConnectionStatus() { document.getElementById('connection-status').style.display = 'none'; }
@@ -2223,7 +2314,7 @@ export function generateWidgetScript(
           this.hideConnectionStatus();
           
           // Update agent status to show we're ready to chat
-          this.showAgentStatus('Assistant is ready to help!');
+          // this.showAgentStatus('Assistant is ready to help!');
           
           // Display the auto-message
           this.displayMessage(autoMessageObj);
