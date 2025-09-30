@@ -551,6 +551,21 @@ export function generateWidgetScript(
 
                 
               ">
+                <!-- Agent Status - Inside messages container -->
+                <div id="agent-status-container" style="
+                  padding: 12px 0px;
+                  text-align: center;
+                  flex-shrink: 0;
+                  background-color: transparent;
+                  display: none;
+                ">
+                  <div id="agent-status" style="
+                    font-size: 14px;
+                    color: #6b7280;
+                    font-weight: 400;
+                    line-height: 1.4;
+                  ">Connecting...</div>
+                </div>
                 <!-- Messages will be populated here -->
               </div>
     
@@ -604,21 +619,6 @@ export function generateWidgetScript(
                 </div>
               </div>
     
-              <!-- Agent Status - Above message input -->
-              <div id="agent-status-container" style="
-                padding: 12px 16px;
-                text-align: center;
-                flex-shrink: 0;
-                background-color: transparent;
-                display: none;
-              ">
-                <div id="agent-status" style="
-                  font-size: 14px;
-                  color: #6b7280;
-                  font-weight: 400;
-                  line-height: 1.4;
-                ">Connecting...</div>
-              </div>
 
               <!-- Message Input - Fixed to bottom -->
               <div style="
@@ -1857,6 +1857,15 @@ export function generateWidgetScript(
           
           messagesContainer.appendChild(messageDiv);
           
+          // Move agent status to bottom if it exists
+          const statusContainer = document.getElementById('agent-status-container');
+          if (statusContainer && statusContainer.style.display !== 'none') {
+            if (statusContainer.parentNode) {
+              statusContainer.parentNode.removeChild(statusContainer);
+            }
+            messagesContainer.appendChild(statusContainer);
+          }
+          
           // Bind events for customer info form if this is a form message
           if (message.messageContent.type === 'customer_info_form') {
             const formId = message.messageContent.formId || message._id;
@@ -1932,8 +1941,9 @@ export function generateWidgetScript(
           console.log('Showing agent status:', status);
           const statusContainer = document.getElementById('agent-status-container');
           const statusElement = document.getElementById('agent-status');
+          const messagesContainer = document.getElementById('messages-container');
           
-          if (!statusContainer || !statusElement) return;
+          if (!statusContainer || !statusElement || !messagesContainer) return;
           
           // Hide status if it's "Chatting with [agentName]" or if we have an active chat session with an agent
           if ((status && (status.includes('Chatting with') || status.includes('chatting with'))) || 
@@ -1942,8 +1952,15 @@ export function generateWidgetScript(
             return;
           }
           
-          // Show the container
+          // Show the container and move it to the bottom of messages container
           statusContainer.style.display = 'block';
+          
+          // Ensure the status appears after all existing messages
+          // Remove it first if it exists, then append to ensure proper order
+          if (statusContainer.parentNode) {
+            statusContainer.parentNode.removeChild(statusContainer);
+          }
+          messagesContainer.appendChild(statusContainer);
           
           // Check if this is a "Looking for" or similar message that should have animated dots
           if (status && (status.includes('Looking for') || status.includes('available agent') || status.includes('Getting a live chat agent'))) {
