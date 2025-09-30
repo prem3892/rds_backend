@@ -17,11 +17,21 @@ import {
   CannedMessage,
   CannedMessageDocument,
 } from 'src/schemas/canned-message.schema';
+import {
+  ChatSession,
+  ChatSessionDocument,
+} from 'src/schemas/chat-session.schema';
+import {
+  ChatMessage,
+  ChatMessageDocument,
+} from 'src/schemas/chat-message.schema';
 import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto';
 import { CreateCannedMessageDto } from './dto/create-canned-message.dto';
 import { UpdateCannedMessageDto } from './dto/update-canned-message.dto';
 import { GetCannedMessagesDto } from './dto/get-canned-messages.dto';
 import { GetAgentsDto } from './dto/get-agents.dto';
+import { GetAgentMetricsDto, TimeFilter } from './dto/get-agent-metrics.dto';
+import { AgentMetricItemDto } from './dto/agent-metrics-response.dto';
 import { UsersService } from '../users/users.service';
 import { UserRole } from '../shared/constants/enums';
 import { DepartmentsService } from 'src/departments/departments.service';
@@ -39,6 +49,10 @@ export class AgentsService {
     private agentProfileModel: Model<AgentProfileDocument>,
     @InjectModel(CannedMessage.name)
     private cannedMessageModel: Model<CannedMessageDocument>,
+    @InjectModel(ChatSession.name)
+    private chatSessionModel: Model<ChatSessionDocument>,
+    @InjectModel(ChatMessage.name)
+    private chatMessageModel: Model<ChatMessageDocument>,
     @Inject(forwardRef(() => UsersService))
     private readonly usersService: UsersService,
     private readonly departmentsService: DepartmentsService,
@@ -1390,5 +1404,449 @@ export class AgentsService {
       const agentProfile = await this.findAgentProfileByUserId(agentId);
       return agentProfile?.isOnline || false;
     }
+  }
+
+  /**
+   * Get agent metrics with domain-wise breakdown
+   */
+  async getAgentMetrics(
+    agentId: string,
+    queryDto: GetAgentMetricsDto,
+  ): Promise<{
+    items: AgentMetricItemDto[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNext: boolean;
+      hasPrev: boolean;
+    };
+  }> {
+    const {
+      timeFilter,
+      domain,
+      page = 1,
+      limit = 10,
+      sortBy = 'acceptedChats',
+      sortOrder = 'desc',
+    } = queryDto;
+
+    this.logger.debug(
+      `Getting metrics for agent ${agentId} with filters: ${JSON.stringify(queryDto)}`,
+    );
+
+    // Calculate date range based on time filter
+    const dateRange = this.getDateRangeForTimeFilter(timeFilter);
+
+    // Build aggregation pipeline
+    const pipeline = this.buildMetricsAggregationPipeline(
+      agentId,
+      dateRange,
+      domain,
+      sortBy,
+      sortOrder,
+      page,
+      limit,
+    );
+
+    // Execute aggregation
+    const [result] = await this.chatSessionModel.aggregate(pipeline).exec();
+
+    if (!result) {
+      return {
+        items: [],
+        meta: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false,
+        },
+      };
+    }
+
+    const { data, totalCount } = result;
+    const items = data || [];
+    const total = totalCount?.[0]?.count || 0;
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(total / limit);
+    const hasNext = page < totalPages;
+    const hasPrev = page > 1;
+
+    this.logger.debug(
+      `Retrieved ${items.length} metric items for agent ${agentId} (page ${page}/${totalPages}), total found: ${total}`,
+    );
+
+    const meta = {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNext,
+      hasPrev,
+    };
+
+    return {
+      items,
+      meta,
+    };
+  }
+
+  /**
+   * Get date range based on time filter
+   */
+  private getDateRangeForTimeFilter(timeFilter: TimeFilter): {
+    start: Date;
+    end: Date;
+  } {
+    const now = new Date();
+    const start = new Date();
+    const end = new Date(now);
+
+    switch (timeFilter) {
+      case TimeFilter.TODAY:
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        break;
+      case TimeFilter.LAST_WEEK:
+        start.setDate(now.getDate() - 7);
+        start.setHours(0, 0, 0, 0);
+        break;
+      case TimeFilter.LAST_MONTH:
+        start.setDate(now.getDate() - 30);
+        start.setHours(0, 0, 0, 0);
+        break;
+    }
+
+    return { start, end };
+  }
+
+  /**
+   * Build MongoDB aggregation pipeline for metrics calculation
+   */
+  private buildMetricsAggregationPipeline(
+    agentId: string,
+    dateRange: { start: Date; end: Date },
+    domain?: string,
+    sortBy: string = 'acceptedChats',
+    sortOrder: string = 'desc',
+    page: number = 1,
+    limit: number = 10,
+  ): any[] {
+    const agentObjectId = new Types.ObjectId(agentId);
+
+    // Base match conditions
+    const matchConditions: any = {
+      $and: [
+        {
+          $or: [
+            { agentId: agentObjectId }, // Current agent
+            { 'agentHistory.agentId': agentObjectId }, // Agent in history
+          ],
+        },
+        {
+          $or: [
+            { acceptedAt: { $gte: dateRange.start, $lte: dateRange.end } },
+            { initiatedAt: { $gte: dateRange.start, $lte: dateRange.end } },
+          ],
+        },
+      ],
+    };
+
+    // Add domain filter if specified
+    if (domain) {
+      matchConditions.domain = domain;
+    }
+
+    const pipeline = [
+      // Match chat sessions for the agent within date range
+      { $match: matchConditions },
+
+      // Group by domain to calculate metrics
+      {
+        $group: {
+          _id: '$domain',
+          acceptedChats: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $ne: ['$acceptedAt', null] },
+                    {
+                      $or: [
+                        { $eq: ['$agentId', agentObjectId] },
+                        {
+                          $in: [
+                            agentObjectId,
+                            {
+                              $map: {
+                                input: {
+                                  $filter: {
+                                    input: '$agentHistory',
+                                    cond: { $eq: ['$$this.isActive', true] },
+                                  },
+                                },
+                                as: 'agent',
+                                in: '$$agent.agentId',
+                              },
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+          totalSessions: { $sum: 1 },
+          sessionIds: { $push: '$_id' },
+        },
+      },
+
+      // Lookup chat messages to calculate response metrics
+      {
+        $lookup: {
+          from: 'chatmessages',
+          let: { sessionIds: '$sessionIds', agentId: agentObjectId },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $in: ['$chatSessionId', '$$sessionIds'] },
+                    { $eq: ['$senderId', '$$agentId'] },
+                    { $eq: ['$senderType', 'AGENT'] },
+                  ],
+                },
+              },
+            },
+            {
+              $group: {
+                _id: '$chatSessionId',
+                firstAgentMessage: { $min: '$timestamp' },
+                messageCount: { $sum: 1 },
+              },
+            },
+          ],
+          as: 'agentMessages',
+        },
+      },
+
+      // Lookup customer messages for response time calculation
+      {
+        $lookup: {
+          from: 'chatmessages',
+          let: { sessionIds: '$sessionIds' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $in: ['$chatSessionId', '$$sessionIds'] },
+                    { $eq: ['$senderType', 'CUSTOMER'] },
+                  ],
+                },
+              },
+            },
+            {
+              $group: {
+                _id: '$chatSessionId',
+                firstCustomerMessage: { $min: '$timestamp' },
+              },
+            },
+          ],
+          as: 'customerMessages',
+        },
+      },
+
+      // Lookup sessions to check for proactive chats
+      {
+        $lookup: {
+          from: 'chatmessages',
+          let: { sessionIds: '$sessionIds', agentId: agentObjectId },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $in: ['$chatSessionId', '$$sessionIds'],
+                },
+              },
+            },
+            {
+              $sort: { timestamp: 1 },
+            },
+            {
+              $group: {
+                _id: '$chatSessionId',
+                firstMessage: { $first: '$$ROOT' },
+              },
+            },
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$firstMessage.senderId', agentObjectId] },
+                    { $eq: ['$firstMessage.senderType', 'AGENT'] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: 'proactiveSessions',
+        },
+      },
+
+      // Calculate final metrics
+      {
+        $project: {
+          domain: '$_id',
+          acceptedChats: 1,
+          respondedChats: { $size: '$agentMessages' },
+          proactiveChats: { $size: '$proactiveSessions' },
+          avgResponseTimeMs: {
+            $cond: [
+              { $gt: [{ $size: '$agentMessages' }, 0] },
+              {
+                $avg: {
+                  $map: {
+                    input: '$agentMessages',
+                    as: 'agentMsg',
+                    in: {
+                      $let: {
+                        vars: {
+                          customerMsg: {
+                            $arrayElemAt: [
+                              {
+                                $filter: {
+                                  input: '$customerMessages',
+                                  cond: {
+                                    $eq: ['$$this._id', '$$agentMsg._id'],
+                                  },
+                                },
+                              },
+                              0,
+                            ],
+                          },
+                        },
+                        in: {
+                          $cond: [
+                            { $ne: ['$$customerMsg', null] },
+                            {
+                              $subtract: [
+                                '$$agentMsg.firstAgentMessage',
+                                '$$customerMsg.firstCustomerMessage',
+                              ],
+                            },
+                            0,
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              0,
+            ],
+          },
+        },
+      },
+
+      // Convert avgResponseTimeMs to formatted string
+      {
+        $addFields: {
+          avgResponseTime: {
+            $let: {
+              vars: {
+                totalSeconds: { $divide: ['$avgResponseTimeMs', 1000] },
+              },
+              in: {
+                $concat: [
+                  {
+                    $toString: {
+                      $floor: { $divide: ['$$totalSeconds', 3600] },
+                    },
+                  },
+                  ':',
+                  {
+                    $let: {
+                      vars: {
+                        minutes: {
+                          $floor: {
+                            $divide: [{ $mod: ['$$totalSeconds', 3600] }, 60],
+                          },
+                        },
+                      },
+                      in: {
+                        $concat: [
+                          {
+                            $cond: [
+                              { $lt: ['$$minutes', 10] },
+                              { $concat: ['0', { $toString: '$$minutes' }] },
+                              { $toString: '$$minutes' },
+                            ],
+                          },
+                          ':',
+                          {
+                            $let: {
+                              vars: {
+                                seconds: {
+                                  $floor: { $mod: ['$$totalSeconds', 60] },
+                                },
+                              },
+                              in: {
+                                $cond: [
+                                  { $lt: ['$$seconds', 10] },
+                                  {
+                                    $concat: ['0', { $toString: '$$seconds' }],
+                                  },
+                                  { $toString: '$$seconds' },
+                                ],
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+
+      // Remove the avgResponseTimeMs field
+      {
+        $project: {
+          avgResponseTimeMs: 0,
+        },
+      },
+
+      // Facet for pagination and total count
+      {
+        $facet: {
+          data: [
+            // Sort
+            {
+              $sort: {
+                [sortBy]: sortOrder === 'asc' ? 1 : -1,
+              },
+            },
+            // Pagination
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+          ],
+          totalCount: [{ $count: 'count' }],
+        },
+      },
+    ];
+
+    return pipeline;
   }
 }
