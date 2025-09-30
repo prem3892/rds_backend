@@ -1065,6 +1065,9 @@ export class AgentsController {
       throw new NotFoundException(`Agent profile with ID ${agentId} not found`);
     }
 
-    return this.agentsService.getAgentMetrics(agentId, queryDto);
+    return this.agentsService.getAgentMetrics(
+      agentProfile.userId.toString(),
+      queryDto,
+    );
   }
 }
