@@ -2632,6 +2632,9 @@ export class ChatGateway
       await this.agentsService.findAgentProfileByUserId(agentUserId);
     if (!agent) throw new WsException('Agent not found.');
 
+    // Parse the date string as-is without timezone conversion
+    // Frontend sends: 2024-10-03T15:00:00 (no timezone info)
+    // We store it as a Date object but treat it as local time
     const appointmentData: CreateAppointmentDto = {
       ...payload,
       agentId: (agent.userId as Types.ObjectId).toString(),
@@ -2656,13 +2659,20 @@ export class ChatGateway
       .emit('server:appointment_booked_notification', appointment);
 
     // Send a system message in chat
+    // Format the date without timezone conversion - just show it as-is
+    const appointmentDate = new Date(appointment.appointmentTime);
+    const formattedDate = appointmentDate
+      .toISOString()
+      .slice(0, 16)
+      .replace('T', ' ');
+
     const systemMessage = await this.chatMessageService.createMessage({
       chatSessionId: new Types.ObjectId(payload.chatSessionId),
       senderId: agent.userId as Types.ObjectId, // System action by agent
       senderType: ChatMessageSenderType.SYSTEM,
       messageType: ChatMessageType.APPOINTMENT_BOOKED_NOTICE,
       content: {
-        text: `An appointment has been scheduled for ${appointment.appointmentTime.toLocaleString()}.`,
+        text: `An appointment has been scheduled for ${formattedDate}.`,
         appointmentDetails: appointment.toObject(), // Send full appointment details
       },
     });
@@ -2935,13 +2945,20 @@ export class ChatGateway
       .emit('server:appointment_booked_notification', appointment);
 
     // Send a system message into the chat session
+    // Format the date without timezone conversion - just show it as-is
+    const appointmentDate = new Date(appointment.appointmentTime);
+    const formattedDate = appointmentDate
+      .toISOString()
+      .slice(0, 16)
+      .replace('T', ' ');
+
     const systemMessagePayload = {
       chatSessionId: appointment.chatSessionId.toString(),
       senderId: appointment.agentId, // Attributed to agent
       senderType: ChatMessageSenderType.SYSTEM,
       messageType: ChatMessageType.APPOINTMENT_BOOKED_NOTICE,
       content: {
-        text: `An appointment has been scheduled by an agent for ${new Date(appointment.appointmentTime).toLocaleString()}.`,
+        text: `An appointment has been scheduled by an agent for ${formattedDate}.`,
         appointmentDetails: appointment.toObject(),
       },
       timestamp: new Date(),
