@@ -51,11 +51,11 @@ export class AutoMessagesController {
   constructor(private readonly autoMessagesService: AutoMessagesService) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Post()
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Create a new auto message (Admin only)',
+    summary: 'Create a new auto message (Admin/Manager only)',
     description:
       'Create an auto message that will be displayed on specific pages of a widget',
   })
@@ -73,7 +73,7 @@ export class AutoMessagesController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   create(
@@ -87,11 +87,11 @@ export class AutoMessagesController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Get()
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Get auto messages with filtering (Admin only)',
+    summary: 'Get auto messages with filtering (Admin/Manager only)',
     description:
       'Retrieve auto messages with optional filtering by widget, domain, etc.',
   })
@@ -109,7 +109,7 @@ export class AutoMessagesController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   findAll(
@@ -123,11 +123,11 @@ export class AutoMessagesController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Get(':id')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Get auto message by ID (Admin only)',
+    summary: 'Get auto message by ID (Admin/Manager only)',
     description: 'Retrieve a specific auto message by its ID',
   })
   @ApiParam({
@@ -153,7 +153,7 @@ export class AutoMessagesController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   findOne(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
@@ -161,11 +161,11 @@ export class AutoMessagesController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Put(':id')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Update auto message (Admin only)',
+    summary: 'Update auto message (Admin/Manager only)',
     description: 'Update an existing auto message',
   })
   @ApiParam({
@@ -228,7 +228,7 @@ export class AutoMessagesController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   update(
@@ -244,11 +244,11 @@ export class AutoMessagesController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Delete(':id')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Delete auto message (Admin only)',
+    summary: 'Delete auto message (Admin/Manager only)',
     description: 'Delete an existing auto message',
   })
   @ApiParam({
@@ -274,7 +274,7 @@ export class AutoMessagesController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   remove(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {

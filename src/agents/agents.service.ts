@@ -59,10 +59,12 @@ export class AgentsService {
     const user = await this.usersService.findById(userId);
     if (
       !user ||
-      (user.role !== UserRole.AGENT && user.role !== UserRole.ADMIN)
+      (user.role !== UserRole.AGENT &&
+        user.role !== UserRole.ADMIN &&
+        user.role !== UserRole.MANAGER)
     ) {
       throw new BadRequestException(
-        'User is not an Agent/Admin or does not exist.',
+        'User is not an Agent/Admin/Manager or does not exist.',
       );
     }
 

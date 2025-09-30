@@ -73,11 +73,11 @@ export class WidgetsController {
   ) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Post()
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Create a new chat widget (Admin only)',
+    summary: 'Create a new chat widget (Admin/Manager only)',
     description:
       'Create a new embeddable chat widget with customizable settings and department routing',
   })
@@ -95,7 +95,7 @@ export class WidgetsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   create(
@@ -109,13 +109,13 @@ export class WidgetsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Get()
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Get widgets with pagination and filtering (Admin only)',
+    summary: 'Get widgets with pagination and filtering (Admin/Manager only)',
     description:
-      'Retrieve widgets with pagination, search, and filtering options. Only returns widgets created by the authenticated admin.',
+      'Retrieve widgets with pagination, search, and filtering options. Only returns widgets created by the authenticated admin or manager.',
   })
   @ApiResponse({
     status: 200,
@@ -131,7 +131,7 @@ export class WidgetsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   findAll(
@@ -146,7 +146,7 @@ export class WidgetsController {
 
   // Admin endpoint to get full config for a widget
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Get(':widgetId/config')
   findOneForAdmin(
     @Param('widgetId') widgetId: string,
@@ -294,7 +294,7 @@ export class WidgetsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Get(':id') // This can be the same as :widgetId/config if you prefer to have one endpoint for admin
   findOne(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
     if (!Types.ObjectId.isValid(id)) {
@@ -307,7 +307,7 @@ export class WidgetsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Put(':id')
   update(
     @Param('id') id: string,
@@ -325,7 +325,7 @@ export class WidgetsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Delete(':id')
   remove(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
     if (!Types.ObjectId.isValid(id)) {

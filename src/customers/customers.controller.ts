@@ -51,9 +51,9 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.AGENT)
   @ApiOperation({
-    summary: 'Get paginated list of blocked customers (Admin only)',
+    summary: 'Get paginated list of blocked customers (Admin/Manager only)',
     description:
       'Retrieves a paginated and searchable list of all customers that have been blocked by administrators. This endpoint provides detailed information about each blocked customer including who blocked them and when. Supports search by name, email, or fingerprint, and sorting by various fields.',
   })
@@ -67,7 +67,7 @@ export class CustomersController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Forbidden - Admin access required',
+    description: 'Forbidden - Admin or Manager access required',
     type: ForbiddenResponseDto,
   })
   @ApiInternalServerErrorResponse({
@@ -115,7 +115,7 @@ export class CustomersController {
   }
 
   @Post('block')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.AGENT)
   @ApiOperation({
     summary: 'Block a customer (Admin and Agent)',
     description:
@@ -136,7 +136,7 @@ export class CustomersController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Forbidden - Admin access required',
+    description: 'Forbidden - Admin or Manager access required',
     type: ForbiddenResponseDto,
   })
   @ApiNotFoundResponse({
@@ -193,7 +193,7 @@ export class CustomersController {
   }
 
   @Post('unblock')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.AGENT)
   @ApiOperation({
     summary: 'Unblock a customer (Admin and Agent)',
     description:
@@ -214,7 +214,7 @@ export class CustomersController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Forbidden - Admin access required',
+    description: 'Forbidden - Admin or Manager access required',
     type: ForbiddenResponseDto,
   })
   @ApiNotFoundResponse({

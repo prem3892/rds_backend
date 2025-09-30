@@ -43,7 +43,7 @@ export class AppointmentsController {
 
   // Admin: View all appointments, filterable
   @Get()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   findAllByAdmin(
     @Query('agentId') agentId?: string,
     @Query('customerId') customerId?: string,
@@ -73,13 +73,13 @@ export class AppointmentsController {
 
   // Admin/Agent: View specific appointment
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.AGENT)
   async findOne(
     @Param('id') id: string,
     @AuthenticatedUser() user: JwtPayload,
   ) {
     const appointment = await this.appointmentsService.findById(id);
-    // Agent can only see their own appointments unless admin
+    // Agent can only see their own appointments unless admin or manager
     if (
       user.role === UserRole.AGENT &&
       appointment.agentId.toString() !== user.sub
@@ -93,7 +93,7 @@ export class AppointmentsController {
 
   // Admin/Agent: Update appointment status (e.g., to COMPLETED or CANCELLED)
   @Patch(':id/status')
-  @Roles(UserRole.ADMIN, UserRole.AGENT)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.AGENT)
   updateStatus(
     @Param('id') id: string,
     @Body() body: UpdateAppointmentStatusDto,
