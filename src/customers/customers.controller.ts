@@ -42,13 +42,18 @@ import {
 } from '../shared/dto/common-responses.dto';
 import { GetBlockedCustomersDto } from './dto/get-blocked-customers.dto';
 import { Types } from 'mongoose';
+import { AgentsService } from '../agents/agents.service';
+import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
 
 @ApiTags('Block Customer Management')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('block-customer')
 export class CustomersController {
-  constructor(private readonly customersService: CustomersService) {}
+  constructor(
+    private readonly customersService: CustomersService,
+    private readonly agentsService: AgentsService,
+  ) {}
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.AGENT)
@@ -80,8 +85,17 @@ export class CustomersController {
     @Query() queryDto: GetBlockedCustomersDto,
   ): Promise<PaginatedResponseDto<CustomerResponseDto>> {
     try {
+      // For ADMIN/MANAGER roles, resolve the adminId; for AGENT, use their userId
+      let userId = user.sub;
+      if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
+        userId = await AdminResolverUtil.resolveAdminId(
+          user,
+          this.agentsService,
+        );
+      }
+
       const result = await this.customersService.getBlockedCustomers(
-        new Types.ObjectId(user.sub),
+        new Types.ObjectId(userId),
         user.role,
         queryDto,
       );
@@ -157,9 +171,18 @@ export class CustomersController {
         throw new BadRequestException('Invalid customer ID format');
       }
 
+      // For ADMIN/MANAGER roles, resolve the adminId; for AGENT, use their userId
+      let userId = user.sub;
+      if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
+        userId = await AdminResolverUtil.resolveAdminId(
+          user,
+          this.agentsService,
+        );
+      }
+
       const customer = await this.customersService.blockCustomer(
         blockCustomerDto.customerId,
-        new Types.ObjectId(user.sub),
+        new Types.ObjectId(userId),
         user.role,
       );
 
@@ -235,9 +258,18 @@ export class CustomersController {
         throw new BadRequestException('Invalid customer ID format');
       }
 
+      // For ADMIN/MANAGER roles, resolve the adminId; for AGENT, use their userId
+      let userId = user.sub;
+      if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
+        userId = await AdminResolverUtil.resolveAdminId(
+          user,
+          this.agentsService,
+        );
+      }
+
       const customer = await this.customersService.unblockCustomer(
         unblockCustomerDto.customerId,
-        new Types.ObjectId(user.sub),
+        new Types.ObjectId(userId),
         user.role,
       );
 

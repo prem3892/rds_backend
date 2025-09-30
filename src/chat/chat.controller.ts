@@ -63,6 +63,7 @@ import {
 } from '../shared/dto/common-responses.dto';
 import { createChatImageUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
 import { getChatImageUrl } from '../shared/utils/file-upload.utils';
+import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
 
 @ApiTags('Chat')
 @ApiBearerAuth('JWT-auth')
@@ -118,9 +119,13 @@ export class ChatController {
 
     // For admins and managers, filter to only sessions assigned to their managed agents
     if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
+      const adminId = await AdminResolverUtil.resolveAdminId(
+        user,
+        this.agentsService,
+      );
       return this.chatSessionService.findAllPaginatedForAdmin(
         queryDto,
-        user.sub,
+        adminId,
       );
     }
 
@@ -249,11 +254,17 @@ export class ChatController {
         );
       }
 
+      // Resolve adminId for managers
+      const adminId = await AdminResolverUtil.resolveAdminId(
+        user,
+        this.agentsService,
+      );
+
       // Check if the session's agent is managed by this admin
       const isAuthorized =
         await this.chatSessionService.isSessionAccessibleByAdmin(
           sessionId,
-          user.sub,
+          adminId,
         );
 
       if (!isAuthorized) {
@@ -601,12 +612,18 @@ export class ChatController {
         );
       }
     } else if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
-      // Admin can upload to sessions assigned to their managed agents
+      // Admin/Manager can upload to sessions assigned to their managed agents
       if (session.agentId) {
+        // Resolve adminId for managers
+        const adminId = await AdminResolverUtil.resolveAdminId(
+          user,
+          this.agentsService,
+        );
+
         const isAuthorized =
           await this.chatSessionService.isSessionAccessibleByAdmin(
             uploadDto.chatSessionId,
-            user.sub,
+            adminId,
           );
         if (!isAuthorized) {
           throw new ForbiddenException(

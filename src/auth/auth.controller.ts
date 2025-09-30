@@ -59,11 +59,16 @@ import {
   UnauthorizedResponseDto,
   ForbiddenResponseDto,
 } from '../shared/dto/common-responses.dto';
+import { AdminResolverUtil } from 'src/shared/utils/admin-resolver.util';
+import { AgentsService } from 'src/agents/agents.service';
 
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly agentsService: AgentsService,
+  ) {}
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -110,7 +115,7 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Post('register')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
@@ -151,9 +156,13 @@ export class AuthController {
       );
     }
 
+    // Resolve admin ID based on user's role
+    let adminId = admin.sub;
+    adminId = await AdminResolverUtil.resolveAdminId(admin, this.agentsService);
+
     const user = await this.authService.register(
       registerDto,
-      new Types.ObjectId(admin.sub),
+      new Types.ObjectId(adminId),
     );
     const { password, ...result } = user.toObject();
     return result;

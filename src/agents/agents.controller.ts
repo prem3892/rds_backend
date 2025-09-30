@@ -54,6 +54,7 @@ import { Types } from 'mongoose';
 import { ChatNotificationService } from '../chat/services/chat-notification/chat-notification.service';
 import { createProfilePictureUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
 import { getProfilePictureUrl } from '../shared/utils/file-upload.utils';
+import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
 import {
   ErrorResponseDto,
   UnauthorizedResponseDto,
@@ -167,7 +168,12 @@ export class AgentsController {
     @AuthenticatedUser() adminUser: JwtPayload,
     @Query() queryDto: GetAgentsDto,
   ) {
-    return this.agentsService.getAgentsWithPagination(adminUser.sub, queryDto);
+    // Resolve adminId - handles both ADMIN and MANAGER roles
+    const adminId = await AdminResolverUtil.resolveAdminId(
+      adminUser,
+      this.agentsService,
+    );
+    return this.agentsService.getAgentsWithPagination(adminId, queryDto);
   }
 
   @Get('me/profile')
@@ -361,12 +367,12 @@ export class AgentsController {
   @ApiOperation({
     summary: 'Update agent profile by admin',
     description:
-      'Update any agent profile by admin or manager. Supports updating all agent profile fields including shifts, timezone, departments, domain access, and user details (firstName, lastName, email, password). Admin or manager can only update profiles they created.',
+      'Update any agent profile by admin or manager. Supports updating all agent profile fields including shifts, timezone, departments, domain access, and user details (firstName, lastName, email, password, role). Admin or manager can only update profiles they created. Note: Only ADMIN users can change roles, not MANAGER users.',
   })
   @ApiBody({
     type: UpdateAgentProfileDto,
     description:
-      'Agent profile update data with optional user fields (firstName, lastName, email, password)',
+      'Agent profile update data with optional user fields (firstName, lastName, email, password, role). Role changes are restricted to ADMIN users only.',
   })
   @ApiResponse({
     status: 200,
@@ -375,7 +381,7 @@ export class AgentsController {
   })
   @ApiBadRequestResponse({
     description:
-      'Invalid agent ID format, agent not found, or unauthorized access',
+      'Invalid agent ID format, agent not found, unauthorized access, or managers attempting to change roles',
     type: ErrorResponseDto,
   })
   @ApiNotFoundResponse({
@@ -395,11 +401,18 @@ export class AgentsController {
       firstName?: string;
       lastName?: string;
       email?: string;
+      role?: UserRole;
     },
   ) {
     if (!Types.ObjectId.isValid(agentId)) {
       throw new BadRequestException('Invalid agent ID format');
     }
+
+    // Resolve adminId - handles both ADMIN and MANAGER roles
+    const resolvedAdminId = await AdminResolverUtil.resolveAdminId(
+      adminUser,
+      this.agentsService,
+    );
 
     // First check if the agent profile exists using agentId (not userId)
     const existingAgentProfile =
@@ -411,10 +424,10 @@ export class AgentsController {
     // Check if the current admin is the one who created this agent profile
     if (
       existingAgentProfile.adminId &&
-      existingAgentProfile.adminId.toString() !== adminUser.sub
+      existingAgentProfile.adminId.toString() !== resolvedAdminId
     ) {
       Logger.warn(
-        `Admin ${adminUser.sub} attempted to update agent ${agentId} created by admin ${existingAgentProfile.adminId}`,
+        `User ${adminUser.sub} (role: ${adminUser.role}) attempted to update agent ${agentId} created by admin ${existingAgentProfile.adminId}`,
       );
       throw new BadRequestException(
         'You can only update agent profiles that you created',
@@ -441,12 +454,26 @@ export class AgentsController {
       );
     }
 
-    // Handle USER schema fields (firstName, lastName, email, password)
+    // Check if role change is attempted - only ADMIN can change roles
+    if (updateDto.role !== undefined) {
+      if (adminUser.role !== UserRole.ADMIN) {
+        throw new BadRequestException(
+          'Only administrators can change user roles. Managers do not have permission to modify roles.',
+        );
+      }
+      // Log role change attempt for audit purposes
+      this.logger.log(
+        `Admin ${adminUser.sub} is changing role of user ${userId} from ${userToUpdate.role} to ${updateDto.role}`,
+      );
+    }
+
+    // Handle USER schema fields (firstName, lastName, email, password, role)
     const userUpdatePayload: UpdateUserDto = {};
     if (updateDto.password) userUpdatePayload.password = updateDto.password;
     if (updateDto.firstName) userUpdatePayload.firstName = updateDto.firstName;
     if (updateDto.lastName) userUpdatePayload.lastName = updateDto.lastName;
     if (updateDto.email) userUpdatePayload.email = updateDto.email;
+    if (updateDto.role) userUpdatePayload.role = updateDto.role;
 
     // Update user fields if any are provided
     if (Object.keys(userUpdatePayload).length > 0) {
@@ -464,7 +491,7 @@ export class AgentsController {
       await this.chatNotificationService.notifyAgentAboutStatusChangeByAdmin(
         userId.toString(),
         updateDto.isOnline,
-        adminUser.sub,
+        resolvedAdminId,
       );
     }
 

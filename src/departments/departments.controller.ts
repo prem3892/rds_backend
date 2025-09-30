@@ -30,6 +30,8 @@ import { UserRole } from '../shared/constants/enums';
 import { Types } from 'mongoose';
 import { AuthenticatedUser } from 'src/shared/decorators/user.decorator';
 import { JwtPayload } from 'src/shared/interfaces/jwt-payload.interface';
+import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
+import { AgentsService } from '../agents/agents.service';
 import {
   ErrorResponseDto,
   UnauthorizedResponseDto,
@@ -44,17 +46,21 @@ import {
 @Roles(UserRole.ADMIN, UserRole.MANAGER)
 @Controller('departments')
 export class DepartmentsController {
-  constructor(private readonly departmentsService: DepartmentsService) {}
+  constructor(
+    private readonly departmentsService: DepartmentsService,
+    private readonly agentsService: AgentsService,
+  ) {}
 
   @Post()
-  create(
+  async create(
     @Body() createDepartmentDto: CreateDepartmentDto,
     @AuthenticatedUser() user: JwtPayload,
   ) {
-    return this.departmentsService.create(
-      createDepartmentDto,
-      new Types.ObjectId(user.sub),
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
     );
+    return this.departmentsService.create(createDepartmentDto, adminId);
   }
 
   @Get()
@@ -76,36 +82,49 @@ export class DepartmentsController {
     description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
-  findAll(@AuthenticatedUser() user: JwtPayload) {
-    return this.departmentsService.findAllByAdmin(new Types.ObjectId(user.sub));
+  async findAll(@AuthenticatedUser() user: JwtPayload) {
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
+    );
+    return this.departmentsService.findAllByAdmin(adminId);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
-    return this.departmentsService.findByIdAndAdmin(
-      id,
-      new Types.ObjectId(user.sub),
+  async findOne(
+    @Param('id') id: string,
+    @AuthenticatedUser() user: JwtPayload,
+  ) {
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
     );
+    return this.departmentsService.findByIdAndAdmin(id, adminId);
   }
 
   @Put(':id')
-  update(
+  async update(
     @Param('id') id: string,
     @Body() updateDepartmentDto: UpdateDepartmentDto,
     @AuthenticatedUser() user: JwtPayload,
   ) {
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
+    );
     return this.departmentsService.updateByAdmin(
       id,
       updateDepartmentDto,
-      new Types.ObjectId(user.sub),
+      adminId,
     );
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
-    return this.departmentsService.removeByAdmin(
-      id,
-      new Types.ObjectId(user.sub),
+  async remove(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
     );
+    return this.departmentsService.removeByAdmin(id, adminId);
   }
 }
