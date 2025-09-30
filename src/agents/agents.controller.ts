@@ -987,6 +987,7 @@ export class AgentsController {
             email: userDetails.email,
             firstName: userDetails.firstName,
             lastName: userDetails.lastName,
+            role: userDetails.role,
           }
         : null,
     };
