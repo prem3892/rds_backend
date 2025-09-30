@@ -352,7 +352,7 @@ export function generateWidgetScript(
           
           this.chatButton.innerHTML = \`
             <div style="
-              padding: 12px 17px;
+              padding: 10px 17px;
               border-radius: 9999px;
               box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
               display: flex;
