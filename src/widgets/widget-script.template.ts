@@ -14,12 +14,14 @@ export function generateWidgetScript(
       'use strict';
       
       // Prevent multiple initializations
+
+      console.log('ChatWidget', window.ChatWidget);
       if (window.ChatWidget) {
         console.warn('Chat widget already initialized');
         return;
       }
       
-      // Add CSS animations
+      // Add CSS animations and responsive styles
       const style = document.createElement('style');
       style.textContent = \`
         @keyframes pulse {
@@ -37,6 +39,33 @@ export function generateWidgetScript(
             opacity: 1;
           }
         }
+        
+        @keyframes dots {
+          0%, 20% {
+            color: rgba(0,0,0,0);
+            text-shadow:
+              .3em 0 0 rgba(0,0,0,0),
+              .6em 0 0 rgba(0,0,0,0);
+          }
+          40% {
+            color: #9ca3af;
+            text-shadow:
+              .3em 0 0 rgba(0,0,0,0),
+              .6em 0 0 rgba(0,0,0,0);
+          }
+          60% {
+            text-shadow:
+              .3em 0 0 #9ca3af,
+              .6em 0 0 rgba(0,0,0,0);
+          }
+          80%, 100% {
+            text-shadow:
+              .3em 0 0 #9ca3af,
+              .6em 0 0 #9ca3af;
+          }
+        }
+        
+       
       \`;
       document.head.appendChild(style);
     
@@ -68,6 +97,13 @@ export function generateWidgetScript(
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             timestamp: new Date().toISOString()
           };
+        },
+        // Detect iOS Safari to handle input focus zoom behavior
+        isIOSSafari() {
+          const ua = navigator.userAgent || navigator.vendor 
+          const isIOS = /iPad|iPhone|iPod/.test(ua);
+          const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS|OPiOS/.test(ua);
+          return isIOS && isSafari;
         },
         
         formatTime(date) {
@@ -141,42 +177,43 @@ export function generateWidgetScript(
           
           const baseChatWindowStyle = {
             position: 'absolute',
-            maxWidth: 'calc(100vw - 64px)', // Ensure it doesn't exceed viewport width minus margins
+            maxWidth: 'calc(100vw - 64px)', // Desktop-safe default margin
             maxHeight: '80vh',
             borderRadius: '8px',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
             border: '1px solid #e5e7eb',
             display: 'none',
             flexDirection: 'column',
-            overflow: 'hidden' // Prevent content from overflowing
+            overflow: 'hidden', // Prevent content from overflowing
+            // paddingBottom: '0.5rem',
           };
           
-          switch (location) {
+          switch (location) { 
             case 'bottom_left':
               return {
-                container: { ...baseContainerStyle, bottom: '28px', left: '18px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '0', left: '0', minWidth: '320px' }
+                container: { ...baseContainerStyle, bottom: '30px', left: '18px' },
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', left: '0' ,minWidth: '320px' }
               };
             case 'bottom_right':
               return {
-                container: { ...baseContainerStyle, bottom: '28px', right: '18px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0', minWidth: '320px' }
+                container: { ...baseContainerStyle, bottom: '30px', right: '18px' },
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0',minWidth: '320px' }
               };
             case 'top_left':
               return {
                 container: { ...baseContainerStyle, top: '32px', left: '32px' },
-                chatWindow: { ...baseChatWindowStyle, top: '0', left: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, top: '0', left: '0',minWidth: '320px' }
               };
             case 'top_right':
               return {
                 container: { ...baseContainerStyle, top: '32px', right: '32px' },
-                chatWindow: { ...baseChatWindowStyle, top: '0', right: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, top: '0', right: '0',minWidth: '320px' }
               };
             default:
               // Default to bottom_right
               return {
-                container: { ...baseContainerStyle, bottom: '28px', right: '18px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0', minWidth: '320px' }
+                container: { ...baseContainerStyle, bottom: '30px', right: '18px' },
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0',minWidth: '320px' }
               };
           }
         },
@@ -247,6 +284,8 @@ export function generateWidgetScript(
           try {
             await this.loadConfig();
             this.createUI();
+            this.applyResponsiveSizing && this.applyResponsiveSizing();
+            window.addEventListener('resize', () => this.applyResponsiveSizing && this.applyResponsiveSizing());
             this.connectSocket();
             this.bindEvents();
             // Don't schedule auto message immediately - wait for initial data
@@ -297,6 +336,14 @@ export function generateWidgetScript(
             #chat-widget-container {
               font-family: system-ui, -apple-system, sans-serif !important;
             }
+
+            /* Prevent iOS Safari auto-zoom by keeping inputs at >=16px */
+            #chat-widget-container input,
+            #chat-widget-container textarea,
+            #chat-widget-container select,
+            #chat-widget-container button {
+              font-size: 14px !important;
+            }
             
             @keyframes pulse {
               0%, 100% { opacity: 1; }
@@ -330,7 +377,7 @@ export function generateWidgetScript(
           
           this.chatButton.innerHTML = \`
             <div style="
-              padding: 15px 32px;
+              padding: 10px 17px;
               border-radius: 9999px;
               box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
               display: flex;
@@ -340,9 +387,16 @@ export function generateWidgetScript(
               min-width: max-content;
               background-color: \${primaryColor};
               color: \${textColor};
-            ">
+              border: 2px solid white;
+            "
+            class="chat-wrap">
+              
+             <svg xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px" height="24px" width="24px" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+  <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+</svg>
+             
               <span style="
-                font-weight: 900;
+                // font-weight: 900;
                 font-size: 16px;
                 white-space: nowrap;
               ">\${utils.escapeHtml(buttonLabel)}</span>
@@ -378,6 +432,7 @@ export function generateWidgetScript(
           const positionStyles = utils.getPositionStyles(buttonLocation);
           
           this.chatWindow = document.createElement('div');
+          // this.chatWindow.className = 'chat-widget-window';
           utils.applyStyles(this.chatWindow, positionStyles.chatWindow);
           this.chatWindow.style.backgroundColor = bgColorWithOpacity;
           
@@ -389,6 +444,7 @@ export function generateWidgetScript(
               flex-shrink: 0;
               background-color: \${primaryColor};
               padding-top: 17px;
+
             ">
 
              <div id="minimize-btn" role="button" tabindex="0" style="
@@ -431,7 +487,7 @@ export function generateWidgetScript(
                   flex: 1;
                   justify-content: center;
                 ">
-                  <span id="chat-header-text" style="font-size: 18px; text-align: center; padding: 16px 12px 0 12px">\${utils.escapeHtml(headerText)}</span>
+                  <span id="chat-header-text" style="font-size: 1rem; text-align: center; padding: 16px 12px 0 12px">\${utils.escapeHtml(headerText)}</span>
                 </div>
                  
               </div>
@@ -469,28 +525,18 @@ export function generateWidgetScript(
               display: none;
               flex-direction: column;
               overflow: hidden;
+              position: relative;
             ">
               <!-- Chat Header -->
               <div id="chat-header" style="
-                padding: 8px 16px;
+                padding: 0px 16px;
                 border-bottom: 1px solid #e5e7eb;
-                background-color: white;
+                // background-color: white;
                 flex-shrink: 0;
-                display: none;
+                display: hidden;
               ">
-                <div style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                ">
-                  <div>
-                    <div style="
-                      font-size: 12px;
-                      color: #6b7280;
-                    " id="agent-status">Connecting...</div>
-                  </div>
-                </div>
-              </div>
+                <!-- Agent status removed from header -->
+              </div> 
     
               <!-- Messages Container - Fixed height issue with overflow -->
               <div id="messages-container" style="
@@ -500,18 +546,44 @@ export function generateWidgetScript(
                 display: flex;
                 flex-direction: column;
                 gap: 12px;
-                min-height: 40vh
+                // min-height: 310px;
+                min-height: 38vh;
+
+                
               ">
+                <!-- Agent Status - Inside messages container -->
+                <div id="agent-status-container" style="
+                  padding: 12px 0px;
+                  text-align: center;
+                  flex-shrink: 0;
+                  background-color: transparent;
+                  display: none;
+                ">
+                  <div id="agent-status" style="
+                    font-size: 14px;
+                    color: #6b7280;
+                    font-weight: 400;
+                    line-height: 1.4;
+                  ">Connecting...</div>
+                </div>
                 <!-- Messages will be populated here -->
               </div>
     
               <!-- Typing Indicator -->
               <div id="typing-indicator" style="
+                position: absolute;
+                bottom: 55px;
+                left: 5px;
+                right: 16px;
                 padding: 8px 16px;
-                font-size: 14px;
+                width: 100%;
+                font-size: 12px;
                 color: #6b7280;
+             
+               
+              
                 display: none;
-                flex-shrink: 0;
+                z-index: 10;
               ">
                 <div style="
                   display: flex;
@@ -547,15 +619,19 @@ export function generateWidgetScript(
                 </div>
               </div>
     
+
               <!-- Message Input - Fixed to bottom -->
               <div style="
                 border-top: 1px solid #e5e7eb;
-                padding: 16px;
+                padding: 1rem 0.5rem;
+                padding-bottom: 0.5rem;
                 flex-shrink: 0;
                 background-color: white;
+                
               ">
                 <div style="
                   display: flex;
+                  
                   gap: 8px;
                 ">
                   <div style="
@@ -572,6 +648,7 @@ export function generateWidgetScript(
                              outline: none;
                              box-sizing: border-box;
                              transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                             font-size: '14px !important';
                            "
                            >
                     <input type="file" id="file-input" style="display: none;" accept="image/*,.pdf,.doc,.docx,.txt">
@@ -592,7 +669,7 @@ export function generateWidgetScript(
                     </div>
                   </div>
                   <div id="send-btn" role="button" tabindex="0" style="
-                    padding: 8px 16px;
+                    padding: 6px 12px;
                     color: white;
                     border-radius: 8px;
                     cursor: pointer;
@@ -645,6 +722,7 @@ export function generateWidgetScript(
                     color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                    font-size: 16px;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
                      onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
                 </div>
@@ -665,6 +743,7 @@ export function generateWidgetScript(
                     color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                    font-size: 16px;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
                      onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
                 </div>
@@ -691,6 +770,7 @@ export function generateWidgetScript(
                     color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                    font-size: 16px;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
                      onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'"></textarea>
                 </div>
@@ -999,7 +1079,7 @@ export function generateWidgetScript(
           this.socket.on('server:agent_typing_start', () => this.showTypingIndicator());
           this.socket.on('server:agent_typing_stop', () => this.hideTypingIndicator());
           this.socket.on('server:no_agents_available_for_request', () => this.showAgentStatus('No agents available. We\\'ll respond soon.'));
-          this.socket.on('server:chat_session_pending', () => this.showAgentStatus('Looking for an available agent...'));
+          this.socket.on('server:chat_session_pending', () => this.showAgentStatus('Getting a live chat agent for you...'));
           
           // Listen for message seen by agent event
           this.socket.on('server:message_seen_by_agent', (data) => {
@@ -1078,11 +1158,55 @@ export function generateWidgetScript(
           const chatInterface = document.getElementById('chat-interface');
           chatInterface.style.display = 'flex';
           
+          // Show initial status if no specific status has been set
+          // if (!this.currentChatSession || !this.currentChatSession.agentName) {
+          //   this.showAgentStatus('Getting a live chat agent for you');
+          // }
+          
           // Focus the input field for better UX
-          setTimeout(() => {
+        //   setTimeout(() => {
+        //     if (!utils.isIOSSafari()) {
+        //       const messageInput = document.getElementById('message-input');
+        //       if (messageInput) messageInput.focus();
+        //     }
+        //   }, 100);
+        }
+
+        // Apply sizing tweaks for small screens to better fit mobile
+        applyResponsiveSizing() {
+          try {
+            const isCompact = window.innerWidth <= 420; // mobile threshold
+            if (!this.chatWindow) return;
+
+            // Chat window width constraints
+            this.chatWindow.style.maxWidth = isCompact ? 'calc(100vw - 12px)' : 'calc(100vw - 64px)';
+            this.chatWindow.style.minWidth = isCompact ? '280px' : '320px';
+
+            // Header text size
+            const headerTextEl = document.getElementById('chat-header-text');
+            if (headerTextEl) {
+              headerTextEl.style.fontSize = isCompact ? '0.9rem' : '1rem';
+            }
+
+            // Messages container spacing
+            const messagesContainer = document.getElementById('messages-container');
+            if (messagesContainer) {
+              messagesContainer.style.padding = isCompact ? '12px' : '16px';
+              messagesContainer.style.gap = isCompact ? '8px' : '12px';
+            }
+
+            // Input sizes
             const messageInput = document.getElementById('message-input');
-            if (messageInput) messageInput.focus();
-          }, 100);
+            if (messageInput) {
+              messageInput.style.padding = isCompact ? '6px 44px 6px 10px' : '8px 50px 8px 12px';
+              messageInput.style.fontSize = '14px !important';
+            }
+
+            const sendBtn = document.getElementById('send-btn');
+            if (sendBtn) {
+              sendBtn.style.padding = isCompact ? '6px 12px' : '8px 16px';
+            }
+          } catch (e) { /* no-op */ }
         }
 
         showCustomerInfoRequestForm() {
@@ -1215,6 +1339,10 @@ export function generateWidgetScript(
           // Show max 3 agents
           const agentsToShow = agents.slice(0, 3);
           
+          const isMobile = window.innerWidth <= 420;
+          const avatarSize = isMobile ? 70 : 74;
+          const nameFontSize = isMobile ? '12px' : '16px';
+
           agentsToShow.forEach((agent, index) => {
             // Create agent profile container (vertical stack)
             const agentProfile = document.createElement('div');
@@ -1233,8 +1361,8 @@ export function generateWidgetScript(
               const profileImg = document.createElement('img');
               profileImg.src = \`\${API_BASE}\${agent.profilePicture}\`;
               utils.applyStyles(profileImg, {
-                width: '74px',
-                height: '74px',
+                width: avatarSize + 'px',
+                height: avatarSize + 'px',
                 borderRadius: '50%',
                 border: '2px solid white',
                 objectFit: 'cover'
@@ -1247,8 +1375,8 @@ export function generateWidgetScript(
                 this.style.display = 'none';
                 const defaultAvatar = document.createElement('div');
                 utils.applyStyles(defaultAvatar, {
-                  width: '76px',
-                  height: '76px',
+                  width: avatarSize + 'px',
+                  height: avatarSize + 'px',
                   borderRadius: '50%',
                   border: '2px solid white',
                   backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1265,8 +1393,8 @@ export function generateWidgetScript(
               // Show default avatar if no profile picture
               const defaultAvatar = document.createElement('div');
               utils.applyStyles(defaultAvatar, {
-                width: '76px',
-                height: '76px',
+                width: avatarSize + 'px',
+                height: avatarSize + 'px',
                 borderRadius: '50%',
                 border: '2px solid white',
                 backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1280,14 +1408,17 @@ export function generateWidgetScript(
             
             // Add green status dot at bottom right
             const statusDot = document.createElement('div');
+            statusDot.classList.add('greenDot');
+   
             utils.applyStyles(statusDot, {
-              width: '10px',
-              height: '10px',
+              width: (isMobile ? 8 : 10) + 'px',
+              height: (isMobile ? 8 : 10) + 'px',
               backgroundColor: '#4ade80',
               borderRadius: '50%',
               position: 'absolute',
               bottom: '10px',
               right: '10px'
+
             });
             profilePicContainer.appendChild(statusDot);
             
@@ -1296,7 +1427,7 @@ export function generateWidgetScript(
             // Create name label
             const nameLabel = document.createElement('span');
             utils.applyStyles(nameLabel, {
-              fontSize: '16px',
+              fontSize: nameFontSize,
               fontWeight: '500',
               color: 'white',
               opacity: '0.9'
@@ -1627,7 +1758,7 @@ export function generateWidgetScript(
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                   </svg>
                   <a href="\${message.messageContent.url}" target="_blank" rel="noopener noreferrer" 
-                     style="color: #2563eb; font-size: 14px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;"
+                     style="color: #2563eb; font-size: 14px; text-overflow: ellipsis; overflow: scroll; white-space: nowrap;"
                      onmouseover="this.style.textDecoration='underline'"
                      onmouseout="this.style.textDecoration='none'">
                     \${utils.escapeHtml(message.messageContent.filename)}
@@ -1656,7 +1787,8 @@ export function generateWidgetScript(
           
           // Special styling for customer info form
           const isInfoForm = message.messageContent.type === 'customer_info_form';
-          const maxWidth = isInfoForm ? '384px' : '288px';
+          const isMobile = window.innerWidth <= 420;
+          const maxWidth = isInfoForm ? (isMobile ? '320px' : '384px') : (isMobile ? '240px' : '288px');
           
           // Check if this is an agent message (not customer, not system)
           const isAgent = !isCustomer && !isSystem;
@@ -1713,7 +1845,7 @@ export function generateWidgetScript(
           messageDiv.innerHTML = \`
             <div style="display: flex; flex-direction: column;">
               <div style="\${messageStyles}">
-                <div>\${messageContent}</div>
+                <div style="font-size: \${isMobile ? '14px' : '16px'};">\${messageContent}</div>
                 \${!isInfoForm ? \`<div style="font-size: 12px; text-align: right; margin-top: 4px; color: \${timestampColor}; display: flex; align-items: center; justify-content: flex-end;">
                   <span>\${utils.formatTime(message.timestamp)}</span>
                   \${statusIndicator}
@@ -1724,6 +1856,15 @@ export function generateWidgetScript(
           \`;
           
           messagesContainer.appendChild(messageDiv);
+          
+          // Move agent status to bottom if it exists
+          const statusContainer = document.getElementById('agent-status-container');
+          if (statusContainer && statusContainer.style.display !== 'none') {
+            if (statusContainer.parentNode) {
+              statusContainer.parentNode.removeChild(statusContainer);
+            }
+            messagesContainer.appendChild(statusContainer);
+          }
           
           // Bind events for customer info form if this is a form message
           if (message.messageContent.type === 'customer_info_form') {
@@ -1781,14 +1922,84 @@ export function generateWidgetScript(
         }
     
         showTypingIndicator() { 
-          document.getElementById('typing-indicator').style.display = 'block'; 
-          // Scroll to bottom when typing indicator appears
-          const messagesContainer = document.getElementById('messages-container');
-          utils.scrollToBottom(messagesContainer);
+          const typingIndicator = document.getElementById('typing-indicator');
+          if (typingIndicator) {
+            typingIndicator.style.display = 'block';
+            // Scroll to bottom when typing indicator appears
+            const messagesContainer = document.getElementById('messages-container');
+            utils.scrollToBottom(messagesContainer);
+          }
         }
         
-        hideTypingIndicator() { document.getElementById('typing-indicator').style.display = 'none'; }
-        showAgentStatus(status) { document.getElementById('agent-status').textContent = status; }
+        hideTypingIndicator() { 
+          const typingIndicator = document.getElementById('typing-indicator');
+          if (typingIndicator) {
+            typingIndicator.style.display = 'none';
+          }
+        }
+        showAgentStatus(status) {
+          console.log('Showing agent status:', status);
+          const statusContainer = document.getElementById('agent-status-container');
+          const statusElement = document.getElementById('agent-status');
+          const messagesContainer = document.getElementById('messages-container');
+          
+          if (!statusContainer || !statusElement || !messagesContainer) return;
+          
+          // Hide status if it's "Chatting with [agentName]" or if we have an active chat session with an agent
+          if ((status && (status.includes('Chatting with') || status.includes('chatting with'))) || 
+              (this.currentChatSession && this.currentChatSession.agentName)) {
+            statusContainer.style.display = 'none';
+            return;
+          }
+          
+          // Show the container and move it to the bottom of messages container
+          statusContainer.style.display = 'block';
+          
+          // Ensure the status appears after all existing messages
+          // Remove it first if it exists, then append to ensure proper order
+          if (statusContainer.parentNode) {
+            statusContainer.parentNode.removeChild(statusContainer);
+          }
+          messagesContainer.appendChild(statusContainer);
+          
+          // Check if this is a "Looking for" or similar message that should have animated dots
+          if (status && (status.includes('Looking for') || status.includes('available agent') || status.includes('Getting a live chat agent'))) {
+            // Use the exact text from the image with the same dots as typing indicator
+            const baseText = status.includes('Getting a live chat agent') ? status : 'Getting a live chat agent for you';
+            statusElement.innerHTML = \`
+              <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <span>\${baseText}</span>
+                <div style="display: flex; gap: 4px;">
+                  <div style="
+                    width: 8px;
+                    height: 8px;
+                    background-color: #9ca3af;
+                    border-radius: 50%;
+                    animation: bounce 1.4s infinite ease-in-out both;
+                  "></div>
+                  <div style="
+                    width: 8px;
+                    height: 8px;
+                    background-color: #9ca3af;
+                    border-radius: 50%;
+                    animation: bounce 1.4s infinite ease-in-out both;
+                    animation-delay: 0.16s;
+                  "></div>
+                  <div style="
+                    width: 8px;
+                    height: 8px;
+                    background-color: #9ca3af;
+                    border-radius: 50%;
+                    animation: bounce 1.4s infinite ease-in-out both;
+                    animation-delay: 0.32s;
+                  "></div>
+                </div>
+              </div>
+            \`;
+          } else {
+            statusElement.textContent = status;
+          }
+        }
     
         showConnectionStatus(message, type = 'yellow') {
           const statusEl = document.getElementById('connection-status');
@@ -1797,7 +2008,7 @@ export function generateWidgetScript(
           
           const baseStyles = {
             padding: '8px 16px',
-            borderBottom: '1px solid #e5e7eb',
+            borderBottom: '1px solid #e5e7eb', 
             fontSize: '14px',
             flexShrink: '0'
           };
@@ -1807,6 +2018,8 @@ export function generateWidgetScript(
             : { backgroundColor: '#fffbeb', color: '#92400e' };
             
           utils.applyStyles(statusEl, { ...baseStyles, ...typeStyles });
+
+
         }
     
         hideConnectionStatus() { document.getElementById('connection-status').style.display = 'none'; }
@@ -2118,7 +2331,7 @@ export function generateWidgetScript(
           this.hideConnectionStatus();
           
           // Update agent status to show we're ready to chat
-          this.showAgentStatus('Assistant is ready to help!');
+          // this.showAgentStatus('Assistant is ready to help!');
           
           // Display the auto-message
           this.displayMessage(autoMessageObj);
