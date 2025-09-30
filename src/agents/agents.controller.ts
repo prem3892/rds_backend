@@ -64,6 +64,7 @@ import {
   SuccessMessageResponseDto,
   PaginatedResponseDto,
 } from '../shared/dto/common-responses.dto';
+import { User } from 'src/schemas/user.schema';
 
 @ApiTags('Agents')
 @ApiBearerAuth('JWT-auth')
@@ -971,7 +972,7 @@ export class AgentsController {
    * Get agent metrics with domain-wise breakdown
    */
   @Get(':agentId/metrics')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({
     summary: 'Get agent metrics by domain (Admin only)',
     description:
