@@ -163,15 +163,15 @@ export function generateWidgetScript(
             // paddingBottom: '0.5rem',
           };
           
-          switch (location) {
+          switch (location) { 
             case 'bottom_left':
               return {
-                container: { ...baseContainerStyle, bottom: '28px', left: '18px' },
+                container: { ...baseContainerStyle, bottom: '30px', left: '18px' },
                 chatWindow: { ...baseChatWindowStyle, bottom: '0', left: '0' ,minWidth: '320px' }
               };
             case 'bottom_right':
               return {
-                container: { ...baseContainerStyle, bottom: '28px', right: '18px' },
+                container: { ...baseContainerStyle, bottom: '30px', right: '18px' },
                 chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0',minWidth: '320px' }
               };
             case 'top_left':
@@ -187,7 +187,7 @@ export function generateWidgetScript(
             default:
               // Default to bottom_right
               return {
-                container: { ...baseContainerStyle, bottom: '28px', right: '18px' },
+                container: { ...baseContainerStyle, bottom: '30px', right: '18px' },
                 chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0',minWidth: '320px' }
               };
           }
@@ -352,7 +352,7 @@ export function generateWidgetScript(
           
           this.chatButton.innerHTML = \`
             <div style="
-              padding: 10px 17px;
+              padding: 12px 17px;
               border-radius: 9999px;
               box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
               display: flex;
@@ -371,7 +371,7 @@ export function generateWidgetScript(
 </svg>
              
               <span style="
-                font-weight: 900;
+                // font-weight: 900;
                 font-size: 16px;
                 white-space: nowrap;
               ">\${utils.escapeHtml(buttonLabel)}</span>
