@@ -317,7 +317,7 @@ export function generateWidgetScript(
             #chat-widget-container textarea,
             #chat-widget-container select,
             #chat-widget-container button {
-              font-size: 16px !important;
+              font-size: 14px !important;
             }
             
             @keyframes pulse {
@@ -1145,7 +1145,7 @@ export function generateWidgetScript(
 
             // Chat window width constraints
             this.chatWindow.style.maxWidth = isCompact ? 'calc(100vw - 12px)' : 'calc(100vw - 64px)';
-            this.chatWindow.style.minWidth = isCompact ? '260px' : '320px';
+            this.chatWindow.style.minWidth = isCompact ? '280px' : '320px';
 
             // Header text size
             const headerTextEl = document.getElementById('chat-header-text');
@@ -1164,7 +1164,7 @@ export function generateWidgetScript(
             const messageInput = document.getElementById('message-input');
             if (messageInput) {
               messageInput.style.padding = isCompact ? '6px 44px 6px 10px' : '8px 50px 8px 12px';
-              messageInput.style.fontSize = '16px';
+              messageInput.style.fontSize = '14px !important';
             }
 
             const sendBtn = document.getElementById('send-btn');
@@ -1305,7 +1305,7 @@ export function generateWidgetScript(
           const agentsToShow = agents.slice(0, 3);
           
           const isMobile = window.innerWidth <= 420;
-          const avatarSize = isMobile ? 54 : 74;
+          const avatarSize = isMobile ? 70 : 74;
           const nameFontSize = isMobile ? '12px' : '16px';
 
           agentsToShow.forEach((agent, index) => {
