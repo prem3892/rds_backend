@@ -1765,58 +1765,48 @@ export class AgentsService {
           avgResponseTime: {
             $let: {
               vars: {
-                totalSeconds: { $divide: ['$avgResponseTimeMs', 1000] },
+                // Ensure totalSeconds is never negative
+                totalSeconds: {
+                  $max: [0, { $divide: ['$avgResponseTimeMs', 1000] }],
+                },
               },
               in: {
-                $concat: [
-                  {
-                    $toString: {
+                $let: {
+                  vars: {
+                    hours: {
                       $floor: { $divide: ['$$totalSeconds', 3600] },
                     },
-                  },
-                  ':',
-                  {
-                    $let: {
-                      vars: {
-                        minutes: {
-                          $floor: {
-                            $divide: [{ $mod: ['$$totalSeconds', 3600] }, 60],
-                          },
-                        },
-                      },
-                      in: {
-                        $concat: [
-                          {
-                            $cond: [
-                              { $lt: ['$$minutes', 10] },
-                              { $concat: ['0', { $toString: '$$minutes' }] },
-                              { $toString: '$$minutes' },
-                            ],
-                          },
-                          ':',
-                          {
-                            $let: {
-                              vars: {
-                                seconds: {
-                                  $floor: { $mod: ['$$totalSeconds', 60] },
-                                },
-                              },
-                              in: {
-                                $cond: [
-                                  { $lt: ['$$seconds', 10] },
-                                  {
-                                    $concat: ['0', { $toString: '$$seconds' }],
-                                  },
-                                  { $toString: '$$seconds' },
-                                ],
-                              },
-                            },
-                          },
-                        ],
+                    minutes: {
+                      $floor: {
+                        $divide: [{ $mod: ['$$totalSeconds', 3600] }, 60],
                       },
                     },
+                    seconds: {
+                      $floor: { $mod: ['$$totalSeconds', 60] },
+                    },
                   },
-                ],
+                  in: {
+                    $concat: [
+                      { $toString: '$$hours' },
+                      ':',
+                      {
+                        $cond: [
+                          { $lt: ['$$minutes', 10] },
+                          { $concat: ['0', { $toString: '$$minutes' }] },
+                          { $toString: '$$minutes' },
+                        ],
+                      },
+                      ':',
+                      {
+                        $cond: [
+                          { $lt: ['$$seconds', 10] },
+                          { $concat: ['0', { $toString: '$$seconds' }] },
+                          { $toString: '$$seconds' },
+                        ],
+                      },
+                    ],
+                  },
+                },
               },
             },
           },
