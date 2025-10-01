@@ -273,6 +273,7 @@ export function generateWidgetScript(
           this.pendingMessages = new Set(); // Track messages being sent
           this.messageReadObserver = null; // IntersectionObserver for tracking message visibility
           this.availableAgents = []; // Track current agent availability
+          this.currentAgent = null; // Track the currently chatting agent
           this.isOfflineMode = false; // Track if we're in offline mode
           this.autoMessageShown = false; // Track if auto-message has been displayed
           this.initialDataReceived = false; // Track if initial agent availability data has been received
@@ -1094,14 +1095,31 @@ export function generateWidgetScript(
           this.socket.on('server:agent_details_on_accept', (data) => {
             console.log('Agent accepted chat:', data);
             if (data && data.agent) {
+              // Store the current agent information
+              this.currentAgent = {
+                userId: data.agent.id,
+                firstName: data.agent.name.split(' ')[0] || data.agent.name,
+                fullName: data.agent.name,
+                profilePicture: data.agent.profileUrl,
+                isOnline: true
+              };
+              
               this.showAgentStatus(\`Chatting with \${data.agent.name}\`);
-              // If we need to update other UI elements with agent info, add here
+              
+              // Update the UI to show only the current agent's profile
+              this.updateAgentProfilePictures();
             }
           });
 
           this.socket.on('server:agent_ended_chat', (data) => {
             console.log('Agent ended chat:', data);
             this.showAgentStatus(\`Chat ended, please refresh the page for new chat\`);
+            
+            // Reset current agent when chat ends
+            this.currentAgent = null;
+            
+            // Update UI to show available agents again
+            this.updateAgentProfilePictures();
           });
 
           // Listen for agent status changes
@@ -1307,8 +1325,16 @@ export function generateWidgetScript(
           const profileContainer = document.getElementById('agent-profiles');
           if (!profileContainer) return;
           
+          // Determine which agents to display
+          // If there's a current agent (chat accepted), show only that agent
+          // Otherwise, show available agents
+          let agentsToDisplay = agents;
+          if (!agentsToDisplay) {
+            agentsToDisplay = this.currentAgent ? [this.currentAgent] : this.availableAgents;
+          }
+          
           // Update header text based on agent availability
-          this.updateHeaderText(agents.length > 0);
+          this.updateHeaderText(agentsToDisplay.length > 0);
           
           // Clear existing profiles
           profileContainer.innerHTML = '';
@@ -1316,7 +1342,7 @@ export function generateWidgetScript(
           // Update the start chat button text based on agent availability
           const startChatBtn = document.getElementById('start-chat-btn');
           if (startChatBtn) {
-            startChatBtn.textContent = agents.length > 0 ? 'Start Chat' : 'Submit';
+            startChatBtn.textContent = agentsToDisplay.length > 0 ? 'Start Chat' : 'Submit';
           }
           
           // Update email field requirement based on agent availability
@@ -1325,7 +1351,7 @@ export function generateWidgetScript(
           const emailLabel = emailInput ? emailInput.parentElement.querySelector('label') : null;
           
           if (emailLabel && emailInput) {
-            if (agents.length === 0) {
+            if (agentsToDisplay.length === 0) {
               // Offline mode - email is required
               emailLabel.innerHTML = 'Email <span style="color: #ef4444;">*</span>';
               emailInput.setAttribute('required', 'required');
@@ -1336,8 +1362,8 @@ export function generateWidgetScript(
             }
           }
           
-          // Show max 3 agents
-          const agentsToShow = agents.slice(0, 3);
+          // Show max 3 agents (or just 1 if it's the current agent)
+          const agentsToShow = this.currentAgent ? [this.currentAgent] : agentsToDisplay.slice(0, 3);
           
           const isMobile = window.innerWidth <= 420;
           const avatarSize = isMobile ? 70 : 74;
