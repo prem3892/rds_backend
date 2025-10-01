@@ -2634,12 +2634,44 @@ export class ChatGateway
 
     // Parse the date string as-is without timezone conversion
     // Frontend sends: 2024-10-03T15:00:00 (no timezone info)
-    // We store it as a Date object but treat it as local time
+    // We need to preserve the exact date/time values without timezone conversion
+    // Parse as local time by appending 'Z' would make it UTC, so we parse components manually
+    const dateStr = payload.date;
+    let appointmentTime: Date;
+
+    // If the date string doesn't have timezone info, treat it as-is
+    if (
+      !dateStr.endsWith('Z') &&
+      !dateStr.includes('+') &&
+      !dateStr.includes('T')
+    ) {
+      // Format: YYYY-MM-DD HH:mm:ss or similar without T
+      appointmentTime = new Date(dateStr);
+    } else if (!dateStr.endsWith('Z') && !dateStr.match(/[+-]\d{2}:\d{2}$/)) {
+      // Format: 2024-10-03T15:00:00 (no timezone)
+      // Parse components to avoid timezone conversion
+      const parts = dateStr.split('T');
+      const dateParts = parts[0].split('-');
+      const timeParts = parts[1] ? parts[1].split(':') : ['0', '0', '0'];
+
+      appointmentTime = new Date(
+        parseInt(dateParts[0]), // year
+        parseInt(dateParts[1]) - 1, // month (0-indexed)
+        parseInt(dateParts[2]), // day
+        parseInt(timeParts[0]), // hours
+        parseInt(timeParts[1]), // minutes
+        parseInt(timeParts[2] || '0'), // seconds
+      );
+    } else {
+      // Has timezone info, use as-is
+      appointmentTime = new Date(dateStr);
+    }
+
     const appointmentData: CreateAppointmentDto = {
       ...payload,
       agentId: (agent.userId as Types.ObjectId).toString(),
       customerId: customer._id.toString(),
-      appointmentTime: new Date(payload.date),
+      appointmentTime: appointmentTime,
       notes: payload.notes ?? '',
     };
 
@@ -2659,12 +2691,14 @@ export class ChatGateway
       .emit('server:appointment_booked_notification', appointment);
 
     // Send a system message in chat
-    // Format the date without timezone conversion - just show it as-is
+    // Format the date without timezone conversion - use local time components
     const appointmentDate = new Date(appointment.appointmentTime);
-    const formattedDate = appointmentDate
-      .toISOString()
-      .slice(0, 16)
-      .replace('T', ' ');
+    const year = appointmentDate.getFullYear();
+    const month = String(appointmentDate.getMonth() + 1).padStart(2, '0');
+    const day = String(appointmentDate.getDate()).padStart(2, '0');
+    const hours = String(appointmentDate.getHours()).padStart(2, '0');
+    const minutes = String(appointmentDate.getMinutes()).padStart(2, '0');
+    const formattedDate = `${year}-${month}-${day} ${hours}:${minutes}`;
 
     const systemMessage = await this.chatMessageService.createMessage({
       chatSessionId: new Types.ObjectId(payload.chatSessionId),
@@ -2945,12 +2979,14 @@ export class ChatGateway
       .emit('server:appointment_booked_notification', appointment);
 
     // Send a system message into the chat session
-    // Format the date without timezone conversion - just show it as-is
+    // Format the date without timezone conversion - use local time components
     const appointmentDate = new Date(appointment.appointmentTime);
-    const formattedDate = appointmentDate
-      .toISOString()
-      .slice(0, 16)
-      .replace('T', ' ');
+    const year = appointmentDate.getFullYear();
+    const month = String(appointmentDate.getMonth() + 1).padStart(2, '0');
+    const day = String(appointmentDate.getDate()).padStart(2, '0');
+    const hours = String(appointmentDate.getHours()).padStart(2, '0');
+    const minutes = String(appointmentDate.getMinutes()).padStart(2, '0');
+    const formattedDate = `${year}-${month}-${day} ${hours}:${minutes}`;
 
     const systemMessagePayload = {
       chatSessionId: appointment.chatSessionId.toString(),
