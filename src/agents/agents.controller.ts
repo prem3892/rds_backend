@@ -37,11 +37,13 @@ import { CreateCannedMessageDto } from './dto/create-canned-message.dto';
 import { UpdateCannedMessageDto } from './dto/update-canned-message.dto';
 import { GetCannedMessagesDto } from './dto/get-canned-messages.dto';
 import { GetAgentsDto } from './dto/get-agents.dto';
+import { GetAgentMetricsDto } from './dto/get-agent-metrics.dto';
 import {
   AgentProfileResponseDto,
   CannedMessageResponseDto,
   AgentStatusResponseDto,
 } from './dto/agent-responses.dto';
+import { AgentMetricsResponseDto } from './dto/agent-metrics-response.dto';
 import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../shared/guards/roles.guard';
 import { Roles } from '../shared/decorators/roles.decorator';
@@ -63,6 +65,7 @@ import {
   SuccessMessageResponseDto,
   PaginatedResponseDto,
 } from '../shared/dto/common-responses.dto';
+import { User } from 'src/schemas/user.schema';
 
 @ApiTags('Agents')
 @ApiBearerAuth('JWT-auth')
@@ -991,5 +994,108 @@ export class AgentsController {
           }
         : null,
     };
+  }
+
+  /**
+   * Get agent metrics with domain-wise breakdown
+   */
+  @Get(':agentId/metrics')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiOperation({
+    summary: 'Get agent metrics by domain (Admin only)',
+    description:
+      'Retrieve agent performance metrics broken down by domain with time-based filtering. Includes accepted chats, responded chats, average response time, and proactive chats. Only accessible by administrators.',
+  })
+  @ApiParam({
+    name: 'agentId',
+    description: 'Agent Profile ID to get metrics for',
+    example: '507f1f77bcf86cd799439011',
+  })
+  @ApiQuery({
+    name: 'timeFilter',
+    description: 'Time period filter for metrics',
+    example: 'last_week',
+    enum: ['today', 'last_week', 'last_month'],
+  })
+  @ApiQuery({
+    name: 'domain',
+    required: false,
+    description: 'Filter by specific domain',
+    example: 'allureesthetic.com',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Page number for pagination',
+    example: 1,
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Number of items per page',
+    example: 10,
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    description: 'Field to sort by',
+    example: 'acceptedChats',
+    enum: [
+      'domain',
+      'acceptedChats',
+      'respondedChats',
+      'avgResponseTime',
+      'proactiveChats',
+    ],
+  })
+  @ApiQuery({
+    name: 'sortOrder',
+    required: false,
+    description: 'Sort order',
+    example: 'desc',
+    enum: ['asc', 'desc'],
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Agent metrics retrieved successfully with pagination',
+    type: AgentMetricsResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid agent ID format or query parameters',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required',
+    type: ForbiddenResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Agent not found',
+    type: NotFoundResponseDto,
+  })
+  async getAgentMetrics(
+    @Param('agentId') agentId: string,
+    @AuthenticatedUser() adminUser: JwtPayload,
+    @Query() queryDto: GetAgentMetricsDto,
+  ) {
+    if (!Types.ObjectId.isValid(agentId)) {
+      throw new BadRequestException('Invalid agent ID format');
+    }
+
+    // Verify agent exists
+    const agentProfile = await this.agentsService.findAgentProfileById(agentId);
+    if (!agentProfile) {
+      throw new NotFoundException(`Agent profile with ID ${agentId} not found`);
+    }
+
+    return this.agentsService.getAgentMetrics(
+      agentProfile.userId.toString(),
+      queryDto,
+    );
   }
 }
