@@ -1282,6 +1282,7 @@ export class ChatGateway
             name: agentUser
               ? `${agentUser.firstName} ${agentUser.lastName}`
               : 'Support Agent',
+            profileUrl: agentProfile.profilePicture,
             // avatarUrl: agentUser.avatarUrl, // If you have avatars
           },
         });
