@@ -20,7 +20,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "migrate:admin-agent-profiles": "ts-node -r tsconfig-paths/register src/scripts/migrate-admin-agent-profiles.ts",
-    "migrate:canned-message-indexes": "ts-node -r tsconfig-paths/register src/scripts/migrate-canned-message-indexes.ts"
+    "migrate:canned-message-indexes": "ts-node -r tsconfig-paths/register src/scripts/migrate-canned-message-indexes.ts",
+    "migrate:profile-pictures-to-webp": "ts-node -r tsconfig-paths/register src/scripts/migrate-profile-pictures-to-webp.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -54,6 +55,7 @@
     "redis": "^5.1.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "sharp": "^0.34.4",
     "socket.io": "^4.8.1",
     "socket.io-redis": "^5.4.0",
     "swagger-ui-express": "^5.0.1",
@@ -70,6 +72,7 @@
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",
     "@types/mongoose": "^5.11.96",
+    "@types/multer": "^2.0.0",
     "@types/node": "^22.10.7",
     "@types/supertest": "^6.0.2",
     "eslint": "^9.18.0",

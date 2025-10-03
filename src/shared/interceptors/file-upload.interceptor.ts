@@ -29,14 +29,14 @@ export function createProfilePictureUploadInterceptor() {
       filename: (req, file, callback) => {
         try {
           validateProfilePictureFile(file);
-          const userId = req.user?.sub || 'anonymous';
+          const userId = (req as any).user?.sub || 'anonymous';
           const filename = generateProfilePictureFilename(
             userId,
             file.originalname,
           );
           callback(null, filename);
         } catch (error) {
-          callback(error, null);
+          callback(error as any, '');
         }
       },
     }),
@@ -75,7 +75,7 @@ export function createChatImageUploadInterceptor() {
 
           callback(null, uploadPath);
         } catch (error) {
-          callback(error, null);
+          callback(error as any, '');
         }
       },
       filename: (req, file, callback) => {
@@ -85,7 +85,7 @@ export function createChatImageUploadInterceptor() {
           const filename = generateChatImageFilename('temp', file.originalname);
           callback(null, filename);
         } catch (error) {
-          callback(error, null);
+          callback(error as any, '');
         }
       },
     }),

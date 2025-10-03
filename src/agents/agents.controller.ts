@@ -57,6 +57,7 @@ import { ChatNotificationService } from '../chat/services/chat-notification/chat
 import { createProfilePictureUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
 import { getProfilePictureUrl } from '../shared/utils/file-upload.utils';
 import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
+import { ImageProcessingService } from '../shared/services/image-processing.service';
 import {
   ErrorResponseDto,
   UnauthorizedResponseDto,
@@ -79,6 +80,7 @@ export class AgentsController {
     private readonly usersService: UsersService,
     @Inject(forwardRef(() => ChatNotificationService))
     private readonly chatNotificationService: ChatNotificationService,
+    private readonly imageProcessingService: ImageProcessingService,
   ) {}
 
   @Get()
@@ -558,7 +560,7 @@ export class AgentsController {
   @ApiOperation({
     summary: 'Upload profile picture',
     description:
-      'Upload a profile picture for the authenticated agent. Supports JPG, JPEG, PNG, and GIF formats. Maximum file size: 5MB. The uploaded file will be automatically renamed and stored securely.',
+      'Upload a profile picture for the authenticated agent. Supports JPG, JPEG, PNG, GIF, and WebP formats. Maximum file size: 5MB. The uploaded file will be automatically converted to WebP format, resized to 400x400 pixels, and optimized for web delivery.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -569,7 +571,7 @@ export class AgentsController {
         profilePicture: {
           type: 'string',
           format: 'binary',
-          description: 'Profile picture file (JPG, JPEG, PNG, GIF)',
+          description: 'Profile picture file (JPG, JPEG, PNG, GIF, WebP) - will be converted to WebP',
         },
       },
       required: ['profilePicture'],
@@ -577,18 +579,18 @@ export class AgentsController {
   })
   @ApiResponse({
     status: 201,
-    description: 'Profile picture uploaded successfully',
+    description: 'Profile picture uploaded and converted to WebP successfully',
     schema: {
       type: 'object',
       properties: {
         profilePictureUrl: {
           type: 'string',
-          example: '/uploads/profile-pictures/agent-123-uuid.jpg',
-          description: 'URL path to the uploaded profile picture',
+          example: '/uploads/profile-pictures/agent-123-1234567890.webp',
+          description: 'URL path to the uploaded profile picture (WebP format)',
         },
         message: {
           type: 'string',
-          example: 'Profile picture uploaded successfully',
+          example: 'Profile picture uploaded and processed successfully',
         },
       },
     },
@@ -607,23 +609,57 @@ export class AgentsController {
   })
   async uploadProfilePicture(
     @AuthenticatedUser() user: JwtPayload,
-    @UploadedFile() file: any,
+    @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) {
       throw new BadRequestException('No file provided');
     }
 
-    const profilePictureUrl = getProfilePictureUrl(file.filename);
+    try {
+      this.logger.log(`Processing profile picture upload for user: ${user.sub}`);
 
-    // TODO: Add image resizing/optimization functionality here
-    // - Resize to standard dimensions (e.g., 200x200, 400x400)
-    // - Optimize file size while maintaining quality
-    // - Generate thumbnails for different use cases
+      // Get the agent profile to check for existing profile picture
+      const agentProfile = await this.agentsService.findAgentProfileByUserId(
+        user.sub,
+      );
 
-    return {
-      profilePictureUrl,
-      message: 'Profile picture uploaded successfully',
-    };
+      // Process the uploaded image (convert to WebP, resize, optimize)
+      const webpFilename = await this.imageProcessingService.processProfilePicture(
+        file.path,
+        user.sub,
+      );
+
+      // Generate the public URL for the WebP file
+      const profilePictureUrl = getProfilePictureUrl(webpFilename);
+
+      // Update agent profile with new profile picture URL
+      await this.agentsService.updateAgentProfileByUserId(user.sub, {
+        profilePicture: profilePictureUrl,
+      });
+
+      // Delete old profile picture if it exists
+      if (agentProfile?.profilePicture) {
+        const oldFilename = agentProfile.profilePicture.split('/').pop();
+        if (oldFilename && oldFilename !== webpFilename) {
+          await this.imageProcessingService.deleteOldProfilePicture(oldFilename);
+        }
+      }
+
+      this.logger.log(
+        `Profile picture uploaded successfully for user: ${user.sub}`,
+      );
+
+      return {
+        profilePictureUrl,
+        message: 'Profile picture uploaded and processed successfully',
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to upload profile picture for user ${user.sub}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   // ==================== CANNED MESSAGES ENDPOINTS ====================

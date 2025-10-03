@@ -24,6 +24,7 @@ import { ChatModule } from 'src/chat/chat.module'; // For active chat counts
 import { WidgetsModule } from 'src/widgets/widgets.module'; // For widget details
 import { CustomersModule } from 'src/customers/customers.module'; // For customer access validation
 import { ShiftService } from '../shared/services/shift.service';
+import { ImageProcessingService } from '../shared/services/image-processing.service';
 
 @Module({
   imports: [
@@ -40,7 +41,7 @@ import { ShiftService } from '../shared/services/shift.service';
     forwardRef(() => CustomersModule), // For customer access validation
   ],
   controllers: [AgentsController],
-  providers: [AgentsService, ShiftService],
+  providers: [AgentsService, ShiftService, ImageProcessingService],
   exports: [AgentsService, MongooseModule],
 })
 export class AgentsModule {}

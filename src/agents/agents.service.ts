@@ -184,6 +184,15 @@ export class AgentsService {
     return `${user?.firstName} ${user?.lastName}`;
   }
 
+  /**
+   * Get all agent profiles (for migration/admin purposes)
+   * @returns Promise<AgentProfileDocument[]> - All agent profiles
+   */
+  async getAllAgentProfiles(): Promise<AgentProfileDocument[]> {
+    this.logger.log('Getting all agent profiles');
+    return this.agentProfileModel.find().exec();
+  }
+
   async getAllAgentProfilesWithUserDetails(
     adminId: string | Types.ObjectId,
   ): Promise<any[]> {
