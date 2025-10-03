@@ -405,78 +405,186 @@ export class AgentsService {
         meta,
       };
     } else {
-      // No search - use database pagination
-      const [agentProfiles, total] = await Promise.all([
-        this.agentProfileModel
-          .find(query)
-          .populate('departmentIds', 'name')
-          .sort(sort)
-          .skip(skip)
-          .limit(limit)
-          .lean()
-          .exec(),
-        this.agentProfileModel.countDocuments(query).exec(),
-      ]);
-
-      // Get user details for the agent profiles
-      const userIds = agentProfiles.map((profile) => profile.userId);
-      const users = await this.usersService.findManyByIds(userIds);
-      const userMap = new Map(users.map((user) => [user._id.toString(), user]));
-
-      // Combine agent profiles with user details
-      let items = agentProfiles.map((profile) => {
-        const userDetails = userMap.get(profile.userId.toString());
-        return {
-          ...profile,
-          user: userDetails
-            ? {
-                _id: userDetails._id,
-                firstName: userDetails.firstName,
-                lastName: userDetails.lastName,
-                email: userDetails.email,
-                role: userDetails.role,
-                isEmailVerified: userDetails.isEmailVerified,
-              }
-            : null,
-        };
-      });
-
-      // Apply sorting for user fields after combining data
+      // No search - check if we need to sort by user fields
       if (['firstName', 'lastName', 'email'].includes(sortBy)) {
-        items.sort((a, b) => {
-          const aValue = a.user?.[sortBy]?.toLowerCase() || '';
-          const bValue = b.user?.[sortBy]?.toLowerCase() || '';
+        // Use MongoDB aggregation pipeline for efficient join, sort, and pagination
+        // This approach is more efficient than fetching all records into memory
+        const pipeline: any[] = [
+          // Match agent profiles by adminId and filters
+          { $match: query },
 
-          if (sortOrder === 'asc') {
-            return aValue.localeCompare(bValue);
-          } else {
-            return bValue.localeCompare(aValue);
+          // Lookup user details
+          {
+            $lookup: {
+              from: 'users', // collection name in MongoDB
+              localField: 'userId',
+              foreignField: '_id',
+              as: 'userDetails',
+            },
+          },
+
+          // Unwind user details (convert array to object)
+          {
+            $unwind: { path: '$userDetails', preserveNullAndEmptyArrays: true },
+          },
+
+          // Add computed field for case-insensitive sorting
+          {
+            $addFields: {
+              sortField: {
+                $toLower: `$userDetails.${sortBy}`,
+              },
+            },
+          },
+
+          // Sort by the user field
+          { $sort: { sortField: sortOrder === 'asc' ? 1 : -1 } },
+
+          // Facet for pagination and total count
+          {
+            $facet: {
+              metadata: [{ $count: 'total' }],
+              data: [{ $skip: skip }, { $limit: limit }],
+            },
+          },
+        ];
+
+        const result = await this.agentProfileModel.aggregate(pipeline).exec();
+
+        const total = result[0]?.metadata[0]?.total || 0;
+        const agentProfiles = result[0]?.data || [];
+
+        // Populate departments separately (aggregation doesn't auto-populate)
+        const departmentIds = new Set<string>();
+        agentProfiles.forEach((profile) => {
+          if (profile.departmentIds && Array.isArray(profile.departmentIds)) {
+            profile.departmentIds.forEach((id) =>
+              departmentIds.add(id.toString()),
+            );
           }
         });
+
+        let departmentMap = new Map();
+        if (departmentIds.size > 0) {
+          const departments = await this.departmentsService.findByIds(
+            Array.from(departmentIds).map((id) => new Types.ObjectId(id)),
+          );
+          departmentMap = new Map(
+            departments.map((dept) => [dept._id.toString(), dept]),
+          );
+        }
+
+        // Format the response
+        const items = agentProfiles.map((profile) => {
+          const populatedDepartments = profile.departmentIds
+            ? profile.departmentIds
+                .map((id) => departmentMap.get(id.toString()))
+                .filter(Boolean)
+                .map((dept) => ({ _id: dept._id, name: dept.name }))
+            : [];
+
+          return {
+            ...profile,
+            departmentIds: populatedDepartments,
+            user: profile.userDetails
+              ? {
+                  _id: profile.userDetails._id,
+                  firstName: profile.userDetails.firstName,
+                  lastName: profile.userDetails.lastName,
+                  email: profile.userDetails.email,
+                  role: profile.userDetails.role,
+                  isEmailVerified: profile.userDetails.isEmailVerified,
+                }
+              : null,
+            userDetails: undefined, // Remove temporary field
+            sortField: undefined, // Remove temporary field
+          };
+        });
+
+        // Calculate pagination metadata
+        const totalPages = Math.ceil(total / limit);
+        const hasNext = page < totalPages;
+        const hasPrev = page > 1;
+
+        this.logger.debug(
+          `Retrieved ${items.length} agents for admin ${adminId} (page ${page}/${totalPages}), total found: ${total}`,
+        );
+
+        const meta = {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext,
+          hasPrev,
+        };
+
+        return {
+          items,
+          meta,
+        };
+      } else {
+        // For agent profile field sorting, use standard database pagination
+        const [agentProfiles, total] = await Promise.all([
+          this.agentProfileModel
+            .find(query)
+            .populate('departmentIds', 'name')
+            .sort(sort)
+            .skip(skip)
+            .limit(limit)
+            .lean()
+            .exec(),
+          this.agentProfileModel.countDocuments(query).exec(),
+        ]);
+
+        // Get user details for the agent profiles
+        const userIds = agentProfiles.map((profile) => profile.userId);
+        const users = await this.usersService.findManyByIds(userIds);
+        const userMap = new Map(
+          users.map((user) => [user._id.toString(), user]),
+        );
+
+        // Combine agent profiles with user details
+        const items = agentProfiles.map((profile) => {
+          const userDetails = userMap.get(profile.userId.toString());
+          return {
+            ...profile,
+            user: userDetails
+              ? {
+                  _id: userDetails._id,
+                  firstName: userDetails.firstName,
+                  lastName: userDetails.lastName,
+                  email: userDetails.email,
+                  role: userDetails.role,
+                  isEmailVerified: userDetails.isEmailVerified,
+                }
+              : null,
+          };
+        });
+
+        // Calculate pagination metadata
+        const totalPages = Math.ceil(total / limit);
+        const hasNext = page < totalPages;
+        const hasPrev = page > 1;
+
+        this.logger.debug(
+          `Retrieved ${items.length} agents for admin ${adminId} (page ${page}/${totalPages}), total found: ${total}`,
+        );
+
+        const meta = {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext,
+          hasPrev,
+        };
+
+        return {
+          items,
+          meta,
+        };
       }
-
-      // Calculate pagination metadata
-      const totalPages = Math.ceil(total / limit);
-      const hasNext = page < totalPages;
-      const hasPrev = page > 1;
-
-      this.logger.debug(
-        `Retrieved ${items.length} agents for admin ${adminId} (page ${page}/${totalPages}), total found: ${total}`,
-      );
-
-      const meta = {
-        page,
-        limit,
-        total,
-        totalPages,
-        hasNext,
-        hasPrev,
-      };
-
-      return {
-        items,
-        meta,
-      };
     }
   }
 
