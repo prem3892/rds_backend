@@ -277,6 +277,7 @@ export function generateWidgetScript(
           this.isOfflineMode = false; // Track if we're in offline mode
           this.autoMessageShown = false; // Track if auto-message has been displayed
           this.initialDataReceived = false; // Track if initial agent availability data has been received
+          this.autoMessagePending = false; // Track if auto-message is scheduled but not yet shown
           
           this.init();
         }
@@ -302,7 +303,28 @@ export function generateWidgetScript(
           this.config = await response.json();
         }
     
-
+        // Helper method to check if chat button should be disabled
+        isChatButtonDisabled() {
+          // Disable button if auto-message is pending and initial data not received
+          return this.autoMessagePending;
+        }
+    
+        // Helper method to update chat button visual state
+        updateChatButtonState() {
+          if (!this.chatButton) return;
+          
+          const isDisabled = this.isChatButtonDisabled();
+          
+          if (isDisabled) {
+            //this.chatButton.style.opacity = '0.6';
+            this.chatButton.style.cursor = 'not-allowed';
+            console.log('Chat button disabled: waiting for initial agent data');
+          } else {
+            this.chatButton.style.opacity = '1';
+            this.chatButton.style.cursor = 'pointer';
+            console.log('Chat button enabled');
+          }
+        }
     
         createUI() {
           // Inject CSS for proper box-sizing within the widget
@@ -364,13 +386,15 @@ export function generateWidgetScript(
             position: 'relative',
             cursor: 'pointer',
             transform: 'scale(1)',
-            transition: 'transform 0.2s ease',
+            transition: 'transform 0.2s ease, opacity 0.3s ease',
             userSelect: 'none'
           });
           
-          // Add hover effect
+          // Add hover effect (only if button is not disabled)
           this.chatButton.addEventListener('mouseenter', () => {
-            this.chatButton.style.transform = 'scale(1.05)';
+            if (!this.isChatButtonDisabled()) {
+              this.chatButton.style.transform = 'scale(1.05)';
+            }
           });
           this.chatButton.addEventListener('mouseleave', () => {
             this.chatButton.style.transform = 'scale(1)';
@@ -461,9 +485,9 @@ export function generateWidgetScript(
                     right: 10px;
                     top: 2px;
                   " onmouseover="this.style.color='#d1d5db'" onmouseout="this.style.color='white'">
-                    <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
+                    <svg width="20px" height="20px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M4 12L20 12" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
                   </div>
               
               <!-- Agent Profiles Row -->
@@ -897,6 +921,7 @@ export function generateWidgetScript(
             if (!this.initialDataReceived && !this.autoMessageShown && !this.currentChatSession) {
               console.log('Initial data timeout - proceeding with auto message scheduling');
               this.initialDataReceived = true; // Set to true to allow scheduling
+              this.updateChatButtonState(); // Update button state after timeout
               this.scheduleAutoMessage();
             }
           }, 10000);
@@ -949,6 +974,7 @@ export function generateWidgetScript(
             
             this.availableAgents = uniqueAgents;
             this.initialDataReceived = true;
+            //this.updateChatButtonState(); // Update button state when initial data is received
             
             // Update header with agent profile pictures
             this.updateAgentProfilePictures(this.availableAgents);
@@ -2162,6 +2188,12 @@ export function generateWidgetScript(
         }
     
         toggleChat() {
+          // Check if button is disabled
+          if (this.isChatButtonDisabled()) {
+            console.log('Chat button disabled: waiting for initial agent data');
+            return;
+          }
+          
           this.isMinimized = !this.isMinimized;
           this.chatWindow.style.display = this.isMinimized ? 'none' : 'flex';
           
@@ -2311,6 +2343,11 @@ export function generateWidgetScript(
             return;
           }
 
+          // Mark that auto-message is now pending (scheduled but not yet shown)
+          this.autoMessagePending = true;
+          console.log("Hello test")
+          this.updateChatButtonState();
+
           const delaySeconds = autoMessage.showAfterSeconds || 0;
           
           // Wait for socket connection before showing auto-message
@@ -2343,6 +2380,8 @@ export function generateWidgetScript(
           }
 
           this.autoMessageShown = true;
+          this.autoMessagePending = false; // Clear pending flag since message is now shown
+          this.updateChatButtonState();
 
           // Create a dummy agent message
           const autoMessageObj = this.createAutoMessage(autoMessage);
