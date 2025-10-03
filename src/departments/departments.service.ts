@@ -2,18 +2,26 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Department, DepartmentDocument } from 'src/schemas/department.schema';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
+import {
+  AgentProfile,
+  AgentProfileDocument,
+} from 'src/schemas/agent-profile.schema';
 
 @Injectable()
 export class DepartmentsService {
   constructor(
     @InjectModel(Department.name)
     private departmentModel: Model<DepartmentDocument>,
+    @InjectModel(AgentProfile.name)
+    private agentProfileModel: Model<AgentProfileDocument>,
   ) {}
 
   async create(
@@ -51,6 +59,51 @@ export class DepartmentsService {
       .find({ createdBy: adminId })
       .populate('createdBy', 'firstName lastName email')
       .exec();
+  }
+
+  /**
+   * Find all departments by admin with their associated agents
+   */
+  async findAllByAdminWithAgents(adminId: Types.ObjectId): Promise<any[]> {
+    // Get all departments for the admin
+    const departments = await this.departmentModel
+      .find({ createdBy: adminId })
+      .populate('createdBy', 'firstName lastName email')
+      .lean()
+      .exec();
+
+    // Get all agent profiles for this admin
+    const agentProfiles = await this.agentProfileModel
+      .find({ adminId })
+      .populate('userId', 'firstName lastName email role isEmailVerified')
+      .lean()
+      .exec();
+
+    // Map departments with their agents
+    const departmentsWithAgents = departments.map((department) => {
+      // Find agents that belong to this department
+      const departmentAgents = agentProfiles.filter((profile) => {
+        // Check if this department is in the agent's departmentIds
+        return profile.departmentIds.some(
+          (deptId) => deptId.toString() === department._id.toString(),
+        );
+      });
+
+      return {
+        ...department,
+        agents: departmentAgents.map((profile) => {
+          const user = profile.userId as any; // userId is populated with user data
+          return {
+            _id: user?._id || profile.userId,
+            firstName: user?.firstName || '',
+            lastName: user?.lastName || '',
+            profilePicture: profile.profilePicture || '',
+          };
+        }),
+      };
+    });
+
+    return departmentsWithAgents;
   }
 
   async findById(id: string | Types.ObjectId): Promise<DepartmentDocument> {

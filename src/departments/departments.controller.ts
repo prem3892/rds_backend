@@ -65,13 +65,13 @@ export class DepartmentsController {
 
   @Get()
   @ApiOperation({
-    summary: 'Get all departments (Admin/Manager only)',
+    summary: 'Get all departments with agents (Admin/Manager only)',
     description:
-      'Retrieve all departments created by the authenticated admin or manager user.',
+      'Retrieve all departments created by the authenticated admin or manager user, including all agents assigned to each department.',
   })
   @ApiResponse({
     status: 200,
-    description: 'Departments retrieved successfully',
+    description: 'Departments with agents retrieved successfully',
     // You might want to create a DepartmentResponseDto for proper typing
   })
   @ApiUnauthorizedResponse({
@@ -87,7 +87,7 @@ export class DepartmentsController {
       user,
       this.agentsService,
     );
-    return this.departmentsService.findAllByAdmin(adminId);
+    return this.departmentsService.findAllByAdminWithAgents(adminId);
   }
 
   @Get(':id')
