@@ -571,7 +571,8 @@ export class AgentsController {
         profilePicture: {
           type: 'string',
           format: 'binary',
-          description: 'Profile picture file (JPG, JPEG, PNG, GIF, WebP) - will be converted to WebP',
+          description:
+            'Profile picture file (JPG, JPEG, PNG, GIF, WebP) - will be converted to WebP',
         },
       },
       required: ['profilePicture'],
@@ -616,7 +617,9 @@ export class AgentsController {
     }
 
     try {
-      this.logger.log(`Processing profile picture upload for user: ${user.sub}`);
+      this.logger.log(
+        `Processing profile picture upload for user: ${user.sub}`,
+      );
 
       // Get the agent profile to check for existing profile picture
       const agentProfile = await this.agentsService.findAgentProfileByUserId(
@@ -624,26 +627,14 @@ export class AgentsController {
       );
 
       // Process the uploaded image (convert to WebP, resize, optimize)
-      const webpFilename = await this.imageProcessingService.processProfilePicture(
-        file.path,
-        user.sub,
-      );
+      const webpFilename =
+        await this.imageProcessingService.processProfilePicture(
+          file.path,
+          user.sub,
+        );
 
       // Generate the public URL for the WebP file
       const profilePictureUrl = getProfilePictureUrl(webpFilename);
-
-      // Update agent profile with new profile picture URL
-      await this.agentsService.updateAgentProfileByUserId(user.sub, {
-        profilePicture: profilePictureUrl,
-      });
-
-      // Delete old profile picture if it exists
-      if (agentProfile?.profilePicture) {
-        const oldFilename = agentProfile.profilePicture.split('/').pop();
-        if (oldFilename && oldFilename !== webpFilename) {
-          await this.imageProcessingService.deleteOldProfilePicture(oldFilename);
-        }
-      }
 
       this.logger.log(
         `Profile picture uploaded successfully for user: ${user.sub}`,
