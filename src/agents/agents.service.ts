@@ -292,13 +292,15 @@ export class AgentsService {
     // Calculate pagination
     const skip = (page - 1) * limit;
 
-    // Build sort object - handle user fields differently
+    // Build sort object with stable sorting (_id as secondary sort)
     const sort: any = {};
     if (['firstName', 'lastName', 'email'].includes(sortBy)) {
       // For user fields, we'll sort after joining
       sort['createdAt'] = sortOrder === 'asc' ? 1 : -1; // Default sort for now
+      sort['_id'] = 1; // Secondary sort for stable pagination
     } else {
       sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+      sort['_id'] = 1; // Secondary sort for stable pagination
     }
 
     this.logger.debug(`Final query for agents: ${JSON.stringify(query)}`);
@@ -358,11 +360,22 @@ export class AgentsService {
           const aValue = a.user?.[sortBy]?.toLowerCase() || '';
           const bValue = b.user?.[sortBy]?.toLowerCase() || '';
 
+          // Primary sort by the user field
+          let comparison = 0;
           if (sortOrder === 'asc') {
-            return aValue.localeCompare(bValue);
+            comparison = aValue.localeCompare(bValue);
           } else {
-            return bValue.localeCompare(aValue);
+            comparison = bValue.localeCompare(aValue);
           }
+
+          // Secondary sort by _id for stable pagination (always ascending)
+          if (comparison === 0) {
+            const aId = a._id.toString();
+            const bId = b._id.toString();
+            return aId.localeCompare(bId);
+          }
+
+          return comparison;
         });
       } else {
         // Sort by agent profile fields
@@ -370,11 +383,22 @@ export class AgentsService {
           const aValue = a[sortBy];
           const bValue = b[sortBy];
 
+          // Primary sort by the agent profile field
+          let comparison = 0;
           if (sortOrder === 'asc') {
-            return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
+            comparison = aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
           } else {
-            return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
+            comparison = aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
           }
+
+          // Secondary sort by _id for stable pagination (always ascending)
+          if (comparison === 0) {
+            const aId = a._id.toString();
+            const bId = b._id.toString();
+            return aId.localeCompare(bId);
+          }
+
+          return comparison;
         });
       }
 
@@ -437,8 +461,8 @@ export class AgentsService {
             },
           },
 
-          // Sort by the user field
-          { $sort: { sortField: sortOrder === 'asc' ? 1 : -1 } },
+          // Sort by the user field with _id as secondary sort for stable pagination
+          { $sort: { sortField: sortOrder === 'asc' ? 1 : -1, _id: 1 } },
 
           // Facet for pagination and total count
           {
