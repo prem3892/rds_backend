@@ -209,24 +209,6 @@ export function generateWidgetScript(
                 container: { ...baseContainerStyle, top: '32px', right: '32px' },
                 chatWindow: { ...baseChatWindowStyle, top: '0', right: '0',minWidth: '320px' }
               };
-            case 'center':
-              return {
-                container: { 
-                  ...baseContainerStyle, 
-                  top: '50%', 
-                  left: '50%', 
-                  transform: 'translate(-50%, -50%)'
-                },
-                chatWindow: { 
-                  ...baseChatWindowStyle, 
-                  position: 'relative',
-                  top: 'auto',
-                  left: 'auto',
-                  right: 'auto',
-                  bottom: 'auto',
-                  minWidth: '320px'
-                }
-              };
             default:
               // Default to bottom_right
               return {
@@ -348,16 +330,7 @@ export function generateWidgetScript(
           // Inject CSS for proper box-sizing within the widget
           this.injectWidgetCSS();
           
-          // Hardcoded: Check if pathname is /book-online or /book-online/
-          const currentPath = window.location.pathname;
-          const isBookOnlinePage = currentPath === '/book-online' || currentPath === '/book-online/';
-          
-          // Override button location to center if on book-online page
-          let buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
-          if (isBookOnlinePage) {
-            buttonLocation = 'center';
-          }
-          
+          const buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
           const positionStyles = utils.getPositionStyles(buttonLocation);
           
           this.container = document.createElement('div');
