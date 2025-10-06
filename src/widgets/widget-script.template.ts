@@ -2221,8 +2221,10 @@ export function generateWidgetScript(
         }
     
         toggleChat() {
+          console.log('toggleChat called...')
+
           // Check if button is disabled
-          if (this.isChatButtonDisabled()) {
+          if (this.isChatButtonDisabled() && !this.initialDataReceived) {
             console.log('Chat button disabled: waiting for initial agent data');
             return;
           }
@@ -2248,6 +2250,8 @@ export function generateWidgetScript(
                 this.showAutoMessage(this.processAutoMessages());
               } else {
                 this.showCustomerInfoForm();
+                this.autoMessagePending = false;
+                this.updateChatButtonState();
               }
               
             } else if (document.getElementById('chat-interface').style.display !== 'none') {
