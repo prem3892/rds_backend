@@ -190,26 +190,37 @@ export function generateWidgetScript(
           
           switch (location) { 
             case 'bottom_left':
+              console.log('Bottom Left');
               return {
                 container: { ...baseContainerStyle, bottom: '30px', left: '18px' },
                 chatWindow: { ...baseChatWindowStyle, bottom: '0', left: '0' ,minWidth: '320px' }
               };
             case 'bottom_right':
+              console.log('Bottom Right');
               return {
                 container: { ...baseContainerStyle, bottom: '30px', right: '18px' },
                 chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0',minWidth: '320px' }
               };
             case 'top_left':
+              console.log('Top Left');
               return {
                 container: { ...baseContainerStyle, top: '32px', left: '32px' },
                 chatWindow: { ...baseChatWindowStyle, top: '0', left: '0',minWidth: '320px' }
               };
             case 'top_right':
+              console.log('Top Right');
               return {
                 container: { ...baseContainerStyle, top: '32px', right: '32px' },
                 chatWindow: { ...baseChatWindowStyle, top: '0', right: '0',minWidth: '320px' }
               };
+            case 'center':
+              console.log('Center');
+              return {
+                container: { ...baseContainerStyle, top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
+                chatWindow: { ...baseChatWindowStyle, minWidth: '320px', position: 'none' }
+              };
             default:
+              console.log('Invalid button_location');
               // Default to bottom_right
               return {
                 container: { ...baseContainerStyle, bottom: '30px', right: '18px' },
@@ -330,8 +341,19 @@ export function generateWidgetScript(
           // Inject CSS for proper box-sizing within the widget
           this.injectWidgetCSS();
           
-          const buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
+          // Hardcoded: Check if pathname is /book-online or /book-online/
+          const currentPath = window.location.pathname;
+          const isBookOnlinePage = currentPath === '/book-online' || currentPath === '/book-online/';
+          
+          // Override button location to center if on book-online page
+          let buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
+          if (isBookOnlinePage) {
+            buttonLocation = 'center';
+          }
+
           const positionStyles = utils.getPositionStyles(buttonLocation);
+
+          console.log('Position Styles:', positionStyles);
           
           this.container = document.createElement('div');
           this.container.id = 'chat-widget-container';
@@ -452,12 +474,23 @@ export function generateWidgetScript(
           const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
           const secondaryColor = this.config.widgetConfig?.secondaryColor || '#64748B';
           const headerText = this.config.widgetConfig?.headerText || 'Chat with us';
-          const buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
+          //const buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
           const bgColorWithOpacity = utils.hexToRgba(secondaryColor, 90);
+
+          // Hardcoded: Check if pathname is /book-online or /book-online/
+          const currentPath = window.location.pathname;
+          const isBookOnlinePage = currentPath === '/book-online' || currentPath === '/book-online/';
+
+          // Override button location to center if on book-online page
+          let buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
+          if (isBookOnlinePage) {
+            buttonLocation = 'center';
+          }
+
           const positionStyles = utils.getPositionStyles(buttonLocation);
           
           this.chatWindow = document.createElement('div');
-          // this.chatWindow.className = 'chat-widget-window';
+          this.chatWindow.className = 'chat-widget-window';
           utils.applyStyles(this.chatWindow, positionStyles.chatWindow);
           this.chatWindow.style.backgroundColor = bgColorWithOpacity;
           
