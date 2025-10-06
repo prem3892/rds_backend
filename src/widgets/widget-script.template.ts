@@ -2292,16 +2292,9 @@ export function generateWidgetScript(
             return null;
           }
 
-          // Check for sitewide auto-message first (highest priority)
-          const sitewideMessage = this.config.autoMessages.find(msg => msg.sitewide === true);
-          if (sitewideMessage) {
-            console.log("Showing sitewide auto-message:", sitewideMessage);
-            return sitewideMessage;
-          }
+          console.log("Checking page-specific auto-messages first...");
 
-          console.log("Checking page-specific auto-messages...");
-
-          // Check for path-specific auto-messages
+          // Check for path-specific auto-messages first (highest priority)
           const currentPath = window.location.pathname;
           const currentFullUrl = window.location.href;
           
@@ -2318,11 +2311,20 @@ export function generateWidgetScript(
               });
               
               if (pathMatches) {
+                console.log("Found page-specific auto-message:", autoMessage);
                 return autoMessage;
               }
             }
           }
 
+          // If no page-specific message found, fall back to sitewide auto-message
+          const sitewideMessage = this.config.autoMessages.find(msg => msg.sitewide === true);
+          if (sitewideMessage) {
+            console.log("No page-specific message found, showing sitewide auto-message:", sitewideMessage);
+            return sitewideMessage;
+          }
+
+          console.log("No auto-messages matched for current page.");
           return null;
         }
 
