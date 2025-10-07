@@ -1330,11 +1330,11 @@ export class AgentsService {
     }
 
     // Only the creator can update the message
-    if (cannedMessage.agentId.toString() !== agentProfile.userId.toString()) {
-      throw new ForbiddenException(
-        'You can only update your own canned messages.',
-      );
-    }
+    // if (cannedMessage.agentId.toString() !== agentProfile.userId.toString()) {
+    //   throw new ForbiddenException(
+    //     'You can only update your own canned messages.',
+    //   );
+    // }
 
     // Validate department IDs if provided
     if (updateDto.departmentIds && updateDto.departmentIds.length > 0) {
