@@ -1415,11 +1415,11 @@ export class AgentsService {
     }
 
     // Only the creator can delete the message
-    if (cannedMessage.agentId.toString() !== agentProfile.userId.toString()) {
-      throw new ForbiddenException(
-        'You can only delete your own canned messages.',
-      );
-    }
+    // if (cannedMessage.agentId.toString() !== agentProfile.userId.toString()) {
+    //   throw new ForbiddenException(
+    //     'You can only delete your own canned messages.',
+    //   );
+    // }
 
     await this.cannedMessageModel.findByIdAndDelete(messageId).exec();
     this.logger.log(
