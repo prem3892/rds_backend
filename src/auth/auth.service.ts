@@ -163,8 +163,10 @@ export class AuthService {
       throw new ConflictException('User with this email already exists.');
     }
 
+    const { is_mobile, ...userDto } = adminRegisterDto;
+
     const user = await this.usersService.create({
-      ...adminRegisterDto,
+      ...userDto,
       role: UserRole.ADMIN, // Explicitly set role to ADMIN
       isEmailVerified: false, // Admin must verify email before login
     });
@@ -183,8 +185,14 @@ export class AuthService {
       agentProfileData,
     );
 
-    // Send admin verification email instead of welcome email
-    await this.sendAdminVerificationEmail(user);
+    // Send verification based on is_mobile parameter
+    if (is_mobile) {
+      // For mobile, send OTP verification
+      await this.sendEmailVerificationOtp(user._id.toString());
+    } else {
+      // For web, send admin verification email with link
+      await this.sendAdminVerificationEmail(user);
+    }
 
     return user;
   }

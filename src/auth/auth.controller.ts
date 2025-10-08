@@ -173,12 +173,13 @@ export class AuthController {
   @ApiOperation({
     summary: 'Admin self-registration with email verification',
     description:
-      'Initial admin registration endpoint for system setup. Creates admin account and sends verification email. Admin must verify email before login.',
+      'Initial admin registration endpoint for system setup. Creates admin account and sends verification email or OTP. Admin must verify email before login. Set is_mobile to true for OTP verification (mobile apps), or false/omit for email link verification (web).',
   })
   @ApiBody({ type: AdminRegisterDto })
   @ApiResponse({
     status: 201,
-    description: 'Admin registered successfully. Verification email sent.',
+    description:
+      'Admin registered successfully. Verification email or OTP sent.',
     type: AdminSignupResponseDto,
   })
   @ApiBadRequestResponse({
@@ -191,9 +192,12 @@ export class AuthController {
     const user = await this.authService.registerAdmin(adminRegisterDto);
     const { password, ...userResult } = user.toObject();
 
+    const message = adminRegisterDto.is_mobile
+      ? 'Admin account created successfully. Please check your email for the OTP to verify your account.'
+      : 'Admin account created successfully. Please check your email to verify your account.';
+
     return {
-      message:
-        'Admin account created successfully. Please check your email to verify your account.',
+      message,
       user: userResult,
     };
   }
