@@ -31,6 +31,12 @@ export class AgentMetricItemDto {
     example: 3,
   })
   proactiveChats: number;
+
+  @ApiProperty({
+    description: 'Total number of appointments booked for chat sessions',
+    example: 12,
+  })
+  totalBookings: number;
 }
 
 export class AgentMetricsResponseDto extends PaginatedResponseDto<AgentMetricItemDto> {

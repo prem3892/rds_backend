@@ -25,6 +25,10 @@ import {
   ChatMessage,
   ChatMessageDocument,
 } from 'src/schemas/chat-message.schema';
+import {
+  Appointment,
+  AppointmentDocument,
+} from 'src/schemas/appointment.schema';
 import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto';
 import { CreateCannedMessageDto } from './dto/create-canned-message.dto';
 import { UpdateCannedMessageDto } from './dto/update-canned-message.dto';
@@ -53,6 +57,8 @@ export class AgentsService {
     private chatSessionModel: Model<ChatSessionDocument>,
     @InjectModel(ChatMessage.name)
     private chatMessageModel: Model<ChatMessageDocument>,
+    @InjectModel(Appointment.name)
+    private appointmentModel: Model<AppointmentDocument>,
     @Inject(forwardRef(() => UsersService))
     private readonly usersService: UsersService,
     private readonly departmentsService: DepartmentsService,
@@ -1845,6 +1851,27 @@ export class AgentsService {
         },
       },
 
+      // Lookup appointments for the chat sessions
+      {
+        $lookup: {
+          from: 'appointments',
+          let: { sessionIds: '$sessionIds', agentId: agentObjectId },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $in: ['$chatSessionId', '$$sessionIds'] },
+                    { $eq: ['$agentId', '$$agentId'] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: 'appointments',
+        },
+      },
+
       // Calculate final metrics
       {
         $project: {
@@ -1852,6 +1879,7 @@ export class AgentsService {
           acceptedChats: 1,
           respondedChats: { $size: '$agentMessages' },
           proactiveChats: { $size: '$proactiveSessions' },
+          totalBookings: { $size: '$appointments' },
           avgResponseTimeMs: {
             $cond: [
               { $gt: [{ $size: '$agentMessages' }, 0] },
