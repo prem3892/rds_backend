@@ -245,6 +245,18 @@ export class MailerService {
     });
   }
 
+  async sendPasswordResetOtpEmail(
+    to: string,
+    data: OtpVerificationTemplateData,
+  ): Promise<boolean> {
+    return this.sendTemplateMail({
+      to,
+      subject: 'Password Reset Code - Live Chat System',
+      template: 'otp-verification',
+      context: data,
+    });
+  }
+
   async sendAppointmentConfirmationEmail(
     to: string,
     data: AppointmentConfirmationTemplateData,

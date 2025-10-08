@@ -32,6 +32,7 @@ import {
   ForgotPasswordDto,
   ResetPasswordDto,
   VerifyEmailDto,
+  ResetPasswordWithOtpDto,
 } from './dto/password-reset.dto';
 import {
   SendVerificationOtpDto,
@@ -286,12 +287,13 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Request password reset',
-    description: 'Send password reset email to user',
+    description:
+      'Send password reset email or OTP to user. Set is_mobile to true for OTP (mobile apps), or false/omit for reset link (web).',
   })
   @ApiBody({ type: ForgotPasswordDto })
   @ApiResponse({
     status: 200,
-    description: 'Password reset email sent successfully',
+    description: 'Password reset email or OTP sent successfully',
     schema: {
       type: 'object',
       properties: {
@@ -307,8 +309,14 @@ export class AuthController {
     type: ErrorResponseDto,
   })
   async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
-    await this.authService.sendPasswordResetEmail(forgotPasswordDto.email);
-    return { message: 'Password reset email sent successfully' };
+    await this.authService.sendPasswordResetEmail(
+      forgotPasswordDto.email,
+      forgotPasswordDto.is_mobile,
+    );
+    const message = forgotPasswordDto.is_mobile
+      ? 'Password reset OTP sent successfully. Please check your email.'
+      : 'Password reset email sent successfully';
+    return { message };
   }
 
   @Post('reset-password')
@@ -336,6 +344,39 @@ export class AuthController {
     await this.authService.resetPassword(
       resetPasswordDto.token,
       resetPasswordDto.newPassword,
+    );
+    return { message: 'Password reset successfully' };
+  }
+
+  @Post('reset-password-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reset password with OTP',
+    description:
+      'Reset user password using OTP received via email (for mobile apps)',
+  })
+  @ApiBody({ type: ResetPasswordWithOtpDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Password reset successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Password reset successfully' },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid or expired OTP',
+    type: ErrorResponseDto,
+  })
+  async resetPasswordWithOtp(
+    @Body() resetPasswordWithOtpDto: ResetPasswordWithOtpDto,
+  ) {
+    await this.authService.resetPasswordWithOtp(
+      resetPasswordWithOtpDto.email,
+      resetPasswordWithOtpDto.otp,
+      resetPasswordWithOtpDto.newPassword,
     );
     return { message: 'Password reset successfully' };
   }
