@@ -14,6 +14,7 @@ export enum MetricsSortBy {
   RESPONDED_CHATS = 'respondedChats',
   AVG_RESPONSE_TIME = 'avgResponseTime',
   PROACTIVE_CHATS = 'proactiveChats',
+  TOTAL_BOOKINGS = 'totalBookings',
 }
 
 export class GetAgentMetricsDto {
