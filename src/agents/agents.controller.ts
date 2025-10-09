@@ -1075,6 +1075,7 @@ export class AgentsController {
       'respondedChats',
       'avgResponseTime',
       'proactiveChats',
+      'totalBookings',
     ],
   })
   @ApiQuery({
