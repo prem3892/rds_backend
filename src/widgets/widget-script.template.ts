@@ -14,12 +14,14 @@ export function generateWidgetScript(
       'use strict';
       
       // Prevent multiple initializations
+
+      console.log('ChatWidget', window.ChatWidget);
       if (window.ChatWidget) {
         console.warn('Chat widget already initialized');
         return;
       }
       
-      // Add CSS animations
+      // Add CSS animations and responsive styles
       const style = document.createElement('style');
       style.textContent = \`
         @keyframes pulse {
@@ -37,6 +39,33 @@ export function generateWidgetScript(
             opacity: 1;
           }
         }
+        
+        @keyframes dots {
+          0%, 20% {
+            color: rgba(0,0,0,0);
+            text-shadow:
+              .3em 0 0 rgba(0,0,0,0),
+              .6em 0 0 rgba(0,0,0,0);
+          }
+          40% {
+            color: #9ca3af;
+            text-shadow:
+              .3em 0 0 rgba(0,0,0,0),
+              .6em 0 0 rgba(0,0,0,0);
+          }
+          60% {
+            text-shadow:
+              .3em 0 0 #9ca3af,
+              .6em 0 0 rgba(0,0,0,0);
+          }
+          80%, 100% {
+            text-shadow:
+              .3em 0 0 #9ca3af,
+              .6em 0 0 #9ca3af;
+          }
+        }
+        
+       
       \`;
       document.head.appendChild(style);
     
@@ -68,6 +97,13 @@ export function generateWidgetScript(
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             timestamp: new Date().toISOString()
           };
+        },
+        // Detect iOS Safari to handle input focus zoom behavior
+        isIOSSafari() {
+          const ua = navigator.userAgent || navigator.vendor 
+          const isIOS = /iPad|iPhone|iPod/.test(ua);
+          const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS|OPiOS/.test(ua);
+          return isIOS && isSafari;
         },
         
         formatTime(date) {
@@ -141,43 +177,54 @@ export function generateWidgetScript(
           
           const baseChatWindowStyle = {
             position: 'absolute',
-            width: '380px',
-            maxWidth: 'calc(100vw - 64px)', // Ensure it doesn't exceed viewport width minus margins
+            maxWidth: 'calc(100vw - 64px)', // Desktop-safe default margin
             maxHeight: '80vh',
             borderRadius: '8px',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
             border: '1px solid #e5e7eb',
             display: 'none',
             flexDirection: 'column',
-            overflow: 'hidden' // Prevent content from overflowing
+            overflow: 'hidden', // Prevent content from overflowing
+            // paddingBottom: '0.5rem',
           };
           
-          switch (location) {
+          switch (location) { 
             case 'bottom_left':
+              console.log('Bottom Left');
               return {
-                container: { ...baseContainerStyle, bottom: '32px', left: '32px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '64px', left: '0', minWidth: '320px' }
+                container: { ...baseContainerStyle, bottom: '30px', left: '18px' },
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', left: '0' ,minWidth: '320px' }
               };
             case 'bottom_right':
+              console.log('Bottom Right');
               return {
-                container: { ...baseContainerStyle, bottom: '32px', right: '32px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '64px', right: '0', minWidth: '320px' }
+                container: { ...baseContainerStyle, bottom: '30px', right: '18px' },
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0',minWidth: '320px' }
               };
             case 'top_left':
+              console.log('Top Left');
               return {
                 container: { ...baseContainerStyle, top: '32px', left: '32px' },
-                chatWindow: { ...baseChatWindowStyle, top: '64px', left: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, top: '0', left: '0',minWidth: '320px' }
               };
             case 'top_right':
+              console.log('Top Right');
               return {
                 container: { ...baseContainerStyle, top: '32px', right: '32px' },
-                chatWindow: { ...baseChatWindowStyle, top: '64px', right: '0', minWidth: '320px' }
+                chatWindow: { ...baseChatWindowStyle, top: '0', right: '0',minWidth: '320px' }
+              };
+            case 'center':
+              console.log('Center');
+              return {
+                container: { ...baseContainerStyle, top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
+                chatWindow: { ...baseChatWindowStyle, minWidth: '320px', position: 'none' }
               };
             default:
+              console.log('Invalid button_location');
               // Default to bottom_right
               return {
-                container: { ...baseContainerStyle, bottom: '32px', right: '32px' },
-                chatWindow: { ...baseChatWindowStyle, bottom: '64px', right: '0', minWidth: '320px' }
+                container: { ...baseContainerStyle, bottom: '30px', right: '18px' },
+                chatWindow: { ...baseChatWindowStyle, bottom: '0', right: '0',minWidth: '320px' }
               };
           }
         },
@@ -237,8 +284,11 @@ export function generateWidgetScript(
           this.pendingMessages = new Set(); // Track messages being sent
           this.messageReadObserver = null; // IntersectionObserver for tracking message visibility
           this.availableAgents = []; // Track current agent availability
+          this.currentAgent = null; // Track the currently chatting agent
           this.isOfflineMode = false; // Track if we're in offline mode
           this.autoMessageShown = false; // Track if auto-message has been displayed
+          this.initialDataReceived = false; // Track if initial agent availability data has been received
+          this.autoMessagePending = false; // Track if auto-message is scheduled but not yet shown
           
           this.init();
         }
@@ -247,9 +297,12 @@ export function generateWidgetScript(
           try {
             await this.loadConfig();
             this.createUI();
+            this.applyResponsiveSizing && this.applyResponsiveSizing();
+            window.addEventListener('resize', () => this.applyResponsiveSizing && this.applyResponsiveSizing());
             this.connectSocket();
             this.bindEvents();
-            this.scheduleAutoMessage();
+            // Don't schedule auto message immediately - wait for initial data
+            // this.scheduleAutoMessage();
           } catch (error) {
             console.error('Failed to initialize chat widget:', error);
           }
@@ -261,14 +314,46 @@ export function generateWidgetScript(
           this.config = await response.json();
         }
     
-
+        // Helper method to check if chat button should be disabled
+        isChatButtonDisabled() {
+          // Disable button if auto-message is pending and initial data not received
+          return this.autoMessagePending;
+        }
+    
+        // Helper method to update chat button visual state
+        updateChatButtonState() {
+          if (!this.chatButton) return;
+          
+          const isDisabled = this.isChatButtonDisabled();
+          
+          if (isDisabled) {
+            //this.chatButton.style.opacity = '0.6';
+            this.chatButton.style.cursor = 'not-allowed';
+            console.log('Chat button disabled: waiting for initial agent data');
+          } else {
+            this.chatButton.style.opacity = '1';
+            this.chatButton.style.cursor = 'pointer';
+            console.log('Chat button enabled');
+          }
+        }
     
         createUI() {
           // Inject CSS for proper box-sizing within the widget
           this.injectWidgetCSS();
           
-          const buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
+          // Hardcoded: Check if pathname is /book-online or /book-online/
+          const currentPath = window.location.pathname;
+          const isBookOnlinePage = currentPath === '/book-online' || currentPath === '/book-online/';
+          
+          // Override button location to center if on book-online page
+          let buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
+          if (isBookOnlinePage) {
+            buttonLocation = 'center';
+          }
+
           const positionStyles = utils.getPositionStyles(buttonLocation);
+
+          console.log('Position Styles:', positionStyles);
           
           this.container = document.createElement('div');
           this.container.id = 'chat-widget-container';
@@ -296,6 +381,14 @@ export function generateWidgetScript(
             #chat-widget-container {
               font-family: system-ui, -apple-system, sans-serif !important;
             }
+
+            /* Prevent iOS Safari auto-zoom by keeping inputs at >=16px */
+            #chat-widget-container input,
+            #chat-widget-container textarea,
+            #chat-widget-container select,
+            #chat-widget-container button {
+              font-size: 14px !important;
+            }
             
             @keyframes pulse {
               0%, 100% { opacity: 1; }
@@ -315,13 +408,15 @@ export function generateWidgetScript(
             position: 'relative',
             cursor: 'pointer',
             transform: 'scale(1)',
-            transition: 'transform 0.2s ease',
+            transition: 'transform 0.2s ease, opacity 0.3s ease',
             userSelect: 'none'
           });
           
-          // Add hover effect
+          // Add hover effect (only if button is not disabled)
           this.chatButton.addEventListener('mouseenter', () => {
-            this.chatButton.style.transform = 'scale(1.05)';
+            if (!this.isChatButtonDisabled()) {
+              this.chatButton.style.transform = 'scale(1.05)';
+            }
           });
           this.chatButton.addEventListener('mouseleave', () => {
             this.chatButton.style.transform = 'scale(1)';
@@ -329,7 +424,7 @@ export function generateWidgetScript(
           
           this.chatButton.innerHTML = \`
             <div style="
-              padding: 12px 16px;
+              padding: 10px 17px;
               border-radius: 9999px;
               box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
               display: flex;
@@ -339,10 +434,17 @@ export function generateWidgetScript(
               min-width: max-content;
               background-color: \${primaryColor};
               color: \${textColor};
-            ">
+              border: 2px solid white;
+            "
+            class="chat-wrap">
+              
+             <svg xmlns="http://www.w3.org/2000/svg" style="margin-right: 5px" height="24px" width="24px" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+  <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+</svg>
+             
               <span style="
-                font-weight: 500;
-                font-size: 14px;
+                // font-weight: 900;
+                font-size: 16px;
                 white-space: nowrap;
               ">\${utils.escapeHtml(buttonLabel)}</span>
               <div id="unread-badge" style="
@@ -372,23 +474,63 @@ export function generateWidgetScript(
           const primaryColor = this.config.widgetConfig?.primaryColor || '#3B82F6';
           const secondaryColor = this.config.widgetConfig?.secondaryColor || '#64748B';
           const headerText = this.config.widgetConfig?.headerText || 'Chat with us';
-          const buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
+          //const buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
           const bgColorWithOpacity = utils.hexToRgba(secondaryColor, 90);
+
+          // Hardcoded: Check if pathname is /book-online or /book-online/
+          const currentPath = window.location.pathname;
+          const isBookOnlinePage = currentPath === '/book-online' || currentPath === '/book-online/';
+
+          // Override button location to center if on book-online page
+          let buttonLocation = this.config.widgetConfig?.button_location || 'bottom_right';
+          if (isBookOnlinePage) {
+            buttonLocation = 'center';
+          }
+
           const positionStyles = utils.getPositionStyles(buttonLocation);
           
           this.chatWindow = document.createElement('div');
+          this.chatWindow.className = 'chat-widget-window';
           utils.applyStyles(this.chatWindow, positionStyles.chatWindow);
           this.chatWindow.style.backgroundColor = bgColorWithOpacity;
           
           this.chatWindow.innerHTML = \`
             <!-- Header -->
             <div style="
-              padding: 16px;
               border-radius: 8px 8px 0 0;
               color: white;
               flex-shrink: 0;
               background-color: \${primaryColor};
+              padding-top: 17px;
+
             ">
+
+             <div id="minimize-btn" role="button" tabindex="0" style="
+                    color: white;
+                    cursor: pointer;
+                    transition: color 0.2s ease;
+                    user-select: none;
+                    outline: none;
+                    display: flex;
+                    justify-content: end;
+                    padding: 8px;
+                    position: absolute;
+                    right: 10px;
+                    top: 2px;
+                  " onmouseover="this.style.color='#d1d5db'" onmouseout="this.style.color='white'">
+                    <svg width="20px" height="20px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M4 12L20 12" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+                  </div>
+              
+              <!-- Agent Profiles Row -->
+              <div id="agent-profiles" style="
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 12px;
+              "></div>
+
               <!-- Header Row -->
               <div style="
                 display: flex;
@@ -403,27 +545,10 @@ export function generateWidgetScript(
                   flex: 1;
                   justify-content: center;
                 ">
-                  <span id="chat-header-text" style="font-weight: 500; text-align: center;">\${utils.escapeHtml(headerText)}</span>
+                  <span id="chat-header-text" style="font-size: 1rem; text-align: center; padding: 16px 12px 0 12px">\${utils.escapeHtml(headerText)}</span>
                 </div>
-                <div id="minimize-btn" role="button" tabindex="0" style="
-                  color: white;
-                  cursor: pointer;
-                  transition: color 0.2s ease;
-                  user-select: none;
-                  outline: none;
-                " onmouseover="this.style.color='#d1d5db'" onmouseout="this.style.color='white'">
-                  <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                  </svg>
-                </div>
+                 
               </div>
-              <!-- Agent Profiles Row -->
-              <div id="agent-profiles" style="
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 12px;
-              "></div>
             </div>
     
             <!-- Connection Status -->
@@ -458,27 +583,18 @@ export function generateWidgetScript(
               display: none;
               flex-direction: column;
               overflow: hidden;
+              position: relative;
             ">
               <!-- Chat Header -->
               <div id="chat-header" style="
-                padding: 8px 16px;
+                padding: 0px 16px;
                 border-bottom: 1px solid #e5e7eb;
-                background-color: white;
+                // background-color: white;
                 flex-shrink: 0;
+                display: hidden;
               ">
-                <div style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                ">
-                  <div>
-                    <div style="
-                      font-size: 12px;
-                      color: #6b7280;
-                    " id="agent-status">Connecting...</div>
-                  </div>
-                </div>
-              </div>
+                <!-- Agent status removed from header -->
+              </div> 
     
               <!-- Messages Container - Fixed height issue with overflow -->
               <div id="messages-container" style="
@@ -488,17 +604,44 @@ export function generateWidgetScript(
                 display: flex;
                 flex-direction: column;
                 gap: 12px;
+                // min-height: 310px;
+                min-height: 38vh;
+
+                
               ">
+                <!-- Agent Status - Inside messages container -->
+                <div id="agent-status-container" style="
+                  padding: 12px 0px;
+                  text-align: center;
+                  flex-shrink: 0;
+                  background-color: transparent;
+                  display: none;
+                ">
+                  <div id="agent-status" style="
+                    font-size: 14px;
+                    color: #6b7280;
+                    font-weight: 400;
+                    line-height: 1.4;
+                  ">Connecting...</div>
+                </div>
                 <!-- Messages will be populated here -->
               </div>
     
               <!-- Typing Indicator -->
               <div id="typing-indicator" style="
+                position: absolute;
+                bottom: 55px;
+                left: 5px;
+                right: 16px;
                 padding: 8px 16px;
-                font-size: 14px;
+                width: 100%;
+                font-size: 12px;
                 color: #6b7280;
+             
+               
+              
                 display: none;
-                flex-shrink: 0;
+                z-index: 10;
               ">
                 <div style="
                   display: flex;
@@ -534,15 +677,19 @@ export function generateWidgetScript(
                 </div>
               </div>
     
+
               <!-- Message Input - Fixed to bottom -->
               <div style="
                 border-top: 1px solid #e5e7eb;
-                padding: 16px;
+                padding: 1rem 0.5rem;
+                padding-bottom: 0.5rem;
                 flex-shrink: 0;
                 background-color: white;
+                
               ">
                 <div style="
                   display: flex;
+                  
                   gap: 8px;
                 ">
                   <div style="
@@ -555,14 +702,13 @@ export function generateWidgetScript(
                              width: 100%;
                              color: black;
                              padding: 8px 50px 8px 12px;
-                             border: 1px solid #d1d5db;
-                             border-radius: 8px;
+                             border: none !important;
                              outline: none;
                              box-sizing: border-box;
                              transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                             font-size: '14px !important';
                            "
-                           onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
-                           onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
+                           >
                     <input type="file" id="file-input" style="display: none;" accept="image/*,.pdf,.doc,.docx,.txt">
                     <div id="attach-btn" role="button" tabindex="0" style="
                       position: absolute;
@@ -581,7 +727,7 @@ export function generateWidgetScript(
                     </div>
                   </div>
                   <div id="send-btn" role="button" tabindex="0" style="
-                    padding: 8px 16px;
+                    padding: 6px 12px;
                     color: white;
                     border-radius: 8px;
                     cursor: pointer;
@@ -593,7 +739,7 @@ export function generateWidgetScript(
                     justify-content: center;
                     background-color: \${primaryColor};
                   " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-                    <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg style="width: 20px; height: 20px; rotate: 90deg;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
                     </svg>
                   </div>
@@ -624,7 +770,7 @@ export function generateWidgetScript(
                     font-weight: 500;
                     color: #374151;
                     margin-bottom: 4px;
-                  ">Name (optional)</label>
+                  ">Name *</label>
                   <input type="text" id="customer-name" style="
                     width: 100%;
                     padding: 8px 12px;
@@ -634,6 +780,7 @@ export function generateWidgetScript(
                     color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                    font-size: 16px;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
                      onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
                 </div>
@@ -654,6 +801,7 @@ export function generateWidgetScript(
                     color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                    font-size: 16px;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
                      onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
                 </div>
@@ -669,7 +817,7 @@ export function generateWidgetScript(
                     color: #374151;
                     margin-bottom: 4px;
                   ">Message</label>
-                  <textarea id="initial-message" rows="3" placeholder="How can we help you?" style="
+                  <textarea id="initial-message" rows="4" placeholder="How can we help you?" style="
                     flex: 1;
                     width: 100%;
                     padding: 8px 12px;
@@ -677,8 +825,10 @@ export function generateWidgetScript(
                     border-radius: 8px;
                     outline: none;
                     resize: vertical;
+                    color: black;
                     box-sizing: border-box;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                    font-size: 16px;
                   " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)'"
                      onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'"></textarea>
                 </div>
@@ -798,6 +948,16 @@ export function generateWidgetScript(
           } else {
             this.establishSocketConnection();
           }
+          
+          // Fallback: if initial data doesn't arrive within 10 seconds, schedule auto message anyway
+          setTimeout(() => {
+            if (!this.initialDataReceived && !this.autoMessageShown && !this.currentChatSession) {
+              console.log('Initial data timeout - proceeding with auto message scheduling');
+              this.initialDataReceived = true; // Set to true to allow scheduling
+              this.updateChatButtonState(); // Update button state after timeout
+              this.scheduleAutoMessage();
+            }
+          }, 10000);
         }
     
         async loadSocketIO() {
@@ -846,6 +1006,8 @@ export function generateWidgetScript(
             }
             
             this.availableAgents = uniqueAgents;
+            this.initialDataReceived = true;
+            //this.updateChatButtonState(); // Update button state when initial data is received
             
             // Update header with agent profile pictures
             this.updateAgentProfilePictures(this.availableAgents);
@@ -854,6 +1016,9 @@ export function generateWidgetScript(
               this.currentChatSession = data.activeSession;
               this.showChatInterface();
               this.loadChatHistory();
+            } else {
+              // Now that we have initial data, schedule auto message if appropriate
+              this.scheduleAutoMessage();
             }
           });
     
@@ -974,7 +1139,7 @@ export function generateWidgetScript(
           this.socket.on('server:agent_typing_start', () => this.showTypingIndicator());
           this.socket.on('server:agent_typing_stop', () => this.hideTypingIndicator());
           this.socket.on('server:no_agents_available_for_request', () => this.showAgentStatus('No agents available. We\\'ll respond soon.'));
-          this.socket.on('server:chat_session_pending', () => this.showAgentStatus('Looking for an available agent...'));
+          this.socket.on('server:chat_session_pending', () => this.showAgentStatus('Getting a live chat agent for you...'));
           
           // Listen for message seen by agent event
           this.socket.on('server:message_seen_by_agent', (data) => {
@@ -989,14 +1154,31 @@ export function generateWidgetScript(
           this.socket.on('server:agent_details_on_accept', (data) => {
             console.log('Agent accepted chat:', data);
             if (data && data.agent) {
+              // Store the current agent information
+              this.currentAgent = {
+                userId: data.agent.id,
+                firstName: data.agent.name.split(' ')[0] || data.agent.name,
+                fullName: data.agent.name,
+                profilePicture: data.agent.profileUrl,
+                isOnline: true
+              };
+              
               this.showAgentStatus(\`Chatting with \${data.agent.name}\`);
-              // If we need to update other UI elements with agent info, add here
+              
+              // Update the UI to show only the current agent's profile
+              this.updateAgentProfilePictures();
             }
           });
 
           this.socket.on('server:agent_ended_chat', (data) => {
             console.log('Agent ended chat:', data);
             this.showAgentStatus(\`Chat ended, please refresh the page for new chat\`);
+            
+            // Reset current agent when chat ends
+            this.currentAgent = null;
+            
+            // Update UI to show available agents again
+            this.updateAgentProfilePictures();
           });
 
           // Listen for agent status changes
@@ -1053,11 +1235,55 @@ export function generateWidgetScript(
           const chatInterface = document.getElementById('chat-interface');
           chatInterface.style.display = 'flex';
           
+          // Show initial status if no specific status has been set
+          // if (!this.currentChatSession || !this.currentChatSession.agentName) {
+          //   this.showAgentStatus('Getting a live chat agent for you');
+          // }
+          
           // Focus the input field for better UX
-          setTimeout(() => {
+        //   setTimeout(() => {
+        //     if (!utils.isIOSSafari()) {
+        //       const messageInput = document.getElementById('message-input');
+        //       if (messageInput) messageInput.focus();
+        //     }
+        //   }, 100);
+        }
+
+        // Apply sizing tweaks for small screens to better fit mobile
+        applyResponsiveSizing() {
+          try {
+            const isCompact = window.innerWidth <= 420; // mobile threshold
+            if (!this.chatWindow) return;
+
+            // Chat window width constraints
+            this.chatWindow.style.maxWidth = isCompact ? 'calc(100vw - 12px)' : 'calc(100vw - 64px)';
+            this.chatWindow.style.minWidth = isCompact ? '280px' : '320px';
+
+            // Header text size
+            const headerTextEl = document.getElementById('chat-header-text');
+            if (headerTextEl) {
+              headerTextEl.style.fontSize = isCompact ? '0.9rem' : '1rem';
+            }
+
+            // Messages container spacing
+            const messagesContainer = document.getElementById('messages-container');
+            if (messagesContainer) {
+              messagesContainer.style.padding = isCompact ? '12px' : '16px';
+              messagesContainer.style.gap = isCompact ? '8px' : '12px';
+            }
+
+            // Input sizes
             const messageInput = document.getElementById('message-input');
-            if (messageInput) messageInput.focus();
-          }, 100);
+            if (messageInput) {
+              messageInput.style.padding = isCompact ? '6px 44px 6px 10px' : '8px 50px 8px 12px';
+              messageInput.style.fontSize = '14px !important';
+            }
+
+            const sendBtn = document.getElementById('send-btn');
+            if (sendBtn) {
+              sendBtn.style.padding = isCompact ? '6px 12px' : '8px 16px';
+            }
+          } catch (e) { /* no-op */ }
         }
 
         showCustomerInfoRequestForm() {
@@ -1146,7 +1372,7 @@ export function generateWidgetScript(
           
           let displayText;
           if (agentsAvailable) {
-            displayText = this.config.widgetConfig?.headerText || 'Chat with us';
+            displayText = this.config.widgetConfig?.headerText || '';
           } else {
             displayText = this.config.widgetConfig?.offline_text || this.config.widgetConfig?.headerText || 'Chat with us';
           }
@@ -1158,8 +1384,16 @@ export function generateWidgetScript(
           const profileContainer = document.getElementById('agent-profiles');
           if (!profileContainer) return;
           
+          // Determine which agents to display
+          // If there's a current agent (chat accepted), show only that agent
+          // Otherwise, show available agents
+          let agentsToDisplay = agents;
+          if (!agentsToDisplay) {
+            agentsToDisplay = this.currentAgent ? [this.currentAgent] : this.availableAgents;
+          }
+          
           // Update header text based on agent availability
-          this.updateHeaderText(agents.length > 0);
+          this.updateHeaderText(agentsToDisplay.length > 0);
           
           // Clear existing profiles
           profileContainer.innerHTML = '';
@@ -1167,7 +1401,7 @@ export function generateWidgetScript(
           // Update the start chat button text based on agent availability
           const startChatBtn = document.getElementById('start-chat-btn');
           if (startChatBtn) {
-            startChatBtn.textContent = agents.length > 0 ? 'Start Chat' : 'Submit';
+            startChatBtn.textContent = agentsToDisplay.length > 0 ? 'Start Chat' : 'Submit';
           }
           
           // Update email field requirement based on agent availability
@@ -1176,7 +1410,7 @@ export function generateWidgetScript(
           const emailLabel = emailInput ? emailInput.parentElement.querySelector('label') : null;
           
           if (emailLabel && emailInput) {
-            if (agents.length === 0) {
+            if (agentsToDisplay.length === 0) {
               // Offline mode - email is required
               emailLabel.innerHTML = 'Email <span style="color: #ef4444;">*</span>';
               emailInput.setAttribute('required', 'required');
@@ -1187,9 +1421,13 @@ export function generateWidgetScript(
             }
           }
           
-          // Show max 3 agents
-          const agentsToShow = agents.slice(0, 3);
+          // Show max 3 agents (or just 1 if it's the current agent)
+          const agentsToShow = this.currentAgent ? [this.currentAgent] : agentsToDisplay.slice(0, 3);
           
+          const isMobile = window.innerWidth <= 420;
+          const avatarSize = isMobile ? 70 : 74;
+          const nameFontSize = isMobile ? '12px' : '16px';
+
           agentsToShow.forEach((agent, index) => {
             // Create agent profile container (vertical stack)
             const agentProfile = document.createElement('div');
@@ -1197,7 +1435,6 @@ export function generateWidgetScript(
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: '4px'
             });
             
             // Create profile picture container with relative positioning for status dot
@@ -1209,8 +1446,8 @@ export function generateWidgetScript(
               const profileImg = document.createElement('img');
               profileImg.src = \`\${API_BASE}\${agent.profilePicture}\`;
               utils.applyStyles(profileImg, {
-                width: '48px',
-                height: '48px',
+                width: avatarSize + 'px',
+                height: avatarSize + 'px',
                 borderRadius: '50%',
                 border: '2px solid white',
                 objectFit: 'cover'
@@ -1223,8 +1460,8 @@ export function generateWidgetScript(
                 this.style.display = 'none';
                 const defaultAvatar = document.createElement('div');
                 utils.applyStyles(defaultAvatar, {
-                  width: '32px',
-                  height: '32px',
+                  width: avatarSize + 'px',
+                  height: avatarSize + 'px',
                   borderRadius: '50%',
                   border: '2px solid white',
                   backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1241,8 +1478,8 @@ export function generateWidgetScript(
               // Show default avatar if no profile picture
               const defaultAvatar = document.createElement('div');
               utils.applyStyles(defaultAvatar, {
-                width: '32px',
-                height: '32px',
+                width: avatarSize + 'px',
+                height: avatarSize + 'px',
                 borderRadius: '50%',
                 border: '2px solid white',
                 backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1256,14 +1493,17 @@ export function generateWidgetScript(
             
             // Add green status dot at bottom right
             const statusDot = document.createElement('div');
+            statusDot.classList.add('greenDot');
+   
             utils.applyStyles(statusDot, {
-              width: '8px',
-              height: '8px',
+              width: (isMobile ? 8 : 10) + 'px',
+              height: (isMobile ? 8 : 10) + 'px',
               backgroundColor: '#4ade80',
               borderRadius: '50%',
               position: 'absolute',
-              bottom: '0',
-              right: '0'
+              bottom: '10px',
+              right: '10px'
+
             });
             profilePicContainer.appendChild(statusDot);
             
@@ -1272,7 +1512,7 @@ export function generateWidgetScript(
             // Create name label
             const nameLabel = document.createElement('span');
             utils.applyStyles(nameLabel, {
-              fontSize: '12px',
+              fontSize: nameFontSize,
               fontWeight: '500',
               color: 'white',
               opacity: '0.9'
@@ -1366,6 +1606,11 @@ export function generateWidgetScript(
           const email = document.getElementById('customer-email').value.trim();
           const initialMessage = document.getElementById('initial-message').value.trim();
     
+          if (!name) {
+            alert('Please enter your name.');
+            return;
+          }
+    
           if (!initialMessage) {
             alert('Please enter a message to start the chat.');
             return;
@@ -1381,7 +1626,7 @@ export function generateWidgetScript(
             customerId: this.customerId,
             widgetId: WIDGET_ID,
             initialMessage: initialMessage,
-            name: name || undefined,
+            name: name,
             email: email || undefined
           };
           
@@ -1598,7 +1843,7 @@ export function generateWidgetScript(
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                   </svg>
                   <a href="\${message.messageContent.url}" target="_blank" rel="noopener noreferrer" 
-                     style="color: #2563eb; font-size: 14px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;"
+                     style="color: #2563eb; font-size: 14px; text-overflow: ellipsis; overflow: scroll; white-space: nowrap;"
                      onmouseover="this.style.textDecoration='underline'"
                      onmouseout="this.style.textDecoration='none'">
                     \${utils.escapeHtml(message.messageContent.filename)}
@@ -1627,7 +1872,8 @@ export function generateWidgetScript(
           
           // Special styling for customer info form
           const isInfoForm = message.messageContent.type === 'customer_info_form';
-          const maxWidth = isInfoForm ? '384px' : '288px';
+          const isMobile = window.innerWidth <= 420;
+          const maxWidth = isInfoForm ? (isMobile ? '320px' : '384px') : (isMobile ? '240px' : '288px');
           
           // Check if this is an agent message (not customer, not system)
           const isAgent = !isCustomer && !isSystem;
@@ -1636,7 +1882,6 @@ export function generateWidgetScript(
           let messageStyles = \`
             max-width: \${maxWidth};
             padding: 8px 12px;
-            border-radius: 8px;
             \${message.isUploading || isPending ? 'opacity: 0.5;' : ''}
           \`;
           
@@ -1644,6 +1889,10 @@ export function generateWidgetScript(
             messageStyles += \`
               color: white;
               background-color: \${primaryColor};
+              border-top-left-radius: 8px;
+              border-top-right-radius: 18px;
+              border-bottom-left-radius: 8px;
+              border-bottom-right-radius: 0px;
             \`;
           } else if (isSystem) {
             if (isInfoForm) {
@@ -1652,6 +1901,7 @@ export function generateWidgetScript(
                 border: 1px solid #bfdbfe;
                 color: #1f2937;
                 width: 100%;
+                border-radius: 8px;
               \`;
             } else {
               messageStyles += \`
@@ -1660,12 +1910,17 @@ export function generateWidgetScript(
                 font-size: 14px;
                 text-align: center;
                 width: 100%;
+                border-radius: 8px;
               \`;
             }
           } else {
             messageStyles += \`
               color: white;
               background-color: \${secondaryColor};
+              border-top-right-radius: 8px;
+              border-top-left-radius: 18px;
+              border-bottom-right-radius: 8px;
+              border-bottom-left-radius: 0px;
             \`;
           }
           
@@ -1675,7 +1930,7 @@ export function generateWidgetScript(
           messageDiv.innerHTML = \`
             <div style="display: flex; flex-direction: column;">
               <div style="\${messageStyles}">
-                <div>\${messageContent}</div>
+                <div style="font-size: \${isMobile ? '14px' : '16px'};">\${messageContent}</div>
                 \${!isInfoForm ? \`<div style="font-size: 12px; text-align: right; margin-top: 4px; color: \${timestampColor}; display: flex; align-items: center; justify-content: flex-end;">
                   <span>\${utils.formatTime(message.timestamp)}</span>
                   \${statusIndicator}
@@ -1686,6 +1941,15 @@ export function generateWidgetScript(
           \`;
           
           messagesContainer.appendChild(messageDiv);
+          
+          // Move agent status to bottom if it exists
+          const statusContainer = document.getElementById('agent-status-container');
+          if (statusContainer && statusContainer.style.display !== 'none') {
+            if (statusContainer.parentNode) {
+              statusContainer.parentNode.removeChild(statusContainer);
+            }
+            messagesContainer.appendChild(statusContainer);
+          }
           
           // Bind events for customer info form if this is a form message
           if (message.messageContent.type === 'customer_info_form') {
@@ -1743,14 +2007,84 @@ export function generateWidgetScript(
         }
     
         showTypingIndicator() { 
-          document.getElementById('typing-indicator').style.display = 'block'; 
-          // Scroll to bottom when typing indicator appears
-          const messagesContainer = document.getElementById('messages-container');
-          utils.scrollToBottom(messagesContainer);
+          const typingIndicator = document.getElementById('typing-indicator');
+          if (typingIndicator) {
+            typingIndicator.style.display = 'block';
+            // Scroll to bottom when typing indicator appears
+            const messagesContainer = document.getElementById('messages-container');
+            utils.scrollToBottom(messagesContainer);
+          }
         }
         
-        hideTypingIndicator() { document.getElementById('typing-indicator').style.display = 'none'; }
-        showAgentStatus(status) { document.getElementById('agent-status').textContent = status; }
+        hideTypingIndicator() { 
+          const typingIndicator = document.getElementById('typing-indicator');
+          if (typingIndicator) {
+            typingIndicator.style.display = 'none';
+          }
+        }
+        showAgentStatus(status) {
+          console.log('Showing agent status:', status);
+          const statusContainer = document.getElementById('agent-status-container');
+          const statusElement = document.getElementById('agent-status');
+          const messagesContainer = document.getElementById('messages-container');
+          
+          if (!statusContainer || !statusElement || !messagesContainer) return;
+          
+          // Hide status if it's "Chatting with [agentName]" or if we have an active chat session with an agent
+          if ((status && (status.includes('Chatting with') || status.includes('chatting with'))) || 
+              (this.currentChatSession && this.currentChatSession.agentName)) {
+            statusContainer.style.display = 'none';
+            return;
+          }
+          
+          // Show the container and move it to the bottom of messages container
+          statusContainer.style.display = 'block';
+          
+          // Ensure the status appears after all existing messages
+          // Remove it first if it exists, then append to ensure proper order
+          if (statusContainer.parentNode) {
+            statusContainer.parentNode.removeChild(statusContainer);
+          }
+          messagesContainer.appendChild(statusContainer);
+          
+          // Check if this is a "Looking for" or similar message that should have animated dots
+          if (status && (status.includes('Looking for') || status.includes('available agent') || status.includes('Getting a live chat agent'))) {
+            // Use the exact text from the image with the same dots as typing indicator
+            const baseText = status.includes('Getting a live chat agent') ? status : 'Getting a live chat agent for you';
+            statusElement.innerHTML = \`
+              <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <span>\${baseText}</span>
+                <div style="display: flex; gap: 4px;">
+                  <div style="
+                    width: 8px;
+                    height: 8px;
+                    background-color: #9ca3af;
+                    border-radius: 50%;
+                    animation: bounce 1.4s infinite ease-in-out both;
+                  "></div>
+                  <div style="
+                    width: 8px;
+                    height: 8px;
+                    background-color: #9ca3af;
+                    border-radius: 50%;
+                    animation: bounce 1.4s infinite ease-in-out both;
+                    animation-delay: 0.16s;
+                  "></div>
+                  <div style="
+                    width: 8px;
+                    height: 8px;
+                    background-color: #9ca3af;
+                    border-radius: 50%;
+                    animation: bounce 1.4s infinite ease-in-out both;
+                    animation-delay: 0.32s;
+                  "></div>
+                </div>
+              </div>
+            \`;
+          } else {
+            statusElement.textContent = status;
+          }
+        }
     
         showConnectionStatus(message, type = 'yellow') {
           const statusEl = document.getElementById('connection-status');
@@ -1759,7 +2093,7 @@ export function generateWidgetScript(
           
           const baseStyles = {
             padding: '8px 16px',
-            borderBottom: '1px solid #e5e7eb',
+            borderBottom: '1px solid #e5e7eb', 
             fontSize: '14px',
             flexShrink: '0'
           };
@@ -1769,6 +2103,8 @@ export function generateWidgetScript(
             : { backgroundColor: '#fffbeb', color: '#92400e' };
             
           utils.applyStyles(statusEl, { ...baseStyles, ...typeStyles });
+
+
         }
     
         hideConnectionStatus() { document.getElementById('connection-status').style.display = 'none'; }
@@ -1885,8 +2221,20 @@ export function generateWidgetScript(
         }
     
         toggleChat() {
+          console.log('toggleChat called...')
+
+          // Check if button is disabled
+          if (this.isChatButtonDisabled() && !this.initialDataReceived) {
+            console.log('Chat button disabled: waiting for initial agent data');
+            return;
+          }
+          
           this.isMinimized = !this.isMinimized;
           this.chatWindow.style.display = this.isMinimized ? 'none' : 'flex';
+          
+          // Hide/show chat button based on minimized state
+          this.chatButton.style.display = this.isMinimized ? 'block' : 'none';
+          
           if (!this.isMinimized) {
             this.resetUnreadCount();
             
@@ -1897,7 +2245,15 @@ export function generateWidgetScript(
             
             // If not in an active chat session, show customer info form directly
             if (!this.currentChatSession) {
-              this.showCustomerInfoForm();
+              if (this.autoMessageShown) {
+                console.log("Showing auto-message after reopening chat.");
+                this.showAutoMessage(this.processAutoMessages());
+              } else {
+                this.showCustomerInfoForm();
+                this.autoMessagePending = false;
+                this.updateChatButtonState();
+              }
+              
             } else if (document.getElementById('chat-interface').style.display !== 'none') {
               setTimeout(() => {
                 const messageInput = document.getElementById('message-input');
@@ -1973,16 +2329,9 @@ export function generateWidgetScript(
             return null;
           }
 
-          // Check for sitewide auto-message first (highest priority)
-          const sitewideMessage = this.config.autoMessages.find(msg => msg.sitewide === true);
-          if (sitewideMessage) {
-            console.log("Showing sitewide auto-message:", sitewideMessage);
-            return sitewideMessage;
-          }
+          console.log("Checking page-specific auto-messages first...");
 
-          console.log("Checking page-specific auto-messages...");
-
-          // Check for path-specific auto-messages
+          // Check for path-specific auto-messages first (highest priority)
           const currentPath = window.location.pathname;
           const currentFullUrl = window.location.href;
           
@@ -1999,11 +2348,20 @@ export function generateWidgetScript(
               });
               
               if (pathMatches) {
+                console.log("Found page-specific auto-message:", autoMessage);
                 return autoMessage;
               }
             }
           }
 
+          // If no page-specific message found, fall back to sitewide auto-message
+          const sitewideMessage = this.config.autoMessages.find(msg => msg.sitewide === true);
+          if (sitewideMessage) {
+            console.log("No page-specific message found, showing sitewide auto-message:", sitewideMessage);
+            return sitewideMessage;
+          }
+
+          console.log("No auto-messages matched for current page.");
           return null;
         }
 
@@ -2013,19 +2371,40 @@ export function generateWidgetScript(
             return;
           }
 
+          // Don't schedule if we haven't received initial data yet
+          if (!this.initialDataReceived) {
+            console.log('Waiting for initial agent availability data before scheduling auto message');
+            return;
+          }
+
           const autoMessage = this.processAutoMessages();
           if (!autoMessage) {
             return;
           }
 
+          // Mark that auto-message is now pending (scheduled but not yet shown)
+          this.autoMessagePending = true;
+          console.log("Hello test")
+          this.updateChatButtonState();
+
           const delaySeconds = autoMessage.showAfterSeconds || 0;
           
           // Wait for socket connection before showing auto-message
           const showAutoMessageWhenReady = () => {
-            if (this.isConnected) {
+            if (this.isConnected && this.initialDataReceived) {
+              // Check if agents are available before showing auto message
+              if (this.availableAgents.length === 0) {
+                console.log('No agents available - showing customer contact form instead of auto message');
+                // Show customer info form instead of auto message when offline
+                this.isMinimized = false;
+                this.chatWindow.style.display = 'flex';
+                this.chatButton.style.display = 'none'; // Hide chat button when opening for offline form
+                this.showCustomerInfoForm();
+                return;
+              }
               this.showAutoMessage(autoMessage);
             } else {
-              // If not connected yet, wait a bit more and try again
+              // If not connected or initial data not received yet, wait a bit more and try again
               setTimeout(showAutoMessageWhenReady, 500);
             }
           };
@@ -2040,6 +2419,8 @@ export function generateWidgetScript(
           }
 
           this.autoMessageShown = true;
+          this.autoMessagePending = false; // Clear pending flag since message is now shown
+          this.updateChatButtonState();
 
           // Create a dummy agent message
           const autoMessageObj = this.createAutoMessage(autoMessage);
@@ -2047,13 +2428,14 @@ export function generateWidgetScript(
           // Open the widget and show chat interface
           this.isMinimized = false;
           this.chatWindow.style.display = 'flex';
+          this.chatButton.style.display = 'none'; // Hide chat button when auto message opens
           this.showChatInterface();
           
           // Ensure connection status is hidden since we're connected
           this.hideConnectionStatus();
           
           // Update agent status to show we're ready to chat
-          this.showAgentStatus('Assistant is ready to help!');
+          // this.showAgentStatus('Assistant is ready to help!');
           
           // Display the auto-message
           this.displayMessage(autoMessageObj);

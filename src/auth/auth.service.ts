@@ -67,7 +67,7 @@ export class AuthService {
       validatedUser._id,
     );
 
-    // Check if agent is blocked (only for agents, not admins)
+    // Check if agent is blocked (only for agents, not admins or managers)
     if (validatedUser.role === UserRole.AGENT && agentProfile?.isBlocked) {
       throw new UnauthorizedException(
         'Your account has been blocked. Please contact your administrator.',
@@ -117,8 +117,8 @@ export class AuthService {
       adminId,
     );
 
-    // If the user is an agent, create agent profile with shifts and default department
-    if (user.role === UserRole.AGENT) {
+    // If the user is an agent or manager, create agent profile with shifts and default department
+    if (user.role === UserRole.AGENT || user.role === UserRole.MANAGER) {
       const agentProfileData: any = {};
 
       if (shifts) {
@@ -163,8 +163,10 @@ export class AuthService {
       throw new ConflictException('User with this email already exists.');
     }
 
+    const { is_mobile, ...userDto } = adminRegisterDto;
+
     const user = await this.usersService.create({
-      ...adminRegisterDto,
+      ...userDto,
       role: UserRole.ADMIN, // Explicitly set role to ADMIN
       isEmailVerified: false, // Admin must verify email before login
     });
@@ -183,8 +185,14 @@ export class AuthService {
       agentProfileData,
     );
 
-    // Send admin verification email instead of welcome email
-    await this.sendAdminVerificationEmail(user);
+    // Send verification based on is_mobile parameter
+    if (is_mobile) {
+      // For mobile, send OTP verification
+      await this.sendEmailVerificationOtp(user._id.toString());
+    } else {
+      // For web, send admin verification email with link
+      await this.sendAdminVerificationEmail(user);
+    }
 
     return user;
   }
@@ -302,10 +310,18 @@ export class AuthService {
     }
   }
 
-  async sendPasswordResetEmail(email: string): Promise<boolean> {
+  async sendPasswordResetEmail(
+    email: string,
+    isMobile?: boolean,
+  ): Promise<boolean> {
     const user = await this.usersService.findByEmail(email);
     if (!user) {
       throw new NotFoundException('User with this email does not exist');
+    }
+
+    // If mobile, send OTP instead of token link
+    if (isMobile) {
+      return this.sendPasswordResetOtp(email);
     }
 
     // Generate reset token
@@ -316,6 +332,7 @@ export class AuthService {
     await this.usersService.updateUser(user._id, {
       passwordResetToken: resetToken,
       passwordResetExpires: resetExpires,
+      passwordResetMethod: 'token',
     });
 
     // Create reset link
@@ -328,6 +345,50 @@ export class AuthService {
       lastName: user.lastName,
       resetLink,
       expirationTime: '1 hour',
+    });
+  }
+
+  async sendPasswordResetOtp(email: string): Promise<boolean> {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      throw new NotFoundException('User with this email does not exist');
+    }
+
+    // Rate limiting: Check if user has requested OTP recently
+    const now = new Date();
+    const rateLimitMinutes = 2; // Allow new OTP every 2 minutes
+
+    if (user.lastPasswordResetOtpRequestTime) {
+      const timeDiff =
+        now.getTime() - user.lastPasswordResetOtpRequestTime.getTime();
+      const minutesDiff = timeDiff / (1000 * 60);
+
+      if (minutesDiff < rateLimitMinutes) {
+        throw new BadRequestException(
+          `Please wait ${Math.ceil(rateLimitMinutes - minutesDiff)} minute(s) before requesting a new OTP`,
+        );
+      }
+    }
+
+    // Generate OTP and set expiration (10 minutes)
+    const otp = this.generateOtp();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Save OTP to user and reset attempts
+    await this.usersService.updateUser(user._id, {
+      passwordResetOtp: otp,
+      passwordResetOtpExpires: otpExpires,
+      passwordResetMethod: 'otp',
+      passwordResetOtpAttempts: 0,
+      lastPasswordResetOtpRequestTime: now,
+    });
+
+    // Send OTP email for password reset
+    return this.mailerService.sendPasswordResetOtpEmail(user.email, {
+      firstName: user.firstName,
+      lastName: user.lastName,
+      otp,
+      expirationTime: '10 minutes',
     });
   }
 
@@ -349,6 +410,71 @@ export class AuthService {
       password: hashedPassword,
       passwordResetToken: undefined,
       passwordResetExpires: undefined,
+    });
+
+    return true;
+  }
+
+  async resetPasswordWithOtp(
+    email: string,
+    otp: string,
+    newPassword: string,
+  ): Promise<boolean> {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      throw new NotFoundException('User with this email does not exist');
+    }
+
+    // Check if OTP exists and is not expired
+    if (!user.passwordResetOtp || !user.passwordResetOtpExpires) {
+      throw new BadRequestException(
+        'No OTP found. Please request a new password reset code.',
+      );
+    }
+
+    if (user.passwordResetOtpExpires < new Date()) {
+      throw new BadRequestException(
+        'OTP has expired. Please request a new password reset code.',
+      );
+    }
+
+    // Check attempt limit (max 5 attempts)
+    const maxAttempts = 5;
+    if (user.passwordResetOtpAttempts >= maxAttempts) {
+      // Clear OTP data to force new request
+      await this.usersService.updateUser(user._id, {
+        passwordResetOtp: undefined,
+        passwordResetOtpExpires: undefined,
+        passwordResetOtpAttempts: 0,
+      });
+      throw new BadRequestException(
+        'Too many failed attempts. Please request a new password reset code.',
+      );
+    }
+
+    // Verify OTP
+    if (user.passwordResetOtp !== otp) {
+      // Increment attempt count
+      await this.usersService.updateUser(user._id, {
+        passwordResetOtpAttempts: user.passwordResetOtpAttempts + 1,
+      });
+
+      const remainingAttempts =
+        maxAttempts - (user.passwordResetOtpAttempts + 1);
+      throw new BadRequestException(
+        `Invalid OTP. ${remainingAttempts} attempt(s) remaining.`,
+      );
+    }
+
+    // OTP is valid - reset password and clear OTP data
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await this.usersService.updateUser(user._id, {
+      password: hashedPassword,
+      passwordResetOtp: undefined,
+      passwordResetOtpExpires: undefined,
+      passwordResetOtpAttempts: 0,
+      passwordResetMethod: 'otp',
     });
 
     return true;
@@ -470,7 +596,7 @@ export class AuthService {
     }
 
     // Send appropriate verification email based on user role
-    if (user.role === UserRole.ADMIN) {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
       return this.sendAdminVerificationEmail(user);
     } else {
       return this.sendUserVerificationEmail(user);
@@ -483,8 +609,10 @@ export class AuthService {
       throw new NotFoundException('User with this email does not exist');
     }
 
-    if (user.role !== UserRole.ADMIN) {
-      throw new BadRequestException('This endpoint is only for admin accounts');
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
+      throw new BadRequestException(
+        'This endpoint is only for admin and manager accounts',
+      );
     }
 
     if (user.isEmailVerified) {
@@ -711,8 +839,10 @@ export class AuthService {
       throw new NotFoundException('User with this email does not exist');
     }
 
-    if (user.role !== UserRole.ADMIN) {
-      throw new BadRequestException('This endpoint is only for admin accounts');
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
+      throw new BadRequestException(
+        'This endpoint is only for admin and manager accounts',
+      );
     }
 
     if (user.isEmailVerified) {

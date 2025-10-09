@@ -57,6 +57,7 @@ import { VisitorStateService } from './services/visitor-state/visitor-state.serv
 import { AgentStatusNotificationService } from './services/agent-status-notification/agent-status-notification.service';
 import { FingerprintUtil } from '../shared/utils/fingerprint.util';
 import { ChatMessageDocument } from 'src/schemas/chat-message.schema';
+import { DateFormatterUtil } from '../shared/utils/date-formatter.util';
 
 interface AuthenticatedSocket extends Socket {
   user?: JwtPayload; // For agents
@@ -126,6 +127,14 @@ export class ChatGateway
       30000; // 30 seconds grace period for visitor reconnection
   }
 
+  /**
+   * Helper method to format date without timezone conversion
+   * Uses local time components to preserve the exact date/time values
+   */
+  private formatDateWithoutTimezone(date: Date): string {
+    return DateFormatterUtil.formatHumanReadable(date);
+  }
+
   afterInit(server: Server) {
     this.logger.log('ChatGateway Initialized');
     // Set the server instance in the notification service to avoid circular dependency
@@ -189,18 +198,110 @@ export class ChatGateway
           'true',
           3600, // Store for 1 hour
         );
-        this.logger.log(
-          `Agent ${agentId} was online before disconnect. Storing previous state for reconnection.`,
+
+        // Set a grace period before marking agent offline to handle race conditions
+        // This allows API calls made during page refresh to still work
+        await this.redisService.set(
+          `agent_disconnect_grace:${agentId}`,
+          'true',
+          30, // 30 seconds grace period
         );
+
+        this.logger.log(
+          `Agent ${agentId} was online before disconnect. Storing previous state and setting grace period for reconnection.`,
+        );
+
+        // Schedule delayed offline status update after grace period
+        setTimeout(async () => {
+          try {
+            // Check if agent has reconnected during grace period
+            const hasReconnected =
+              await this.redisService.hasAgentSockets(agentId);
+            const graceStillActive = await this.redisService.get(
+              `agent_disconnect_grace:${agentId}`,
+            );
+
+            this.logger.debug(
+              `hasReconnected ${hasReconnected} graceStillActive`,
+            );
+
+            if (!hasReconnected && graceStillActive) {
+              // Agent hasn't reconnected, proceed with offline status
+              const agentProfile = await this.agentsService.setOnlineStatus(
+                agentId,
+                false,
+              );
+
+              // Clean up grace period
+              await this.redisService.del(`agent_disconnect_grace:${agentId}`);
+
+              // Notify widget customers about agent going offline
+              await this.chatNotificationService.notifyWidgetCustomersOfAgentStatusChange(
+                agentId,
+                false,
+                agentProfile,
+              );
+
+              this.logger.log(
+                `Agent ${agentId} marked as offline after grace period (no reconnection).`,
+              );
+
+              // Handle active sessions
+              const activeSessions =
+                await this.chatSessionService.getActiveSessionsForAgent(
+                  agentId,
+                );
+              for (const session of activeSessions) {
+                await this.chatSessionService.updateSessionStatus(
+                  session._id,
+                  ChatSessionStatus.PENDING_AGENT_RECONNECT,
+                );
+                this.server
+                  .to(`customer:${session.customerId.toString()}`)
+                  .emit('server:agent_disconnected_from_chat', {
+                    chatSessionId: session._id.toString(),
+                    agentName: agentProfile?.userId
+                      ? (await this.usersService.findById(agentProfile.userId))
+                          ?.firstName
+                      : 'Agent',
+                  });
+                // Start timer for agent reconnect
+                await this.redisService.set(
+                  `${REDIS_AGENT_RECONNECT_PENDING_PREFIX}${session._id.toString()}`,
+                  agentId,
+                  this.agentReconnectTimeoutMs / 1000, // TTL in seconds
+                );
+                this.scheduleAgentReconnectTimeout(
+                  session._id.toString(),
+                  agentId,
+                  this.agentReconnectTimeoutMs,
+                );
+                this.logger.log(
+                  `Session ${session._id} set to PENDING_AGENT_RECONNECT for agent ${agentId}. Reconnect timer started.`,
+                );
+              }
+            } else {
+              this.logger.log(
+                `Agent ${agentId} reconnected during grace period or grace expired. Skipping offline status update.`,
+              );
+            }
+          } catch (error) {
+            this.logger.error(
+              `Error during delayed offline status update for agent ${agentId}: ${error.message}`,
+            );
+          }
+        }, 30000); // 30 seconds delay
+
+        return; // Exit early, don't set offline immediately
       }
 
-      // Agent has no more connected sockets, mark as offline
+      // Agent wasn't online before disconnect, proceed with normal offline handling
       const agentProfile = await this.agentsService.setOnlineStatus(
         agentId,
         false,
       );
       this.logger.log(
-        `Agent ${agentId} marked as offline (no remaining sockets).`,
+        `Agent ${agentId} marked as offline (no remaining sockets, wasn't online before).`,
       );
       client.leave(`agent:${agentId}`);
       // Leave organization-specific online agents room
@@ -208,45 +309,6 @@ export class ChatGateway
         client.leave(`online_agents:${agentProfile.adminId.toString()}`);
       }
       //this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
-
-      // Notify widget customers about agent going offline
-      await this.chatNotificationService.notifyWidgetCustomersOfAgentStatusChange(
-        agentId,
-        false,
-        agentProfile,
-      );
-
-      const activeSessions =
-        await this.chatSessionService.getActiveSessionsForAgent(agentId);
-      for (const session of activeSessions) {
-        await this.chatSessionService.updateSessionStatus(
-          session._id,
-          ChatSessionStatus.PENDING_AGENT_RECONNECT,
-        );
-        this.server
-          .to(`customer:${session.customerId.toString()}`)
-          .emit('server:agent_disconnected_from_chat', {
-            chatSessionId: session._id.toString(),
-            agentName: agentProfile?.userId
-              ? (await this.usersService.findById(agentProfile.userId))
-                  ?.firstName
-              : 'Agent',
-          });
-        // Start timer for agent reconnect
-        await this.redisService.set(
-          `${REDIS_AGENT_RECONNECT_PENDING_PREFIX}${session._id.toString()}`,
-          agentId,
-          this.agentReconnectTimeoutMs / 1000, // TTL in seconds
-        );
-        this.scheduleAgentReconnectTimeout(
-          session._id.toString(),
-          agentId,
-          this.agentReconnectTimeoutMs,
-        );
-        this.logger.log(
-          `Session ${session._id} set to PENDING_AGENT_RECONNECT for agent ${agentId}. Reconnect timer started.`,
-        );
-      }
     } else {
       this.logger.log(
         `Agent ${agentId} still has ${remainingSocketCount} active socket(s). Not marking offline. Socket ${client.id} removed.`,
@@ -599,7 +661,9 @@ export class ChatGateway
     const jwtPayload = await this.authService.validateSocketToken(data.token);
     if (
       !jwtPayload ||
-      (jwtPayload.role !== UserRole.ADMIN && jwtPayload.role !== UserRole.AGENT)
+      (jwtPayload.role !== UserRole.ADMIN &&
+        jwtPayload.role !== UserRole.MANAGER &&
+        jwtPayload.role !== UserRole.AGENT)
     ) {
       // Ensure it's an agent or admin
       this.logger.warn(
@@ -720,21 +784,22 @@ export class ChatGateway
             jwtPayload.sub,
             true,
           );
-          // Join organization-specific online agents room
-          if (agentProfile?.adminId) {
-            client.join(`online_agents:${agentProfile.adminId.toString()}`);
-          }
-          //this.broadcastAgentPoolStatusUpdateForAgent(agentProfile);
 
-          // Notify widget customers about agent coming back online
-          await this.chatNotificationService.notifyWidgetCustomersOfAgentStatusChange(
+          // Clear grace period if it exists (agent reconnected within grace period)
+          await this.redisService.del(
+            `agent_disconnect_grace:${jwtPayload.sub}`,
+          );
+
+          // Use the agent status notification service to handle all socket notifications and room management
+          await this.agentStatusNotificationService.notifyAgentStatusChange(
             jwtPayload.sub,
             true,
             agentProfile,
+            client.id, // Pass the triggering socket ID
           );
 
           this.logger.log(
-            `Agent ${jwtPayload.sub} reconnected and restored to online status (within shift).`,
+            `Agent ${jwtPayload.sub} reconnected and restored to online status (within shift) via socket ${client.id}`,
           );
         } else {
           this.logger.log(
@@ -1217,6 +1282,7 @@ export class ChatGateway
             name: agentUser
               ? `${agentUser.firstName} ${agentUser.lastName}`
               : 'Support Agent',
+            profileUrl: agentProfile.profilePicture,
             // avatarUrl: agentUser.avatarUrl, // If you have avatars
           },
         });
@@ -2526,7 +2592,8 @@ export class ChatGateway
     if (
       !client.user ||
       (client.user.role !== UserRole.AGENT &&
-        client.user.role !== UserRole.ADMIN)
+        client.user.role !== UserRole.ADMIN &&
+        client.user.role !== UserRole.MANAGER)
     )
       throw new WsException(
         'Only admin/agents can book appointments via this event.',
@@ -2575,11 +2642,26 @@ export class ChatGateway
       await this.agentsService.findAgentProfileByUserId(agentUserId);
     if (!agent) throw new WsException('Agent not found.');
 
+    // Parse the date string as-is without timezone conversion
+    // Frontend sends: 2024-10-03T15:00:00 (no timezone info)
+    // We need to preserve the exact date/time values without timezone conversion
+    const dateStr = payload.date;
+
+    this.logger.debug(
+      `[handleAgentBookAppointment] Received date string: ${dateStr}`,
+    );
+
+    const appointmentTime = DateFormatterUtil.parseWithoutTimezone(dateStr);
+
+    this.logger.debug(
+      `[handleAgentBookAppointment] Parsed appointment time: ${appointmentTime.toISOString()} | Local: ${this.formatDateWithoutTimezone(appointmentTime)}`,
+    );
+
     const appointmentData: CreateAppointmentDto = {
       ...payload,
       agentId: (agent.userId as Types.ObjectId).toString(),
       customerId: customer._id.toString(),
-      appointmentTime: new Date(payload.date),
+      appointmentTime: appointmentTime,
       notes: payload.notes ?? '',
     };
 
@@ -2599,13 +2681,18 @@ export class ChatGateway
       .emit('server:appointment_booked_notification', appointment);
 
     // Send a system message in chat
+    // Format the date without timezone conversion - use local time components
+    const formattedDate = this.formatDateWithoutTimezone(
+      new Date(appointment.appointmentTime),
+    );
+
     const systemMessage = await this.chatMessageService.createMessage({
       chatSessionId: new Types.ObjectId(payload.chatSessionId),
       senderId: agent.userId as Types.ObjectId, // System action by agent
       senderType: ChatMessageSenderType.SYSTEM,
       messageType: ChatMessageType.APPOINTMENT_BOOKED_NOTICE,
       content: {
-        text: `An appointment has been scheduled for ${appointment.appointmentTime.toLocaleString()}.`,
+        text: `An appointment has been scheduled for ${formattedDate}.`,
         appointmentDetails: appointment.toObject(), // Send full appointment details
       },
     });
@@ -2878,13 +2965,18 @@ export class ChatGateway
       .emit('server:appointment_booked_notification', appointment);
 
     // Send a system message into the chat session
+    // Format the date without timezone conversion - use local time components
+    const formattedDate = this.formatDateWithoutTimezone(
+      new Date(appointment.appointmentTime),
+    );
+
     const systemMessagePayload = {
       chatSessionId: appointment.chatSessionId.toString(),
       senderId: appointment.agentId, // Attributed to agent
       senderType: ChatMessageSenderType.SYSTEM,
       messageType: ChatMessageType.APPOINTMENT_BOOKED_NOTICE,
       content: {
-        text: `An appointment has been scheduled by an agent for ${new Date(appointment.appointmentTime).toLocaleString()}.`,
+        text: `An appointment has been scheduled by an agent for ${formattedDate}.`,
         appointmentDetails: appointment.toObject(),
       },
       timestamp: new Date(),

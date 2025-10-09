@@ -8,6 +8,7 @@ import {
   HttpStatus,
   Get,
   Query,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -31,6 +32,7 @@ import {
   ForgotPasswordDto,
   ResetPasswordDto,
   VerifyEmailDto,
+  ResetPasswordWithOtpDto,
 } from './dto/password-reset.dto';
 import {
   SendVerificationOtpDto,
@@ -58,11 +60,16 @@ import {
   UnauthorizedResponseDto,
   ForbiddenResponseDto,
 } from '../shared/dto/common-responses.dto';
+import { AdminResolverUtil } from 'src/shared/utils/admin-resolver.util';
+import { AgentsService } from 'src/agents/agents.service';
 
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly agentsService: AgentsService,
+  ) {}
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -109,13 +116,13 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Post('register')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Register new user with email verification (Admin only)',
+    summary: 'Register new user with email verification (Admin/Manager only)',
     description:
-      'Admin can register new agents or other admins in the system. A verification email will be sent to the new user, and they must verify their email before login. For agents, working hours can be specified using the shifts field.',
+      'Admin can register new agents, managers, or other admins in the system. Only admins can register managers. A verification email will be sent to the new user, and they must verify their email before login. For agents and managers, working hours can be specified using the shifts field.',
   })
   @ApiBody({ type: RegisterDto })
   @ApiResponse({
@@ -132,16 +139,31 @@ export class AuthController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
   async register(
     @AuthenticatedUser() admin: JwtPayload,
     @Body() registerDto: RegisterDto,
   ): Promise<Omit<UserDocument, 'password'>> {
+    // Only admins can register managers
+    if (
+      registerDto.role === UserRole.MANAGER &&
+      admin.role !== UserRole.ADMIN &&
+      admin.role !== UserRole.MANAGER
+    ) {
+      throw new ForbiddenException(
+        'Only admins and managers can register managers',
+      );
+    }
+
+    // Resolve admin ID based on user's role
+    let adminId = admin.sub;
+    adminId = await AdminResolverUtil.resolveAdminId(admin, this.agentsService);
+
     const user = await this.authService.register(
       registerDto,
-      new Types.ObjectId(admin.sub),
+      new Types.ObjectId(adminId),
     );
     const { password, ...result } = user.toObject();
     return result;
@@ -152,12 +174,13 @@ export class AuthController {
   @ApiOperation({
     summary: 'Admin self-registration with email verification',
     description:
-      'Initial admin registration endpoint for system setup. Creates admin account and sends verification email. Admin must verify email before login.',
+      'Initial admin registration endpoint for system setup. Creates admin account and sends verification email or OTP. Admin must verify email before login. Set is_mobile to true for OTP verification (mobile apps), or false/omit for email link verification (web).',
   })
   @ApiBody({ type: AdminRegisterDto })
   @ApiResponse({
     status: 201,
-    description: 'Admin registered successfully. Verification email sent.',
+    description:
+      'Admin registered successfully. Verification email or OTP sent.',
     type: AdminSignupResponseDto,
   })
   @ApiBadRequestResponse({
@@ -170,9 +193,12 @@ export class AuthController {
     const user = await this.authService.registerAdmin(adminRegisterDto);
     const { password, ...userResult } = user.toObject();
 
+    const message = adminRegisterDto.is_mobile
+      ? 'Admin account created successfully. Please check your email for the OTP to verify your account.'
+      : 'Admin account created successfully. Please check your email to verify your account.';
+
     return {
-      message:
-        'Admin account created successfully. Please check your email to verify your account.',
+      message,
       user: userResult,
     };
   }
@@ -261,12 +287,13 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Request password reset',
-    description: 'Send password reset email to user',
+    description:
+      'Send password reset email or OTP to user. Set is_mobile to true for OTP (mobile apps), or false/omit for reset link (web).',
   })
   @ApiBody({ type: ForgotPasswordDto })
   @ApiResponse({
     status: 200,
-    description: 'Password reset email sent successfully',
+    description: 'Password reset email or OTP sent successfully',
     schema: {
       type: 'object',
       properties: {
@@ -282,8 +309,14 @@ export class AuthController {
     type: ErrorResponseDto,
   })
   async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
-    await this.authService.sendPasswordResetEmail(forgotPasswordDto.email);
-    return { message: 'Password reset email sent successfully' };
+    await this.authService.sendPasswordResetEmail(
+      forgotPasswordDto.email,
+      forgotPasswordDto.is_mobile,
+    );
+    const message = forgotPasswordDto.is_mobile
+      ? 'Password reset OTP sent successfully. Please check your email.'
+      : 'Password reset email sent successfully';
+    return { message };
   }
 
   @Post('reset-password')
@@ -311,6 +344,39 @@ export class AuthController {
     await this.authService.resetPassword(
       resetPasswordDto.token,
       resetPasswordDto.newPassword,
+    );
+    return { message: 'Password reset successfully' };
+  }
+
+  @Post('reset-password-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reset password with OTP',
+    description:
+      'Reset user password using OTP received via email (for mobile apps)',
+  })
+  @ApiBody({ type: ResetPasswordWithOtpDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Password reset successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Password reset successfully' },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid or expired OTP',
+    type: ErrorResponseDto,
+  })
+  async resetPasswordWithOtp(
+    @Body() resetPasswordWithOtpDto: ResetPasswordWithOtpDto,
+  ) {
+    await this.authService.resetPasswordWithOtp(
+      resetPasswordWithOtpDto.email,
+      resetPasswordWithOtpDto.otp,
+      resetPasswordWithOtpDto.newPassword,
     );
     return { message: 'Password reset successfully' };
   }

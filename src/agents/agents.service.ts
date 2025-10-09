@@ -17,10 +17,25 @@ import {
   CannedMessage,
   CannedMessageDocument,
 } from 'src/schemas/canned-message.schema';
+import {
+  ChatSession,
+  ChatSessionDocument,
+} from 'src/schemas/chat-session.schema';
+import {
+  ChatMessage,
+  ChatMessageDocument,
+} from 'src/schemas/chat-message.schema';
+import {
+  Appointment,
+  AppointmentDocument,
+} from 'src/schemas/appointment.schema';
 import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto';
 import { CreateCannedMessageDto } from './dto/create-canned-message.dto';
 import { UpdateCannedMessageDto } from './dto/update-canned-message.dto';
 import { GetCannedMessagesDto } from './dto/get-canned-messages.dto';
+import { GetAgentsDto } from './dto/get-agents.dto';
+import { GetAgentMetricsDto, TimeFilter } from './dto/get-agent-metrics.dto';
+import { AgentMetricItemDto } from './dto/agent-metrics-response.dto';
 import { UsersService } from '../users/users.service';
 import { UserRole } from '../shared/constants/enums';
 import { DepartmentsService } from 'src/departments/departments.service';
@@ -32,6 +47,7 @@ const { parse } = require('csv-parse/sync');
 import { readFileSync, unlinkSync } from 'fs';
 import { BulkUploadCannedMessagesResponseDto } from './dto/bulk-upload-canned-messages.dto';
 import { generateFailedResultsCsv, saveFailedResultsCsv, cleanCsvContent } from '../shared/utils/file-upload.utils';
+import { RedisService } from '../shared/redis/redis.service';
 
 @Injectable()
 export class AgentsService {
@@ -41,6 +57,12 @@ export class AgentsService {
     private agentProfileModel: Model<AgentProfileDocument>,
     @InjectModel(CannedMessage.name)
     private cannedMessageModel: Model<CannedMessageDocument>,
+    @InjectModel(ChatSession.name)
+    private chatSessionModel: Model<ChatSessionDocument>,
+    @InjectModel(ChatMessage.name)
+    private chatMessageModel: Model<ChatMessageDocument>,
+    @InjectModel(Appointment.name)
+    private appointmentModel: Model<AppointmentDocument>,
     @Inject(forwardRef(() => UsersService))
     private readonly usersService: UsersService,
     private readonly departmentsService: DepartmentsService,
@@ -50,6 +72,7 @@ export class AgentsService {
     @Inject(forwardRef(() => CustomersService))
     private readonly customersService: CustomersService,
     private readonly shiftService: ShiftService,
+    private readonly redisService: RedisService,
   ) {}
 
   async createAgentProfile(
@@ -60,10 +83,12 @@ export class AgentsService {
     const user = await this.usersService.findById(userId);
     if (
       !user ||
-      (user.role !== UserRole.AGENT && user.role !== UserRole.ADMIN)
+      (user.role !== UserRole.AGENT &&
+        user.role !== UserRole.ADMIN &&
+        user.role !== UserRole.MANAGER)
     ) {
       throw new BadRequestException(
-        'User is not an Agent/Admin or does not exist.',
+        'User is not an Agent/Admin/Manager or does not exist.',
       );
     }
 
@@ -169,6 +194,15 @@ export class AgentsService {
     return `${user?.firstName} ${user?.lastName}`;
   }
 
+  /**
+   * Get all agent profiles (for migration/admin purposes)
+   * @returns Promise<AgentProfileDocument[]> - All agent profiles
+   */
+  async getAllAgentProfiles(): Promise<AgentProfileDocument[]> {
+    this.logger.log('Getting all agent profiles');
+    return this.agentProfileModel.find().exec();
+  }
+
   async getAllAgentProfilesWithUserDetails(
     adminId: string | Types.ObjectId,
   ): Promise<any[]> {
@@ -210,6 +244,382 @@ export class AgentsService {
           : null, // Attach only specific user fields
       };
     });
+  }
+
+  /**
+   * Get agents with pagination and filtering
+   */
+  async getAgentsWithPagination(
+    adminId: string | Types.ObjectId,
+    queryDto: GetAgentsDto,
+  ): Promise<{
+    items: any[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNext: boolean;
+      hasPrev: boolean;
+    };
+  }> {
+    this.logger.debug(
+      `Getting agents with pagination for admin ${adminId} with query: ${JSON.stringify(queryDto)}`,
+    );
+
+    // if adminId is not ObjectId, convert it to ObjectId
+    if (typeof adminId === 'string') adminId = new Types.ObjectId(adminId);
+
+    const {
+      search,
+      departmentIds,
+      isOnline,
+      isBlocked,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+    } = queryDto;
+
+    // Build query for agent profiles
+    const query: any = { adminId };
+
+    // Apply filters
+    if (isOnline !== undefined) {
+      query.isOnline = isOnline;
+    }
+
+    if (isBlocked !== undefined) {
+      query.isBlocked = isBlocked;
+    }
+
+    if (departmentIds && departmentIds.length > 0) {
+      query.departmentIds = {
+        $in: departmentIds.map((id) => new Types.ObjectId(id)),
+      };
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+
+    // Build sort object with stable sorting (_id as secondary sort)
+    const sort: any = {};
+    if (['firstName', 'lastName', 'email'].includes(sortBy)) {
+      // For user fields, we'll sort after joining
+      sort['createdAt'] = sortOrder === 'asc' ? 1 : -1; // Default sort for now
+      sort['_id'] = 1; // Secondary sort for stable pagination
+    } else {
+      sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+      sort['_id'] = 1; // Secondary sort for stable pagination
+    }
+
+    this.logger.debug(`Final query for agents: ${JSON.stringify(query)}`);
+    this.logger.debug(
+      `Sort: ${JSON.stringify(sort)}, Skip: ${skip}, Limit: ${limit}`,
+    );
+
+    // For search functionality, we need to get all matching records first
+    // then apply pagination, since search is on user fields
+    if (search) {
+      // Get all agent profiles matching the query (without pagination)
+      const allAgentProfiles = await this.agentProfileModel
+        .find(query)
+        .populate('departmentIds', 'name')
+        .lean()
+        .exec();
+
+      // Get user details for all agent profiles
+      const allUserIds = allAgentProfiles.map((profile) => profile.userId);
+      const allUsers = await this.usersService.findManyByIds(allUserIds);
+      const allUserMap = new Map(
+        allUsers.map((user) => [user._id.toString(), user]),
+      );
+
+      // Combine and filter by search
+      const escapedSearch = search.toLowerCase();
+      let filteredItems = allAgentProfiles
+        .map((profile) => {
+          const userDetails = allUserMap.get(profile.userId.toString());
+          return {
+            ...profile,
+            user: userDetails
+              ? {
+                  _id: userDetails._id,
+                  firstName: userDetails.firstName,
+                  lastName: userDetails.lastName,
+                  email: userDetails.email,
+                  role: userDetails.role,
+                  isEmailVerified: userDetails.isEmailVerified,
+                }
+              : null,
+          };
+        })
+        .filter((item) => {
+          if (!item.user) return false;
+          const fullName =
+            `${item.user.firstName} ${item.user.lastName}`.toLowerCase();
+          const email = item.user.email.toLowerCase();
+          return (
+            fullName.includes(escapedSearch) || email.includes(escapedSearch)
+          );
+        });
+
+      // Apply sorting for user fields
+      if (['firstName', 'lastName', 'email'].includes(sortBy)) {
+        filteredItems.sort((a, b) => {
+          const aValue = a.user?.[sortBy]?.toLowerCase() || '';
+          const bValue = b.user?.[sortBy]?.toLowerCase() || '';
+
+          // Primary sort by the user field
+          let comparison = 0;
+          if (sortOrder === 'asc') {
+            comparison = aValue.localeCompare(bValue);
+          } else {
+            comparison = bValue.localeCompare(aValue);
+          }
+
+          // Secondary sort by _id for stable pagination (always ascending)
+          if (comparison === 0) {
+            const aId = a._id.toString();
+            const bId = b._id.toString();
+            return aId.localeCompare(bId);
+          }
+
+          return comparison;
+        });
+      } else {
+        // Sort by agent profile fields
+        filteredItems.sort((a, b) => {
+          const aValue = a[sortBy];
+          const bValue = b[sortBy];
+
+          // Primary sort by the agent profile field
+          let comparison = 0;
+          if (sortOrder === 'asc') {
+            comparison = aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
+          } else {
+            comparison = aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
+          }
+
+          // Secondary sort by _id for stable pagination (always ascending)
+          if (comparison === 0) {
+            const aId = a._id.toString();
+            const bId = b._id.toString();
+            return aId.localeCompare(bId);
+          }
+
+          return comparison;
+        });
+      }
+
+      // Apply pagination to filtered results
+      const total = filteredItems.length;
+      const items = filteredItems.slice(skip, skip + limit);
+
+      // Calculate pagination metadata
+      const totalPages = Math.ceil(total / limit);
+      const hasNext = page < totalPages;
+      const hasPrev = page > 1;
+
+      this.logger.debug(
+        `Retrieved ${items.length} agents for admin ${adminId} (page ${page}/${totalPages}), total found: ${total}`,
+      );
+
+      const meta = {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext,
+        hasPrev,
+      };
+
+      return {
+        items,
+        meta,
+      };
+    } else {
+      // No search - check if we need to sort by user fields
+      if (['firstName', 'lastName', 'email'].includes(sortBy)) {
+        // Use MongoDB aggregation pipeline for efficient join, sort, and pagination
+        // This approach is more efficient than fetching all records into memory
+        const pipeline: any[] = [
+          // Match agent profiles by adminId and filters
+          { $match: query },
+
+          // Lookup user details
+          {
+            $lookup: {
+              from: 'users', // collection name in MongoDB
+              localField: 'userId',
+              foreignField: '_id',
+              as: 'userDetails',
+            },
+          },
+
+          // Unwind user details (convert array to object)
+          {
+            $unwind: { path: '$userDetails', preserveNullAndEmptyArrays: true },
+          },
+
+          // Add computed field for case-insensitive sorting
+          {
+            $addFields: {
+              sortField: {
+                $toLower: `$userDetails.${sortBy}`,
+              },
+            },
+          },
+
+          // Sort by the user field with _id as secondary sort for stable pagination
+          { $sort: { sortField: sortOrder === 'asc' ? 1 : -1, _id: 1 } },
+
+          // Facet for pagination and total count
+          {
+            $facet: {
+              metadata: [{ $count: 'total' }],
+              data: [{ $skip: skip }, { $limit: limit }],
+            },
+          },
+        ];
+
+        const result = await this.agentProfileModel.aggregate(pipeline).exec();
+
+        const total = result[0]?.metadata[0]?.total || 0;
+        const agentProfiles = result[0]?.data || [];
+
+        // Populate departments separately (aggregation doesn't auto-populate)
+        const departmentIds = new Set<string>();
+        agentProfiles.forEach((profile) => {
+          if (profile.departmentIds && Array.isArray(profile.departmentIds)) {
+            profile.departmentIds.forEach((id) =>
+              departmentIds.add(id.toString()),
+            );
+          }
+        });
+
+        let departmentMap = new Map();
+        if (departmentIds.size > 0) {
+          const departments = await this.departmentsService.findByIds(
+            Array.from(departmentIds).map((id) => new Types.ObjectId(id)),
+          );
+          departmentMap = new Map(
+            departments.map((dept) => [dept._id.toString(), dept]),
+          );
+        }
+
+        // Format the response
+        const items = agentProfiles.map((profile) => {
+          const populatedDepartments = profile.departmentIds
+            ? profile.departmentIds
+                .map((id) => departmentMap.get(id.toString()))
+                .filter(Boolean)
+                .map((dept) => ({ _id: dept._id, name: dept.name }))
+            : [];
+
+          return {
+            ...profile,
+            departmentIds: populatedDepartments,
+            user: profile.userDetails
+              ? {
+                  _id: profile.userDetails._id,
+                  firstName: profile.userDetails.firstName,
+                  lastName: profile.userDetails.lastName,
+                  email: profile.userDetails.email,
+                  role: profile.userDetails.role,
+                  isEmailVerified: profile.userDetails.isEmailVerified,
+                }
+              : null,
+            userDetails: undefined, // Remove temporary field
+            sortField: undefined, // Remove temporary field
+          };
+        });
+
+        // Calculate pagination metadata
+        const totalPages = Math.ceil(total / limit);
+        const hasNext = page < totalPages;
+        const hasPrev = page > 1;
+
+        this.logger.debug(
+          `Retrieved ${items.length} agents for admin ${adminId} (page ${page}/${totalPages}), total found: ${total}`,
+        );
+
+        const meta = {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext,
+          hasPrev,
+        };
+
+        return {
+          items,
+          meta,
+        };
+      } else {
+        // For agent profile field sorting, use standard database pagination
+        const [agentProfiles, total] = await Promise.all([
+          this.agentProfileModel
+            .find(query)
+            .populate('departmentIds', 'name')
+            .sort(sort)
+            .skip(skip)
+            .limit(limit)
+            .lean()
+            .exec(),
+          this.agentProfileModel.countDocuments(query).exec(),
+        ]);
+
+        // Get user details for the agent profiles
+        const userIds = agentProfiles.map((profile) => profile.userId);
+        const users = await this.usersService.findManyByIds(userIds);
+        const userMap = new Map(
+          users.map((user) => [user._id.toString(), user]),
+        );
+
+        // Combine agent profiles with user details
+        const items = agentProfiles.map((profile) => {
+          const userDetails = userMap.get(profile.userId.toString());
+          return {
+            ...profile,
+            user: userDetails
+              ? {
+                  _id: userDetails._id,
+                  firstName: userDetails.firstName,
+                  lastName: userDetails.lastName,
+                  email: userDetails.email,
+                  role: userDetails.role,
+                  isEmailVerified: userDetails.isEmailVerified,
+                }
+              : null,
+          };
+        });
+
+        // Calculate pagination metadata
+        const totalPages = Math.ceil(total / limit);
+        const hasNext = page < totalPages;
+        const hasPrev = page > 1;
+
+        this.logger.debug(
+          `Retrieved ${items.length} agents for admin ${adminId} (page ${page}/${totalPages}), total found: ${total}`,
+        );
+
+        const meta = {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext,
+          hasPrev,
+        };
+
+        return {
+          items,
+          meta,
+        };
+      }
+    }
   }
 
   async updateAgentProfileByUserId(
@@ -429,17 +839,28 @@ export class AgentsService {
       `Got widget ${JSON.stringify(widget)} for widgetId ${widgetId}`,
     );
 
-    // Find all online agents from the same organization as the widget
-    const onlineAgents = await this.agentProfileModel
+    // Find all potentially online agents from the same organization as the widget
+    // We'll check effective online status (including grace period) for each agent
+    const potentialAgents = await this.agentProfileModel
       .find({
-        isOnline: true, // First check: agent must be online
         isBlocked: { $ne: true }, // Exclude blocked agents
         adminId: widget.createdBy, // CRITICAL: Only agents from the same organization
       })
       .exec();
 
+    // Filter agents by effective online status (considering grace period)
+    const onlineAgents: AgentProfileDocument[] = [];
+    for (const agent of potentialAgents) {
+      const isEffectivelyOnline = await this.isAgentEffectivelyOnline(
+        agent.userId.toString(),
+      );
+      if (isEffectivelyOnline) {
+        onlineAgents.push(agent);
+      }
+    }
+
     this.logger.debug(
-      `Found ${onlineAgents.length} online agents from organization ${widget.createdBy} for widget ${widgetId}`,
+      `Found ${onlineAgents.length} effectively online agents from organization ${widget.createdBy} for widget ${widgetId}`,
     );
 
     // Filter agents by department match and domain access
@@ -535,10 +956,13 @@ export class AgentsService {
           ) || undefined
         : undefined;
 
+    // Use effective online status (considering grace period)
+    const isEffectivelyOnline = await this.isAgentEffectivelyOnline(agentId);
+
     return {
-      isAvailable: agent.isOnline && isWithinShift,
+      isAvailable: isEffectivelyOnline && isWithinShift,
       isWithinShift,
-      isOnline: agent.isOnline,
+      isOnline: isEffectivelyOnline,
       nextAvailableTime,
     };
   }
@@ -1054,11 +1478,11 @@ export class AgentsService {
     }
 
     // Only the creator can update the message
-    if (cannedMessage.agentId.toString() !== agentProfile.userId.toString()) {
-      throw new ForbiddenException(
-        'You can only update your own canned messages.',
-      );
-    }
+    // if (cannedMessage.agentId.toString() !== agentProfile.userId.toString()) {
+    //   throw new ForbiddenException(
+    //     'You can only update your own canned messages.',
+    //   );
+    // }
 
     // Validate department IDs if provided
     if (updateDto.departmentIds && updateDto.departmentIds.length > 0) {
@@ -1139,11 +1563,11 @@ export class AgentsService {
     }
 
     // Only the creator can delete the message
-    if (cannedMessage.agentId.toString() !== agentProfile.userId.toString()) {
-      throw new ForbiddenException(
-        'You can only delete your own canned messages.',
-      );
-    }
+    // if (cannedMessage.agentId.toString() !== agentProfile.userId.toString()) {
+    //   throw new ForbiddenException(
+    //     'You can only delete your own canned messages.',
+    //   );
+    // }
 
     await this.cannedMessageModel.findByIdAndDelete(messageId).exec();
     this.logger.log(
@@ -1152,16 +1576,29 @@ export class AgentsService {
   }
 
   /**
-   * Get all online agents
+   * Get all online agents (considering effective online status including grace period)
    */
   async getAllOnlineAgents(): Promise<AgentProfileDocument[]> {
-    return this.agentProfileModel
+    // Get all non-blocked agents
+    const potentialAgents = await this.agentProfileModel
       .find({
-        isOnline: true,
         isBlocked: { $ne: true }, // Exclude blocked agents
       })
       .populate('departmentIds')
       .exec();
+
+    // Filter by effective online status
+    const onlineAgents: AgentProfileDocument[] = [];
+    for (const agent of potentialAgents) {
+      const isEffectivelyOnline = await this.isAgentEffectivelyOnline(
+        agent.userId.toString(),
+      );
+      if (isEffectivelyOnline) {
+        onlineAgents.push(agent);
+      }
+    }
+
+    return onlineAgents;
   }
 
   /**
@@ -1217,5 +1654,502 @@ export class AgentsService {
     );
 
     return updatedProfile;
+  }
+
+  /**
+   * Check if an agent is effectively online, considering both DB status and grace period
+   * This helps solve race conditions during page refresh where API calls happen before socket reconnection
+   */
+  async isAgentEffectivelyOnline(agentId: string): Promise<boolean> {
+    try {
+      // First check the database status
+      const agentProfile = await this.findAgentProfileByUserId(agentId);
+      if (!agentProfile) {
+        return false;
+      }
+
+      // If agent is online in DB, they're definitely online
+      if (agentProfile.isOnline) {
+        return true;
+      }
+
+      // If agent is offline in DB, check if they're in grace period
+      // During grace period, we consider them still online for API purposes
+      const graceStillActive = await this.redisService.get(
+        `agent_disconnect_grace:${agentId}`,
+      );
+      if (graceStillActive === 'true') {
+        this.logger.debug(
+          `Agent ${agentId} is in grace period, considering them online for API purposes`,
+        );
+        return true;
+      }
+
+      // Agent is offline and not in grace period
+      return false;
+    } catch (error) {
+      this.logger.error(
+        `Error checking effective online status for agent ${agentId}: ${error.message}`,
+      );
+      // In case of error, fall back to DB status only
+      const agentProfile = await this.findAgentProfileByUserId(agentId);
+      return agentProfile?.isOnline || false;
+    }
+  }
+
+  /**
+   * Get agent metrics with domain-wise breakdown
+   */
+  async getAgentMetrics(
+    agentId: string,
+    queryDto: GetAgentMetricsDto,
+  ): Promise<{
+    items: AgentMetricItemDto[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNext: boolean;
+      hasPrev: boolean;
+    };
+  }> {
+    const {
+      timeFilter,
+      domain,
+      page = 1,
+      limit = 10,
+      sortBy = 'acceptedChats',
+      sortOrder = 'desc',
+    } = queryDto;
+
+    this.logger.debug(
+      `Getting metrics for agent ${agentId} with filters: ${JSON.stringify(queryDto)}`,
+    );
+
+    // Calculate date range based on time filter
+    const dateRange = this.getDateRangeForTimeFilter(timeFilter);
+
+    // Build aggregation pipeline
+    const pipeline = this.buildMetricsAggregationPipeline(
+      agentId,
+      dateRange,
+      domain,
+      sortBy,
+      sortOrder,
+      page,
+      limit,
+    );
+
+    // Execute aggregation
+    const [result] = await this.chatSessionModel.aggregate(pipeline).exec();
+
+    if (!result) {
+      return {
+        items: [],
+        meta: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false,
+        },
+      };
+    }
+
+    const { data, totalCount } = result;
+    const items = data || [];
+    const total = totalCount?.[0]?.count || 0;
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(total / limit);
+    const hasNext = page < totalPages;
+    const hasPrev = page > 1;
+
+    this.logger.debug(
+      `Retrieved ${items.length} metric items for agent ${agentId} (page ${page}/${totalPages}), total found: ${total}`,
+    );
+
+    const meta = {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNext,
+      hasPrev,
+    };
+
+    return {
+      items,
+      meta,
+    };
+  }
+
+  /**
+   * Get date range based on time filter
+   */
+  private getDateRangeForTimeFilter(timeFilter: TimeFilter): {
+    start: Date;
+    end: Date;
+  } {
+    const now = new Date();
+    const start = new Date();
+    const end = new Date(now);
+
+    switch (timeFilter) {
+      case TimeFilter.TODAY:
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        break;
+      case TimeFilter.LAST_WEEK:
+        start.setDate(now.getDate() - 7);
+        start.setHours(0, 0, 0, 0);
+        break;
+      case TimeFilter.LAST_MONTH:
+        start.setDate(now.getDate() - 30);
+        start.setHours(0, 0, 0, 0);
+        break;
+    }
+
+    return { start, end };
+  }
+
+  /**
+   * Build MongoDB aggregation pipeline for metrics calculation
+   */
+  private buildMetricsAggregationPipeline(
+    agentId: string,
+    dateRange: { start: Date; end: Date },
+    domain?: string,
+    sortBy: string = 'acceptedChats',
+    sortOrder: string = 'desc',
+    page: number = 1,
+    limit: number = 10,
+  ): any[] {
+    const agentObjectId = new Types.ObjectId(agentId);
+
+    // Base match conditions
+    const matchConditions: any = {
+      $and: [
+        {
+          $or: [
+            { agentId: agentObjectId }, // Current agent
+            { 'agentHistory.agentId': agentObjectId }, // Agent in history
+          ],
+        },
+        {
+          $or: [
+            { acceptedAt: { $gte: dateRange.start, $lte: dateRange.end } },
+            { initiatedAt: { $gte: dateRange.start, $lte: dateRange.end } },
+          ],
+        },
+      ],
+    };
+
+    // Add domain filter if specified
+    if (domain) {
+      matchConditions.domain = domain;
+    }
+
+    const pipeline = [
+      // Match chat sessions for the agent within date range
+      { $match: matchConditions },
+
+      // Group by domain to calculate metrics
+      {
+        $group: {
+          _id: '$domain',
+          acceptedChats: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $ne: ['$acceptedAt', null] },
+                    {
+                      $or: [
+                        { $eq: ['$agentId', agentObjectId] },
+                        {
+                          $in: [
+                            agentObjectId,
+                            {
+                              $map: {
+                                input: {
+                                  $filter: {
+                                    input: '$agentHistory',
+                                    cond: { $eq: ['$$this.isActive', true] },
+                                  },
+                                },
+                                as: 'agent',
+                                in: '$$agent.agentId',
+                              },
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+          totalSessions: { $sum: 1 },
+          sessionIds: { $push: '$_id' },
+        },
+      },
+
+      // Lookup chat messages to calculate response metrics
+      {
+        $lookup: {
+          from: 'chatmessages',
+          let: { sessionIds: '$sessionIds', agentId: agentObjectId },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $in: ['$chatSessionId', '$$sessionIds'] },
+                    { $eq: ['$senderId', '$$agentId'] },
+                    { $eq: ['$senderType', 'AGENT'] },
+                  ],
+                },
+              },
+            },
+            {
+              $group: {
+                _id: '$chatSessionId',
+                firstAgentMessage: { $min: '$timestamp' },
+                messageCount: { $sum: 1 },
+              },
+            },
+          ],
+          as: 'agentMessages',
+        },
+      },
+
+      // Lookup customer messages for response time calculation
+      {
+        $lookup: {
+          from: 'chatmessages',
+          let: { sessionIds: '$sessionIds' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $in: ['$chatSessionId', '$$sessionIds'] },
+                    { $eq: ['$senderType', 'CUSTOMER'] },
+                  ],
+                },
+              },
+            },
+            {
+              $group: {
+                _id: '$chatSessionId',
+                firstCustomerMessage: { $min: '$timestamp' },
+              },
+            },
+          ],
+          as: 'customerMessages',
+        },
+      },
+
+      // Lookup sessions to check for proactive chats
+      {
+        $lookup: {
+          from: 'chatmessages',
+          let: { sessionIds: '$sessionIds', agentId: agentObjectId },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $in: ['$chatSessionId', '$$sessionIds'],
+                },
+              },
+            },
+            {
+              $sort: { timestamp: 1 },
+            },
+            {
+              $group: {
+                _id: '$chatSessionId',
+                firstMessage: { $first: '$$ROOT' },
+              },
+            },
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$firstMessage.senderId', agentObjectId] },
+                    { $eq: ['$firstMessage.senderType', 'AGENT'] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: 'proactiveSessions',
+        },
+      },
+
+      // Lookup appointments for the chat sessions
+      {
+        $lookup: {
+          from: 'appointments',
+          let: { sessionIds: '$sessionIds', agentId: agentObjectId },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $in: ['$chatSessionId', '$$sessionIds'] },
+                    { $eq: ['$agentId', '$$agentId'] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: 'appointments',
+        },
+      },
+
+      // Calculate final metrics
+      {
+        $project: {
+          domain: '$_id',
+          acceptedChats: 1,
+          respondedChats: { $size: '$agentMessages' },
+          proactiveChats: { $size: '$proactiveSessions' },
+          totalBookings: { $size: '$appointments' },
+          avgResponseTimeMs: {
+            $cond: [
+              { $gt: [{ $size: '$agentMessages' }, 0] },
+              {
+                $avg: {
+                  $map: {
+                    input: '$agentMessages',
+                    as: 'agentMsg',
+                    in: {
+                      $let: {
+                        vars: {
+                          customerMsg: {
+                            $arrayElemAt: [
+                              {
+                                $filter: {
+                                  input: '$customerMessages',
+                                  cond: {
+                                    $eq: ['$$this._id', '$$agentMsg._id'],
+                                  },
+                                },
+                              },
+                              0,
+                            ],
+                          },
+                        },
+                        in: {
+                          $cond: [
+                            { $ne: ['$$customerMsg', null] },
+                            {
+                              $subtract: [
+                                '$$agentMsg.firstAgentMessage',
+                                '$$customerMsg.firstCustomerMessage',
+                              ],
+                            },
+                            0,
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              0,
+            ],
+          },
+        },
+      },
+
+      // Convert avgResponseTimeMs to formatted string
+      {
+        $addFields: {
+          avgResponseTime: {
+            $let: {
+              vars: {
+                // Ensure totalSeconds is never negative
+                totalSeconds: {
+                  $max: [0, { $divide: ['$avgResponseTimeMs', 1000] }],
+                },
+              },
+              in: {
+                $let: {
+                  vars: {
+                    hours: {
+                      $floor: { $divide: ['$$totalSeconds', 3600] },
+                    },
+                    minutes: {
+                      $floor: {
+                        $divide: [{ $mod: ['$$totalSeconds', 3600] }, 60],
+                      },
+                    },
+                    seconds: {
+                      $floor: { $mod: ['$$totalSeconds', 60] },
+                    },
+                  },
+                  in: {
+                    $concat: [
+                      { $toString: '$$hours' },
+                      ':',
+                      {
+                        $cond: [
+                          { $lt: ['$$minutes', 10] },
+                          { $concat: ['0', { $toString: '$$minutes' }] },
+                          { $toString: '$$minutes' },
+                        ],
+                      },
+                      ':',
+                      {
+                        $cond: [
+                          { $lt: ['$$seconds', 10] },
+                          { $concat: ['0', { $toString: '$$seconds' }] },
+                          { $toString: '$$seconds' },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+
+      // Remove the avgResponseTimeMs field
+      {
+        $project: {
+          avgResponseTimeMs: 0,
+        },
+      },
+
+      // Facet for pagination and total count
+      {
+        $facet: {
+          data: [
+            // Sort
+            {
+              $sort: {
+                [sortBy]: sortOrder === 'asc' ? 1 : -1,
+              },
+            },
+            // Pagination
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+          ],
+          totalCount: [{ $count: 'count' }],
+        },
+      },
+    ];
+
+    return pipeline;
   }
 }

@@ -60,6 +60,8 @@ import { CreateAutoMessageDto } from './dto/create-auto-message.dto';
 import { UpdateAutoMessageDto } from './dto/update-auto-message.dto';
 import { GetAutoMessagesDto } from './dto/get-auto-messages.dto';
 import { AutoMessageResponseDto } from './dto/auto-message-responses.dto';
+import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
+import { AgentsService } from '../agents/agents.service';
 
 @ApiTags('Widgets')
 @Controller('widgets')
@@ -70,14 +72,15 @@ export class WidgetsController {
   constructor(
     private readonly widgetsService: WidgetsService,
     private readonly autoMessagesService: AutoMessagesService,
+    private readonly agentsService: AgentsService,
   ) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Post()
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Create a new chat widget (Admin only)',
+    summary: 'Create a new chat widget (Admin/Manager only)',
     description:
       'Create a new embeddable chat widget with customizable settings and department routing',
   })
@@ -95,27 +98,28 @@ export class WidgetsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
-  create(
+  async create(
     @Body() createWidgetDto: CreateWidgetDto,
     @AuthenticatedUser() user: JwtPayload,
   ) {
-    return this.widgetsService.create(
-      createWidgetDto,
-      new Types.ObjectId(user.sub),
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
     );
+    return this.widgetsService.create(createWidgetDto, adminId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Get()
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Get widgets with pagination and filtering (Admin only)',
+    summary: 'Get widgets with pagination and filtering (Admin/Manager only)',
     description:
-      'Retrieve widgets with pagination, search, and filtering options. Only returns widgets created by the authenticated admin.',
+      'Retrieve widgets with pagination, search, and filtering options. Only returns widgets created by the authenticated admin or manager.',
   })
   @ApiResponse({
     status: 200,
@@ -131,34 +135,36 @@ export class WidgetsController {
     type: UnauthorizedResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Admin role required',
+    description: 'Admin or Manager role required',
     type: ForbiddenResponseDto,
   })
-  findAll(
+  async findAll(
     @Query() query: GetWidgetsQueryDto,
     @AuthenticatedUser() user: JwtPayload,
   ) {
-    return this.widgetsService.findAllByAdminPaginated(
-      new Types.ObjectId(user.sub),
-      query,
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
     );
+    return this.widgetsService.findAllByAdminPaginated(adminId, query);
   }
 
   // Admin endpoint to get full config for a widget
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Get(':widgetId/config')
-  findOneForAdmin(
+  async findOneForAdmin(
     @Param('widgetId') widgetId: string,
     @AuthenticatedUser() user: JwtPayload,
   ) {
     if (!Types.ObjectId.isValid(widgetId)) {
       throw new BadRequestException('Invalid widget ID format');
     }
-    return this.widgetsService.findByIdAndAdmin(
-      widgetId,
-      new Types.ObjectId(user.sub),
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
     );
+    return this.widgetsService.findByIdAndAdmin(widgetId, adminId);
   }
 
   @Get(':widgetId/script.js')
@@ -294,22 +300,26 @@ export class WidgetsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Get(':id') // This can be the same as :widgetId/config if you prefer to have one endpoint for admin
-  findOne(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
+  async findOne(
+    @Param('id') id: string,
+    @AuthenticatedUser() user: JwtPayload,
+  ) {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid widget ID format');
     }
-    return this.widgetsService.findByIdAndAdmin(
-      id,
-      new Types.ObjectId(user.sub),
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
     );
+    return this.widgetsService.findByIdAndAdmin(id, adminId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Put(':id')
-  update(
+  async update(
     @Param('id') id: string,
     @Body() updateWidgetDto: UpdateWidgetDto,
     @AuthenticatedUser() user: JwtPayload,
@@ -317,21 +327,25 @@ export class WidgetsController {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid widget ID format');
     }
-    return this.widgetsService.updateByAdmin(
-      id,
-      updateWidgetDto,
-      new Types.ObjectId(user.sub),
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
     );
+    return this.widgetsService.updateByAdmin(id, updateWidgetDto, adminId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Delete(':id')
-  remove(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
+  async remove(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid widget ID format');
     }
-    return this.widgetsService.removeByAdmin(id, new Types.ObjectId(user.sub));
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
+    );
+    return this.widgetsService.removeByAdmin(id, adminId);
   }
 
   // Public endpoint to get auto messages for a widget

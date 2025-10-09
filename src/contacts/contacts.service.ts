@@ -94,7 +94,7 @@ export class ContactsService {
     if (user.role === UserRole.AGENT) {
       // Agents can only see contacts they created
       query.createdBy = user._id;
-    } else if (user.role === UserRole.ADMIN) {
+    } else if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
       // Admins can see contacts created by themselves and their agents
       const agentProfiles = await this.agentProfileModel
         .find({ adminId: user._id })
@@ -178,7 +178,7 @@ export class ContactsService {
     if (user.role === UserRole.AGENT) {
       // Agents can only see contacts they created
       query.createdBy = user._id;
-    } else if (user.role === UserRole.ADMIN) {
+    } else if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
       // Admins can see contacts created by themselves and their agents
       const agentProfiles = await this.agentProfileModel
         .find({ adminId: user._id })
@@ -217,7 +217,7 @@ export class ContactsService {
     if (user.role === UserRole.AGENT) {
       // Agents can only update contacts they created
       query.createdBy = user._id;
-    } else if (user.role === UserRole.ADMIN) {
+    } else if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
       // Admins can update contacts created by themselves and their agents
       const agentProfiles = await this.agentProfileModel
         .find({ adminId: user._id })
@@ -271,7 +271,7 @@ export class ContactsService {
     if (user.role === UserRole.AGENT) {
       // Agents can only delete contacts they created
       query.createdBy = user._id;
-    } else if (user.role === UserRole.ADMIN) {
+    } else if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
       // Admins can delete contacts created by themselves and their agents
       const agentProfiles = await this.agentProfileModel
         .find({ adminId: user._id })
@@ -302,7 +302,7 @@ export class ContactsService {
     if (user.role === UserRole.AGENT) {
       // Agents can only see contacts they created
       query.createdBy = user._id;
-    } else if (user.role === UserRole.ADMIN) {
+    } else if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) {
       // Admins can see contacts created by themselves and their agents
       const agentProfiles = await this.agentProfileModel
         .find({ adminId: user._id })

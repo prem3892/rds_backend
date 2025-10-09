@@ -36,10 +36,11 @@ export class UsersService {
     const createdUser = new this.userModel(createUserDto);
     const savedUser = await createdUser.save();
 
-    // Create agent profile for both AGENT and ADMIN roles since admin is also an agent with super abilities
+    // Create agent profile for AGENT, ADMIN and MANAGER roles since admin/manager are also agents with super abilities
     if (
       savedUser.role === UserRole.AGENT ||
-      savedUser.role === UserRole.ADMIN
+      savedUser.role === UserRole.ADMIN ||
+      savedUser.role === UserRole.MANAGER
     ) {
       await this.agentsService.createAgentProfile(savedUser._id, adminId);
     }
@@ -146,7 +147,9 @@ export class UsersService {
 
     // Handle AgentProfile creation/deletion if role changes
     const needsAgentProfile = (role: UserRole) =>
-      role === UserRole.AGENT || role === UserRole.ADMIN;
+      role === UserRole.AGENT ||
+      role === UserRole.ADMIN ||
+      role === UserRole.MANAGER;
 
     if (!needsAgentProfile(oldRole) && needsAgentProfile(updatedUser.role)) {
       // User changed from a non-agent role to agent/admin role
@@ -169,8 +172,12 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
-    // Delete agent profile for both AGENT and ADMIN roles
-    if (user.role === UserRole.AGENT || user.role === UserRole.ADMIN) {
+    // Delete agent profile for AGENT, ADMIN, and MANAGER roles
+    if (
+      user.role === UserRole.AGENT ||
+      user.role === UserRole.ADMIN ||
+      user.role === UserRole.MANAGER
+    ) {
       await this.agentsService.deleteAgentProfile(user._id);
     }
     // eslint-disable-next-line @typescript-eslint/no-unused-vars

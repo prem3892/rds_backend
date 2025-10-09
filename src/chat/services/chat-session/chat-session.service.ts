@@ -35,6 +35,7 @@ import { WidgetsService } from 'src/widgets/widgets.service';
 import { DepartmentsService } from 'src/departments/departments.service';
 import { CustomerDocument } from 'src/schemas/customer.schema';
 import { GetChatSessionsQueryDto } from 'src/chat/dto/get-chat-session.dto';
+import { DateFormatterUtil } from 'src/shared/utils/date-formatter.util';
 
 @Injectable()
 export class ChatSessionService {
@@ -792,7 +793,9 @@ export class ChatSessionService {
       if (appointment) {
         sessionObj.appointmentBooked = true;
         sessionObj.appointmentData = {
-          date: appointment.appointmentTime.toISOString(),
+          date: DateFormatterUtil.formatWithoutTimezone(
+            appointment.appointmentTime,
+          ),
           notes: appointment.notes || undefined,
           bookedAt: appointment.createdAt.toISOString(),
         };

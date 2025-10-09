@@ -8,8 +8,14 @@ import { join } from 'path';
  * File upload utility functions
  */
 
-// Allowed image file extensions for profile pictures
-export const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif'];
+// Allowed image file extensions for profile pictures (input formats)
+export const ALLOWED_IMAGE_EXTENSIONS = [
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.gif',
+  '.webp',
+];
 
 // Allowed image file extensions for chat images (more formats supported)
 export const ALLOWED_CHAT_IMAGE_EXTENSIONS = [
@@ -68,6 +74,7 @@ export function validateProfilePictureFile(file: any): void {
     'image/jpg',
     'image/png',
     'image/gif',
+    'image/webp',
   ];
   if (!allowedMimeTypes.includes(file.mimetype)) {
     throw new BadRequestException(

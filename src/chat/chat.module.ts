@@ -40,9 +40,9 @@ import { PublicChatController } from './public-chat.controller';
     forwardRef(() => AuthModule), // For JWT validation in gateway
     forwardRef(() => UsersModule), // UsersModule might need services from ChatModule indirectly
     forwardRef(() => AgentsModule), // AgentsModule might need ChatSessionService
-    CustomersModule,
-    WidgetsModule,
-    DepartmentsModule,
+    forwardRef(() => CustomersModule),
+    forwardRef(() => WidgetsModule),
+    forwardRef(() => DepartmentsModule),
     forwardRef(() => AppointmentsModule), // For sending appointment booked notices
     MailerModule,
     // AppRedisModule is Global, so no need to import here explicitly

@@ -76,6 +76,25 @@ export class User {
   passwordResetExpires: Date;
 
   @Prop()
+  passwordResetOtp: string;
+
+  @Prop()
+  passwordResetOtpExpires: Date;
+
+  @Prop({
+    type: String,
+    enum: ['token', 'otp'],
+    default: 'token',
+  })
+  passwordResetMethod: string;
+
+  @Prop({ default: 0 })
+  passwordResetOtpAttempts: number;
+
+  @Prop()
+  lastPasswordResetOtpRequestTime: Date;
+
+  @Prop()
   refreshToken: string;
 
   @Prop()
