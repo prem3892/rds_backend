@@ -37,6 +37,12 @@ import { CreateCannedMessageDto } from './dto/create-canned-message.dto';
 import { UpdateCannedMessageDto } from './dto/update-canned-message.dto';
 import { GetCannedMessagesDto } from './dto/get-canned-messages.dto';
 import { BulkUploadCannedMessagesResponseDto } from './dto/bulk-upload-canned-messages.dto';
+import { 
+  BulkDeleteCannedMessagesDto, 
+  BulkDeleteCannedMessagesResponseDto 
+} from './dto/bulk-delete-canned-messages.dto';
+import { ExportCannedMessagesDto, ExportCannedMessagesResponseDto } from './dto/export-canned-messages.dto';
+import { ImportCannedMessagesResponseDto, ImportCannedMessagesDto } from './dto/import-canned-messages.dto';
 import { GetAgentsDto } from './dto/get-agents.dto';
 import { GetAgentMetricsDto } from './dto/get-agent-metrics.dto';
 import {
@@ -55,7 +61,7 @@ import { UsersService } from '../users/users.service'; // For password updates
 import { UpdateUserDto } from 'src/users/dto/update-user.dto';
 import { Types } from 'mongoose';
 import { ChatNotificationService } from '../chat/services/chat-notification/chat-notification.service';
-import { createProfilePictureUploadInterceptor, createCsvUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
+import { createProfilePictureUploadInterceptor, createCsvUploadInterceptor, createExcelUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
 import { getProfilePictureUrl } from '../shared/utils/file-upload.utils';
 import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
 import { ImageProcessingService } from '../shared/services/image-processing.service';
@@ -749,6 +755,102 @@ return this.agentsService.createCannedMessage(user.sub, createDto);
   }
 
   /**
+   * Export canned messages to Excel file
+   */
+  @Get('canned-messages/export')
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
+  @ApiOperation({
+    summary: 'Export canned messages to Excel file',
+    description:
+      'Export all canned messages to an Excel file with title and content fields only. Supports filtering by departments, global status, search terms, and tags. Uses batch processing for large datasets.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Canned messages exported successfully',
+    type: ExportCannedMessagesResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'No canned messages found matching criteria',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent, Admin, or Manager role required',
+    type: ForbiddenResponseDto,
+  })
+  async exportCannedMessages(
+    @AuthenticatedUser() user: JwtPayload,
+    @Query() exportDto: ExportCannedMessagesDto,
+  ) {
+    this.logger.log(
+      `User ${user.email} initiated export of canned messages with filters: ${JSON.stringify(exportDto)}`,
+    );
+
+    return this.agentsService.exportCannedMessages(user.sub, exportDto);
+  }
+
+  /**
+   * Import canned messages from Excel file
+   */
+  @Post('canned-messages/import')
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
+  @UseInterceptors(createExcelUploadInterceptor())
+  @ApiOperation({
+    summary: 'Import canned messages from Excel file',
+    description:
+      'Import canned messages from an Excel file. The Excel file should contain Title and Content columns. All imported messages will be set as global with empty departments and tags. Uses batch processing for large datasets. If any entries fail, an Excel file with failed results will be generated.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Excel file containing canned messages',
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Excel file with canned messages (Title, Content columns)',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Bulk import completed successfully',
+    type: ImportCannedMessagesResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid Excel file or format',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent, Admin, or Manager role required',
+    type: ForbiddenResponseDto,
+  })
+  async importCannedMessages(
+    @AuthenticatedUser() user: JwtPayload,
+    @UploadedFile() file: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No Excel file provided');
+    }
+
+    this.logger.log(
+      `User ${user.email} initiated import of canned messages from file: ${file.originalname}`,
+    );
+
+    return this.agentsService.importCannedMessages(user.sub, file.path);
+  }
+
+  /**
    * Get canned messages with pagination and filtering
    */
   @Get('canned-messages')
@@ -844,6 +946,47 @@ return this.agentsService.createCannedMessage(user.sub, createDto);
       user.sub,
       messageId,
       updateDto,
+    );
+  }
+
+  /**
+   * Bulk delete canned messages
+   */
+  @Delete('canned-messages/bulk')
+  @Roles(UserRole.AGENT, UserRole.ADMIN, UserRole.MANAGER)
+  @ApiOperation({
+    summary: 'Bulk delete canned messages',
+    description:
+      'Delete multiple canned messages at once. Returns detailed results including success/failure counts and error messages.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Bulk delete operation completed',
+    type: BulkDeleteCannedMessagesResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid input data or message ID format',
+    type: ErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Agent, Admin, or Manager role required',
+    type: ForbiddenResponseDto,
+  })
+  async bulkDeleteCannedMessages(
+    @AuthenticatedUser() user: JwtPayload,
+    @Body() bulkDeleteDto: BulkDeleteCannedMessagesDto,
+  ) {
+    this.logger.log(
+      `User ${user.email} initiated bulk delete of ${bulkDeleteDto.messageIds.length} canned messages`,
+    );
+
+    return this.agentsService.bulkDeleteCannedMessages(
+      user.sub,
+      bulkDeleteDto.messageIds,
     );
   }
 
