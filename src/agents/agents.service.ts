@@ -43,6 +43,14 @@ import { ChatSessionService } from 'src/chat/services/chat-session/chat-session.
 import { WidgetsService } from 'src/widgets/widgets.service';
 import { CustomersService } from 'src/customers/customers.service';
 import { ShiftService } from '../shared/services/shift.service';
+const { parse } = require('csv-parse/sync');
+import { readFileSync, unlinkSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import * as XLSX from 'xlsx';
+import { BulkUploadCannedMessagesResponseDto } from './dto/bulk-upload-canned-messages.dto';
+import { ExportCannedMessagesDto, ExportCannedMessagesResponseDto } from './dto/export-canned-messages.dto';
+import { ImportCannedMessagesResponseDto } from './dto/import-canned-messages.dto';
+import { generateFailedResultsCsv, saveFailedResultsCsv, cleanCsvContent } from '../shared/utils/file-upload.utils';
 import { RedisService } from '../shared/redis/redis.service';
 
 @Injectable()
@@ -1144,6 +1152,144 @@ export class AgentsService {
   }
 
   /**
+   * Bulk upload canned messages from CSV file
+   */
+  async bulkUploadCannedMessages(
+    agentUserId: string,
+    filePath: string,
+  ): Promise<BulkUploadCannedMessagesResponseDto> {
+    const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
+    
+    let csvData: any[];
+    try {
+      // Read and parse CSV file
+      const fileContent = readFileSync(filePath, 'utf-8');
+      csvData = parse(fileContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        relax_column_count: true, // Allow flexible column count
+        quote: '"', // Handle quoted fields properly
+        escape: '"', // Handle escaped quotes
+      });
+    } catch (error) {
+      this.logger.error(`Failed to parse CSV file: ${error.message}`);
+      throw new BadRequestException('Invalid CSV file format');
+    }
+
+    if (!csvData || csvData.length === 0) {
+      throw new BadRequestException('CSV file is empty or has no valid data');
+    }
+
+    const result: BulkUploadCannedMessagesResponseDto = {
+      totalProcessed: csvData.length,
+      successCount: 0,
+      failureCount: 0,
+      errors: [],
+      createdMessageIds: [],
+    };
+
+    const failedRowNumbers: number[] = [];
+
+    // Process each row
+    for (let i = 0; i < csvData.length; i++) {
+      const row = csvData[i];
+      const rowNumber = i + 2; // +2 because CSV is 1-indexed and we skip header
+
+      try {
+        // Map CSV fields to canned message fields
+        const title = row.shortCode || row.title;
+        const content = row.message || row.content;
+
+        // Validate required fields
+        if (!title || !content) {
+          result.errors.push(
+            `Row ${rowNumber}: Title (shortCode) and content (message) are required`,
+          );
+          result.failureCount++;
+          failedRowNumbers.push(rowNumber);
+          continue;
+        }
+
+        // Clean up content - remove unwanted newlines and normalize whitespace
+        const cleanedContent = cleanCsvContent(content);
+
+        // Create canned message
+        const cannedMessage = new this.cannedMessageModel({
+          title: title.trim(),
+          content: cleanedContent,
+          agentId: agentProfile.userId,
+          adminId: agentProfile.adminId,
+          isGlobal: true, // Set to true for bulk upload as requested
+          departmentIds: [], // Keep empty as requested
+          tags: [], // Keep empty as requested
+        });
+
+        const savedMessage = await cannedMessage.save();
+        result.createdMessageIds.push((savedMessage._id as Types.ObjectId).toString());
+        result.successCount++;
+
+        this.logger.log(
+          `Bulk upload: Created canned message ${savedMessage._id} from row ${rowNumber}`,
+        );
+      } catch (error) {
+        let errorMessage = `Row ${rowNumber}: `;
+        
+        if (error.code === 11000 && error.keyPattern?.title) {
+          errorMessage += `A canned message with the title "${row.shortCode || row.title}" already exists for this admin.`;
+        } else {
+          errorMessage += error.message || 'Unknown error occurred';
+        }
+        
+        result.errors.push(errorMessage);
+        result.failureCount++;
+        failedRowNumbers.push(rowNumber);
+        
+        this.logger.error(
+          `Bulk upload failed for row ${rowNumber}: ${error.message}`,
+        );
+      }
+    }
+
+    // Generate failed results CSV if there are any failures
+    if (result.failureCount > 0) {
+      try {
+        const failedCsvContent = generateFailedResultsCsv(
+          csvData,
+          failedRowNumbers,
+          result.errors,
+        );
+        
+        result.failedResultsDownloadUrl = saveFailedResultsCsv(
+          failedCsvContent,
+          agentUserId,
+        );
+        
+        this.logger.log(
+          `Generated failed results CSV with ${result.failureCount} failed entries`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to generate failed results CSV: ${error.message}`,
+        );
+      }
+    }
+
+    // Clean up the uploaded file
+    try {
+      unlinkSync(filePath);
+    } catch (error) {
+      this.logger.warn(`Failed to delete uploaded file ${filePath}: ${error.message}`);
+    }
+
+    this.logger.log(
+      `Bulk upload completed: ${result.successCount} successful, ${result.failureCount} failed out of ${result.totalProcessed} total`,
+    );
+
+    return result;
+  }
+
+  /**
    * Get canned messages with pagination and filtering
    */
   async getCannedMessages(
@@ -1431,6 +1577,86 @@ export class AgentsService {
     this.logger.log(
       `Deleted canned message ${messageId} by agent ${agentUserId}`,
     );
+  }
+
+  /**
+   * Bulk delete canned messages
+   */
+  async bulkDeleteCannedMessages(
+    agentUserId: string,
+    messageIds: string[],
+  ): Promise<{
+    totalProcessed: number;
+    successCount: number;
+    failureCount: number;
+    errors: string[];
+    deletedMessageIds: string[];
+    failedMessageIds: string[];
+  }> {
+    const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
+
+    const results = {
+      totalProcessed: messageIds.length,
+      successCount: 0,
+      failureCount: 0,
+      errors: [] as string[],
+      deletedMessageIds: [] as string[],
+      failedMessageIds: [] as string[],
+    };
+
+    // Process each message ID
+    for (const messageId of messageIds) {
+      try {
+        // Validate MongoDB ObjectId format
+        if (!Types.ObjectId.isValid(messageId)) {
+          results.failureCount++;
+          results.errors.push(`Invalid message ID format: ${messageId}`);
+          results.failedMessageIds.push(messageId);
+          continue;
+        }
+
+        const cannedMessage = await this.cannedMessageModel
+          .findById(messageId)
+          .exec();
+
+        if (!cannedMessage) {
+          results.failureCount++;
+          results.errors.push(`Message ID ${messageId} not found`);
+          results.failedMessageIds.push(messageId);
+          continue;
+        }
+
+        // Check if the agent has permission to delete this message
+        // Allow deletion if the message belongs to the same admin
+        if (cannedMessage.adminId.toString() !== agentProfile.adminId.toString()) {
+          results.failureCount++;
+          results.errors.push(`Message ID ${messageId} is not accessible by this agent`);
+          results.failedMessageIds.push(messageId);
+          continue;
+        }
+
+        await this.cannedMessageModel.findByIdAndDelete(messageId).exec();
+        results.successCount++;
+        results.deletedMessageIds.push(messageId);
+        
+        this.logger.log(
+          `Bulk deleted canned message ${messageId} by agent ${agentUserId}`,
+        );
+      } catch (error) {
+        results.failureCount++;
+        results.errors.push(`Failed to delete message ID ${messageId}: ${error.message}`);
+        results.failedMessageIds.push(messageId);
+        this.logger.error(
+          `Failed to bulk delete canned message ${messageId} by agent ${agentUserId}: ${error.message}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `Bulk delete completed by agent ${agentUserId}: ${results.successCount} successful, ${results.failureCount} failed`,
+    );
+
+    return results;
   }
 
   /**
@@ -2009,5 +2235,267 @@ export class AgentsService {
     ];
 
     return pipeline;
+  }
+
+  // ==================== EXPORT/IMPORT CANNED MESSAGES METHODS ====================
+
+  /**
+   * Export canned messages to Excel file
+   */
+  async exportCannedMessages(
+    agentUserId: string,
+    exportDto: ExportCannedMessagesDto,
+  ): Promise<ExportCannedMessagesResponseDto> {
+    const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
+    
+    // Build query based on filters
+    const query: any = {
+      adminId: agentProfile.adminId,
+    };
+
+    // Apply filters
+    if (exportDto.departmentIds) {
+      const departmentIds = exportDto.departmentIds.split(',').map(id => new Types.ObjectId(id.trim()));
+      query.departmentIds = { $in: departmentIds };
+    }
+
+    if (exportDto.isGlobal !== undefined) {
+      query.isGlobal = exportDto.isGlobal;
+    }
+
+    if (exportDto.search) {
+      query.$or = [
+        { title: { $regex: exportDto.search, $options: 'i' } },
+        { content: { $regex: exportDto.search, $options: 'i' } },
+      ];
+    }
+
+    if (exportDto.tags) {
+      const tags = exportDto.tags.split(',').map(tag => tag.trim().toLowerCase());
+      query.tags = { $in: tags };
+    }
+
+    // Get all canned messages matching the query
+    const cannedMessages = await this.cannedMessageModel
+      .find(query)
+      .select('title content')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (cannedMessages.length === 0) {
+      throw new BadRequestException('No canned messages found matching the specified criteria');
+    }
+
+    // Create Excel workbook
+    const workbook = XLSX.utils.book_new();
+    
+    // Prepare data for Excel
+    const excelData = cannedMessages.map((message, index) => ({
+      'Row Number': index + 1,
+      'Title': message.title,
+      'Content': message.content,
+    }));
+
+    // Create worksheet
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    
+    // Set column widths
+    worksheet['!cols'] = [
+      { wch: 12 }, // Row Number
+      { wch: 30 }, // Title
+      { wch: 50 }, // Content
+    ];
+
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Canned Messages');
+
+    // Generate filename with timestamp
+    const timestamp = Date.now();
+    const filename = `canned-messages-export-${timestamp}.xlsx`;
+    const filepath = join(process.cwd(), 'uploads', 'exports', filename);
+
+    // Ensure exports directory exists
+    const fs = require('fs');
+    const exportsDir = join(process.cwd(), 'uploads', 'exports');
+    if (!fs.existsSync(exportsDir)) {
+      fs.mkdirSync(exportsDir, { recursive: true });
+    }
+
+    // Write Excel file
+    XLSX.writeFile(workbook, filepath);
+
+    this.logger.log(
+      `Exported ${cannedMessages.length} canned messages to ${filename} by user ${agentUserId}`,
+    );
+
+    return {
+      downloadUrl: `/uploads/exports/${filename}`,
+      totalExported: cannedMessages.length,
+      exportedAt: new Date().toISOString(),
+      filename,
+    };
+  }
+
+  /**
+   * Import canned messages from Excel file
+   */
+  async importCannedMessages(
+    agentUserId: string,
+    filePath: string,
+  ): Promise<ImportCannedMessagesResponseDto> {
+    const agentProfile = await this.findAgentProfileByUserIdOrFail(agentUserId);
+    
+    let excelData: any[];
+    try {
+      // Read Excel file
+      const workbook = XLSX.readFile(filePath);
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      // Convert to JSON
+      excelData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      
+      // Remove header row and filter out empty rows
+      excelData = excelData.slice(1).filter((row: any) => 
+        row && row.length > 0 && (row[0] || row[1] || row[2])
+      );
+    } catch (error) {
+      this.logger.error(`Failed to parse Excel file: ${error.message}`);
+      throw new BadRequestException('Invalid Excel file format');
+    }
+
+    if (!excelData || excelData.length === 0) {
+      throw new BadRequestException('Excel file is empty or has no valid data');
+    }
+
+    const result: ImportCannedMessagesResponseDto = {
+      totalProcessed: excelData.length,
+      successCount: 0,
+      failureCount: 0,
+      errors: [],
+      createdMessageIds: [],
+      importedAt: new Date().toISOString(),
+    };
+
+    const failedRows: any[] = [];
+
+    // Process each row in batches
+    const batchSize = 50;
+    for (let i = 0; i < excelData.length; i += batchSize) {
+      const batch = excelData.slice(i, i + batchSize);
+      
+      for (let j = 0; j < batch.length; j++) {
+        const row = batch[j];
+        const rowNumber = i + j + 2; // +2 because Excel is 1-indexed and we skip header
+
+        try {
+          // Extract data from row (assuming columns: Row Number, Title, Content)
+          const title = row[1]?.toString()?.trim();
+          const content = row[2]?.toString()?.trim();
+
+          // Validate required fields
+          if (!title || !content) {
+            result.errors.push(
+              `Row ${rowNumber}: Title and content are required`,
+            );
+            result.failureCount++;
+            failedRows.push({ rowNumber, title, content, error: 'Missing required fields' });
+            continue;
+          }
+
+          // Create canned message
+          const cannedMessage = new this.cannedMessageModel({
+            title,
+            content,
+            agentId: agentProfile.userId,
+            adminId: agentProfile.adminId,
+            isGlobal: true, // Set to true for bulk import
+            departmentIds: [], // Keep empty as requested
+            tags: [], // Keep empty as requested
+          });
+
+          const savedMessage = await cannedMessage.save();
+          result.createdMessageIds.push((savedMessage._id as Types.ObjectId).toString());
+          result.successCount++;
+
+          this.logger.log(
+            `Import: Created canned message ${savedMessage._id} from row ${rowNumber}`,
+          );
+        } catch (error) {
+          let errorMessage = `Row ${rowNumber}: `;
+          
+          if (error.code === 11000 && error.keyPattern?.title) {
+            errorMessage += `A canned message with the title "${row[1]}" already exists for this admin.`;
+          } else {
+            errorMessage += error.message || 'Unknown error occurred';
+          }
+          
+          result.errors.push(errorMessage);
+          result.failureCount++;
+          failedRows.push({ 
+            rowNumber, 
+            title: row[1]?.toString()?.trim(), 
+            content: row[2]?.toString()?.trim(), 
+            error: errorMessage 
+          });
+          
+          this.logger.error(
+            `Import failed for row ${rowNumber}: ${error.message}`,
+          );
+        }
+      }
+    }
+
+    // Generate failed results Excel file if there are failures
+    if (failedRows.length > 0) {
+      try {
+        const failedWorkbook = XLSX.utils.book_new();
+        const failedData = failedRows.map(row => ({
+          'Row Number': row.rowNumber,
+          'Title': row.title || '',
+          'Content': row.content || '',
+          'Error': row.error,
+        }));
+
+        const failedWorksheet = XLSX.utils.json_to_sheet(failedData);
+        failedWorksheet['!cols'] = [
+          { wch: 12 }, // Row Number
+          { wch: 30 }, // Title
+          { wch: 50 }, // Content
+          { wch: 60 }, // Error
+        ];
+
+        XLSX.utils.book_append_sheet(failedWorkbook, failedWorksheet, 'Failed Results');
+
+        const timestamp = Date.now();
+        const failedFilename = `failed-canned-messages-${timestamp}.xlsx`;
+        const failedFilepath = join(process.cwd(), 'uploads', 'failed-results', failedFilename);
+
+        // Ensure failed-results directory exists
+        const fs = require('fs');
+        const failedResultsDir = join(process.cwd(), 'uploads', 'failed-results');
+        if (!fs.existsSync(failedResultsDir)) {
+          fs.mkdirSync(failedResultsDir, { recursive: true });
+        }
+
+        XLSX.writeFile(failedWorkbook, failedFilepath);
+        result.failedResultsDownloadUrl = `/uploads/failed-results/${failedFilename}`;
+      } catch (error) {
+        this.logger.error(`Failed to generate failed results file: ${error.message}`);
+      }
+    }
+
+    // Clean up uploaded file
+    try {
+      unlinkSync(filePath);
+    } catch (error) {
+      this.logger.warn(`Failed to delete uploaded file ${filePath}: ${error.message}`);
+    }
+
+    this.logger.log(
+      `Import completed: ${result.successCount} successful, ${result.failureCount} failed out of ${result.totalProcessed} total`,
+    );
+
+    return result;
   }
 }
