@@ -2487,6 +2487,100 @@ export function generateWidgetScript(
       // Initialize the widget
       window.ChatWidget = new ChatWidget();
     
+      // Public API for 3rd party sites
+      window.ChatWidgetAPI = {
+        /**
+         * Toggle chat window (open if closed, close if open)
+         */
+        toggle: function() {
+          if (!window.ChatWidget) {
+            console.warn('ChatWidget not initialized yet');
+            return;
+          }
+          try {
+            window.ChatWidget.toggleChat();
+          } catch (error) {
+            console.error('Error toggling chat:', error);
+          }
+        },
+        
+        /**
+         * Open the chat window
+         */
+        open: function() {
+          if (!window.ChatWidget) {
+            console.warn('ChatWidget not initialized yet');
+            return;
+          }
+          try {
+            if (window.ChatWidget.isMinimized) {
+              window.ChatWidget.toggleChat();
+            }
+          } catch (error) {
+            console.error('Error opening chat:', error);
+          }
+        },
+        
+        /**
+         * Close the chat window
+         */
+        close: function() {
+          if (!window.ChatWidget) {
+            console.warn('ChatWidget not initialized yet');
+            return;
+          }
+          try {
+            if (!window.ChatWidget.isMinimized) {
+              window.ChatWidget.toggleChat();
+            }
+          } catch (error) {
+            console.error('Error closing chat:', error);
+          }
+        },
+        
+        /**
+         * Check if chat window is currently open
+         * @returns {boolean} true if chat is open, false if closed
+         */
+        isOpen: function() {
+          if (!window.ChatWidget) {
+            console.warn('ChatWidget not initialized yet');
+            return false;
+          }
+          try {
+            return !window.ChatWidget.isMinimized;
+          } catch (error) {
+            console.error('Error checking chat state:', error);
+            return false;
+          }
+        },
+        
+        /**
+         * Get the current widget version and status
+         * @returns {object} Widget information
+         */
+        getInfo: function() {
+          if (!window.ChatWidget) {
+            return { initialized: false };
+          }
+          try {
+            return {
+              initialized: true,
+              isOpen: !window.ChatWidget.isMinimized,
+              isConnected: window.ChatWidget.isConnected,
+              hasActiveSession: !!window.ChatWidget.currentChatSession,
+              widgetId: WIDGET_ID
+            };
+          } catch (error) {
+            console.error('Error getting widget info:', error);
+            return { initialized: true, error: error.message };
+          }
+        }
+      };
+      
+      // Log API availability for developers
+      console.log('ChatWidgetAPI initialized. Available methods: toggle(), open(), close(), isOpen(), getInfo()');
+    
     })();
     `;
   return widgetScript;
