@@ -167,10 +167,11 @@ export class JobsService {
         `Agent ${agentId} has been inactive for more than ${this.agentInactivityThresholdMs / 60000} minutes in session ${sessionId}`,
       );
 
-      // Mark the agent as inactive and update the session status
+      // Mark the agent as inactive and update the session status with 'inactivity' reason
       const updatedSession = await this.chatSessionService.markAgentInactive(
         sessionId,
         agentId,
+        'inactivity',
       );
 
       // Notify the customer that the agent is no longer available

@@ -8,6 +8,7 @@ export interface AgentHistory {
   joinedAt: Date;
   leftAt?: Date;
   isActive: boolean;
+  leftReason?: string; // 'inactivity' when agent is marked inactive due to inactivity
 }
 
 export type ChatSessionDocument = ChatSession & Document;
@@ -31,6 +32,7 @@ export class ChatSession {
       joinedAt: { type: Date, required: true },
       leftAt: { type: Date, required: false },
       isActive: { type: Boolean, default: true },
+      leftReason: { type: String, required: false },
     },
   ])
   agentHistory: AgentHistory[]; // History of all agents who handled this chat
