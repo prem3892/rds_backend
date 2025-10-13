@@ -591,17 +591,32 @@ export class ChatSessionService {
    * Marks an agent as inactive in a chat session and updates the session status
    * @param sessionId The chat session ID
    * @param agentId The agent ID to mark as inactive
+   * @param leftReason Optional reason why the agent left (e.g., 'inactivity')
    * @returns The updated chat session
    */
   async markAgentInactive(
     sessionId: string | Types.ObjectId,
     agentId: string | Types.ObjectId,
+    leftReason?: string,
   ): Promise<ChatSessionDocument> {
     const now = new Date();
     const agentObjectId =
       typeof agentId === 'string' ? new Types.ObjectId(agentId) : agentId;
     const sessionObjectId =
       typeof sessionId === 'string' ? new Types.ObjectId(sessionId) : sessionId;
+
+    // Prepare the update object
+    const updateFields: any = {
+      status: ChatSessionStatus.PENDING_ASSIGNMENT,
+      agentId: null,
+      'agentHistory.$[elem].isActive': false,
+      'agentHistory.$[elem].leftAt': now,
+    };
+
+    // Add leftReason if provided
+    if (leftReason) {
+      updateFields['agentHistory.$[elem].leftReason'] = leftReason;
+    }
 
     // Update the agent history to mark the agent as inactive
     const updatedSession = await this.chatSessionModel
@@ -614,12 +629,7 @@ export class ChatSessionService {
           'agentHistory.isActive': true,
         },
         {
-          $set: {
-            status: ChatSessionStatus.PENDING_ASSIGNMENT,
-            agentId: null,
-            'agentHistory.$[elem].isActive': false,
-            'agentHistory.$[elem].leftAt': now,
-          },
+          $set: updateFields,
         },
         {
           arrayFilters: [
@@ -640,7 +650,7 @@ export class ChatSessionService {
     }
 
     this.logger.log(
-      `Agent ${agentId} marked as inactive in chat session ${sessionId}. Session status updated to PENDING_ASSIGNMENT.`,
+      `Agent ${agentId} marked as inactive in chat session ${sessionId}. Session status updated to PENDING_ASSIGNMENT.${leftReason ? ` Reason: ${leftReason}` : ''}`,
     );
     return updatedSession;
   }

@@ -37,12 +37,18 @@ import { CreateCannedMessageDto } from './dto/create-canned-message.dto';
 import { UpdateCannedMessageDto } from './dto/update-canned-message.dto';
 import { GetCannedMessagesDto } from './dto/get-canned-messages.dto';
 import { BulkUploadCannedMessagesResponseDto } from './dto/bulk-upload-canned-messages.dto';
-import { 
-  BulkDeleteCannedMessagesDto, 
-  BulkDeleteCannedMessagesResponseDto 
+import {
+  BulkDeleteCannedMessagesDto,
+  BulkDeleteCannedMessagesResponseDto,
 } from './dto/bulk-delete-canned-messages.dto';
-import { ExportCannedMessagesDto, ExportCannedMessagesResponseDto } from './dto/export-canned-messages.dto';
-import { ImportCannedMessagesResponseDto, ImportCannedMessagesDto } from './dto/import-canned-messages.dto';
+import {
+  ExportCannedMessagesDto,
+  ExportCannedMessagesResponseDto,
+} from './dto/export-canned-messages.dto';
+import {
+  ImportCannedMessagesResponseDto,
+  ImportCannedMessagesDto,
+} from './dto/import-canned-messages.dto';
 import { GetAgentsDto } from './dto/get-agents.dto';
 import { GetAgentMetricsDto } from './dto/get-agent-metrics.dto';
 import {
@@ -61,7 +67,11 @@ import { UsersService } from '../users/users.service'; // For password updates
 import { UpdateUserDto } from 'src/users/dto/update-user.dto';
 import { Types } from 'mongoose';
 import { ChatNotificationService } from '../chat/services/chat-notification/chat-notification.service';
-import { createProfilePictureUploadInterceptor, createCsvUploadInterceptor, createExcelUploadInterceptor } from '../shared/interceptors/file-upload.interceptor';
+import {
+  createProfilePictureUploadInterceptor,
+  createCsvUploadInterceptor,
+  createExcelUploadInterceptor,
+} from '../shared/interceptors/file-upload.interceptor';
 import { getProfilePictureUrl } from '../shared/utils/file-upload.utils';
 import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
 import { ImageProcessingService } from '../shared/services/image-processing.service';
@@ -690,7 +700,7 @@ export class AgentsController {
     @AuthenticatedUser() user: JwtPayload,
     @Body() createDto: CreateCannedMessageDto,
   ) {
-return this.agentsService.createCannedMessage(user.sub, createDto);
+    return this.agentsService.createCannedMessage(user.sub, createDto);
   }
 
   /**
@@ -713,7 +723,8 @@ return this.agentsService.createCannedMessage(user.sub, createDto);
         file: {
           type: 'string',
           format: 'binary',
-          description: 'CSV file with canned messages (shortCode, message columns)',
+          description:
+            'CSV file with canned messages (shortCode, message columns)',
         },
       },
       required: ['file'],
@@ -748,10 +759,7 @@ return this.agentsService.createCannedMessage(user.sub, createDto);
       `User ${user.email} initiated bulk upload of canned messages from file: ${file.originalname}`,
     );
 
-    return this.agentsService.bulkUploadCannedMessages(
-      user.sub,
-      file.path,
-    );
+    return this.agentsService.bulkUploadCannedMessages(user.sub, file.path);
   }
 
   /**
@@ -812,7 +820,8 @@ return this.agentsService.createCannedMessage(user.sub, createDto);
         file: {
           type: 'string',
           format: 'binary',
-          description: 'Excel file with canned messages (Title, Content columns)',
+          description:
+            'Excel file with canned messages (Title, Content columns)',
         },
       },
       required: ['file'],
@@ -1236,7 +1245,7 @@ return this.agentsService.createCannedMessage(user.sub, createDto);
   @ApiOperation({
     summary: 'Get agent metrics by domain (Admin only)',
     description:
-      'Retrieve agent performance metrics broken down by domain with time-based filtering. Includes accepted chats, responded chats, average response time, and proactive chats. Only accessible by administrators.',
+      'Retrieve agent performance metrics broken down by domain with time-based filtering. Includes accepted chats, responded chats, average response time, proactive chats, total bookings, and missed chats (due to agent inactivity). Only accessible by administrators.',
   })
   @ApiParam({
     name: 'agentId',
@@ -1281,6 +1290,7 @@ return this.agentsService.createCannedMessage(user.sub, createDto);
       'avgResponseTime',
       'proactiveChats',
       'totalBookings',
+      'missedChats',
     ],
   })
   @ApiQuery({
