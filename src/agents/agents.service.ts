@@ -1986,6 +1986,36 @@ export class AgentsService {
               ],
             },
           },
+          proactiveChats: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$initiatedBy', 'AGENT'] },
+                    {
+                      $or: [
+                        { $eq: ['$agentId', agentObjectId] },
+                        {
+                          $in: [
+                            agentObjectId,
+                            {
+                              $map: {
+                                input: '$agentHistory',
+                                as: 'agent',
+                                in: '$$agent.agentId',
+                              },
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
           totalSessions: { $sum: 1 },
           sessionIds: { $push: '$_id' },
         },
@@ -2044,43 +2074,6 @@ export class AgentsService {
             },
           ],
           as: 'customerMessages',
-        },
-      },
-
-      // Lookup sessions to check for proactive chats
-      {
-        $lookup: {
-          from: 'chatmessages',
-          let: { sessionIds: '$sessionIds', agentId: agentObjectId },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $in: ['$chatSessionId', '$$sessionIds'],
-                },
-              },
-            },
-            {
-              $sort: { timestamp: 1 },
-            },
-            {
-              $group: {
-                _id: '$chatSessionId',
-                firstMessage: { $first: '$$ROOT' },
-              },
-            },
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ['$firstMessage.senderId', agentObjectId] },
-                    { $eq: ['$firstMessage.senderType', 'AGENT'] },
-                  ],
-                },
-              },
-            },
-          ],
-          as: 'proactiveSessions',
         },
       },
 
@@ -2151,7 +2144,7 @@ export class AgentsService {
           domain: '$_id',
           acceptedChats: 1,
           respondedChats: { $size: '$agentMessages' },
-          proactiveChats: { $size: '$proactiveSessions' },
+          proactiveChats: 1,
           totalBookings: { $size: '$appointments' },
           missedChats: { $size: '$missedSessions' },
           avgResponseTimeMs: {

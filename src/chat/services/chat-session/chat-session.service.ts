@@ -246,6 +246,7 @@ export class ChatSessionService {
       domain: domain,
       status: ChatSessionStatus.PENDING_ASSIGNMENT,
       initiatedAt: new Date(),
+      initiatedBy: ChatMessageSenderType.CUSTOMER,
       lastMessageAt: new Date(), // For the initial message
       customerLastSeen: new Date(),
     });
@@ -311,6 +312,7 @@ export class ChatSessionService {
       status: ChatSessionStatus.ACTIVE, // Agent-initiated sessions start as ACTIVE
       domain,
       initiatedAt: now,
+      initiatedBy: ChatMessageSenderType.AGENT,
       acceptedAt: now, // Agent immediately accepts their own initiated chat
       agentLastSeen: now,
       agentHistory: [

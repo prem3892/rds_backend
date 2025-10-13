@@ -1,6 +1,9 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { ChatSessionStatus } from 'src/shared/constants/enums';
+import {
+  ChatSessionStatus,
+  ChatMessageSenderType,
+} from 'src/shared/constants/enums';
 import { CustomerDocument } from './customer.schema';
 
 export interface AgentHistory {
@@ -50,6 +53,13 @@ export class ChatSession {
 
   @Prop({ default: Date.now })
   initiatedAt: Date;
+
+  @Prop({
+    type: String,
+    enum: [ChatMessageSenderType.AGENT, ChatMessageSenderType.CUSTOMER],
+    required: true,
+  })
+  initiatedBy: ChatMessageSenderType.AGENT | ChatMessageSenderType.CUSTOMER;
 
   @Prop({ default: null })
   acceptedAt?: Date;
