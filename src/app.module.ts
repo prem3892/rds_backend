@@ -16,6 +16,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import configuration from './config/configuration';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { JobsModule } from './jobs/jobs.module';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 
 @Module({
   imports: [
@@ -32,6 +34,10 @@ import { JobsModule } from './jobs/jobs.module';
         uri: configService.get<string>('database.uri'),
       }),
       inject: [ConfigService],
+    }),
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'public'), // path to 'public' folder
+      serveRoot: '/public', // accessible at /public/*
     }),
     AppRedisModule, // Import global AppRedisModule early, after its dependency ConfigModule
     MailerModule, // Import global MailerModule early, after its dependency ConfigModule

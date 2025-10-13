@@ -289,6 +289,7 @@ export function generateWidgetScript(
           this.autoMessageShown = false; // Track if auto-message has been displayed
           this.initialDataReceived = false; // Track if initial agent availability data has been received
           this.autoMessagePending = false; // Track if auto-message is scheduled but not yet shown
+          this.messageSound = null; // Audio instance for agent message notifications
           
           this.init();
         }
@@ -312,6 +313,25 @@ export function generateWidgetScript(
           const response = await fetch(\`\${API_BASE}/widgets/\${WIDGET_ID}/public-config\`);
           if (!response.ok) throw new Error('Failed to load widget config');
           this.config = await response.json();
+        }
+    
+        // Initialize and play message notification sound
+        playMessageSound() {
+          try {
+            // Lazy load the audio on first use
+            if (!this.messageSound) {
+              this.messageSound = new Audio(\`\${API_BASE}/public/audio/chatsound.mp3\`);
+              this.messageSound.volume = 0.5; // Set volume to 50%
+            }
+            
+            // Reset to beginning and play
+            this.messageSound.currentTime = 0;
+            this.messageSound.play().catch(err => {
+              console.log('Audio playback failed:', err);
+            });
+          } catch (error) {
+            console.log('Error playing audio:', error);
+          }
         }
     
         // Helper method to check if chat button should be disabled
@@ -1985,6 +2005,11 @@ export function generateWidgetScript(
           // Start observing this message for read tracking if it has an ID and is from agent
           if (message._id && !isCustomer && this.messageReadObserver) {
             this.messageReadObserver.observe(messageDiv);
+          }
+          
+          // Play sound for agent messages (not customer, not system, not pending)
+          if (isAgent && !isPending) {
+            this.playMessageSound();
           }
           
           // Use the utility function to scroll to bottom
