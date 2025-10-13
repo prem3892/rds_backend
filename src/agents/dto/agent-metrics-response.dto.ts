@@ -37,6 +37,12 @@ export class AgentMetricItemDto {
     example: 12,
   })
   totalBookings: number;
+
+  @ApiProperty({
+    description: 'Number of chats missed due to agent inactivity',
+    example: 5,
+  })
+  missedChats: number;
 }
 
 export class AgentMetricsResponseDto extends PaginatedResponseDto<AgentMetricItemDto> {
