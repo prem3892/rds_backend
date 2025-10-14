@@ -92,7 +92,7 @@ export class ChatController {
   @ApiOperation({
     summary: 'Get chat sessions',
     description:
-      'Retrieve a paginated list of chat sessions with filtering options including appointment status. Admins and managers can only see sessions assigned to their managed agents, agents can only see their own assigned sessions.',
+      'Retrieve a paginated list of chat sessions with filtering options including appointment status and date range. Admins and managers can only see sessions assigned to their managed agents, agents can only see their own assigned sessions. Date filtering is based on the session initiation date (initiatedAt field).',
   })
   @ApiResponse({
     status: 200,
@@ -106,6 +106,20 @@ export class ChatController {
   @ApiForbiddenResponse({
     description: 'Admin, Manager, or Agent role required',
     type: ForbiddenResponseDto,
+  })
+  @ApiQuery({
+    name: 'startDate',
+    required: false,
+    type: String,
+    description: 'Filter sessions initiated from this date (ISO 8601 format)',
+    example: '2024-01-01T00:00:00.000Z',
+  })
+  @ApiQuery({
+    name: 'endDate',
+    required: false,
+    type: String,
+    description: 'Filter sessions initiated until this date (ISO 8601 format)',
+    example: '2024-12-31T23:59:59.999Z',
   })
   async getAllChatSessions(
     @Query(new ValidationPipe({ transform: true }))

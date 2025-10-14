@@ -840,6 +840,8 @@ export class ChatSessionService {
       customerName,
       customerEmail,
       hasScheduledAppointment,
+      startDate,
+      endDate,
     } = queryDto;
     const skip = (page - 1) * limit;
 
@@ -854,6 +856,17 @@ export class ChatSessionService {
       if (!Types.ObjectId.isValid(departmentId))
         throw new BadRequestException('Invalid department ID format');
       query.departmentId = new Types.ObjectId(departmentId);
+    }
+
+    // Date range filtering on initiatedAt field
+    if (startDate || endDate) {
+      query.initiatedAt = {};
+      if (startDate) {
+        query.initiatedAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.initiatedAt.$lte = new Date(endDate);
+      }
     }
 
     let customerIds: Types.ObjectId[] | undefined = undefined;
@@ -986,6 +999,8 @@ export class ChatSessionService {
       customerName,
       customerEmail,
       hasScheduledAppointment,
+      startDate,
+      endDate,
     } = queryDto;
     const skip = (page - 1) * limit;
 
@@ -1011,6 +1026,17 @@ export class ChatSessionService {
       if (!Types.ObjectId.isValid(departmentId))
         throw new BadRequestException('Invalid department ID format');
       query.departmentId = new Types.ObjectId(departmentId);
+    }
+
+    // Date range filtering on initiatedAt field
+    if (startDate || endDate) {
+      query.initiatedAt = {};
+      if (startDate) {
+        query.initiatedAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.initiatedAt.$lte = new Date(endDate);
+      }
     }
 
     let customerIds: Types.ObjectId[] | undefined = undefined;

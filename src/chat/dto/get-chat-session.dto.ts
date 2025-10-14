@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   IsBoolean,
+  IsDateString,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
@@ -92,4 +93,22 @@ export class GetChatSessionsQueryDto {
   })
   @IsBoolean()
   hasScheduledAppointment?: boolean;
+
+  @ApiProperty({
+    description: 'Filter sessions initiated from this date (ISO 8601 format)',
+    example: '2024-01-01T00:00:00.000Z',
+    required: false,
+  })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiProperty({
+    description: 'Filter sessions initiated until this date (ISO 8601 format)',
+    example: '2024-12-31T23:59:59.999Z',
+    required: false,
+  })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 }
