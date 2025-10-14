@@ -1965,8 +1965,8 @@ export class AgentsService {
             $sum: {
               $cond: [
                 {
-                  $or: [
-                    { $eq: ['$agentId', agentObjectId] },
+                  $and: [
+                    { $eq: ['$initiatedBy', 'CUSTOMER'] },
                     {
                       $in: [
                         agentObjectId,
@@ -2018,6 +2018,12 @@ export class AgentsService {
           },
           totalSessions: { $sum: 1 },
           sessionIds: { $push: '$_id' },
+          sessionDetails: {
+            $push: {
+              sessionId: '$_id',
+              initiatedBy: '$initiatedBy',
+            },
+          },
         },
       },
 
@@ -2143,7 +2149,39 @@ export class AgentsService {
         $project: {
           domain: '$_id',
           acceptedChats: 1,
-          respondedChats: { $size: '$agentMessages' },
+          respondedChats: {
+            $size: {
+              $filter: {
+                input: '$agentMessages',
+                as: 'agentMsg',
+                cond: {
+                  $let: {
+                    vars: {
+                      sessionDetail: {
+                        $arrayElemAt: [
+                          {
+                            $filter: {
+                              input: '$sessionDetails',
+                              cond: {
+                                $eq: ['$$this.sessionId', '$$agentMsg._id'],
+                              },
+                            },
+                          },
+                          0,
+                        ],
+                      },
+                    },
+                    in: {
+                      $and: [
+                        { $ne: ['$$sessionDetail', null] },
+                        { $eq: ['$$sessionDetail.initiatedBy', 'CUSTOMER'] },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
           proactiveChats: 1,
           totalBookings: { $size: '$appointments' },
           missedChats: { $size: '$missedSessions' },
