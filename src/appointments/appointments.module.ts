@@ -6,6 +6,7 @@ import { AppointmentsController } from './appointments.controller';
 import { UsersModule } from 'src/users/users.module';
 import { CustomersModule } from 'src/customers/customers.module';
 import { ChatModule } from 'src/chat/chat.module';
+import { AgentsModule } from 'src/agents/agents.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { ChatModule } from 'src/chat/chat.module';
     forwardRef(() => UsersModule),
     CustomersModule,
     forwardRef(() => ChatModule), // Using forwardRef to avoid circular dependency
+    forwardRef(() => AgentsModule), // Using forwardRef to avoid circular dependency
   ],
   providers: [AppointmentsService],
   controllers: [AppointmentsController],

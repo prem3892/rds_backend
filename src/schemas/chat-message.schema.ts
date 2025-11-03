@@ -19,7 +19,11 @@ export class ChatMessage {
   })
   chatSessionId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, required: true, index: true }) // Refers to User._id or Customer._id
+  @Prop({
+    type: Types.ObjectId,
+    required: true,
+    index: true,
+  }) // Refers to User._id or Customer._id
   senderId: Types.ObjectId;
 
   @Prop({ type: String, enum: ChatMessageSenderType, required: true })
@@ -39,6 +43,22 @@ export class ChatMessage {
 
   @Prop({ default: false })
   readByCustomer: boolean;
+
+  // Virtual field
+  agentInfo?: {
+    fullName?: string;
+    profilePicture?: string;
+  };
 }
 
 export const ChatMessageSchema = SchemaFactory.createForClass(ChatMessage);
+
+// Virtual field for agent information - populated manually in service
+ChatMessageSchema.virtual('agentInfo');
+
+// Compound index for efficient unread count queries (customer messages only)
+ChatMessageSchema.index({ chatSessionId: 1, senderType: 1, readByAgent: 1 });
+
+// Ensure virtual fields are included in JSON output
+ChatMessageSchema.set('toJSON', { virtuals: true });
+ChatMessageSchema.set('toObject', { virtuals: true });

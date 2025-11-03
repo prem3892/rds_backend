@@ -1,5 +1,6 @@
 export enum UserRole {
   ADMIN = 'ADMIN',
+  MANAGER = 'MANAGER',
   AGENT = 'AGENT',
 }
 
@@ -27,6 +28,7 @@ export enum ChatMessageType {
   IMAGE = 'IMAGE',
   FILE = 'FILE',
   APPOINTMENT_BOOKED_NOTICE = 'APPOINTMENT_BOOKED_NOTICE',
+  CUSTOMER_INFO_REQUESTED_NOTICE = 'CUSTOMER_INFO_REQUESTED_NOTICE',
   CHAT_ENDED_NOTICE = 'CHAT_ENDED_NOTICE',
 }
 
@@ -40,6 +42,30 @@ export const REDIS_SOCKET_AGENT_PREFIX = 'socket:agent:';
 export const REDIS_SOCKET_CUSTOMER_PREFIX = 'socket:customer:';
 export const REDIS_AGENT_SOCKET_ID_PREFIX = 'agent:socket:';
 export const REDIS_CUSTOMER_SOCKET_ID_PREFIX = 'customer:socket:';
+export const REDIS_AGENT_SOCKETS_PREFIX = 'agent:sockets:'; // New: for multi-socket support
+export const REDIS_CUSTOMER_SOCKETS_PREFIX = 'customer:sockets:'; // New: for customer multi-socket support
 export const REDIS_AGENT_RECONNECT_PENDING_PREFIX = 'agent_reconnect_pending:';
 export const REDIS_CUSTOMER_RECONNECT_PENDING_PREFIX =
   'customer_reconnect_pending:';
+
+// Visitor Tracking Constants
+export const REDIS_VISITOR_STATE_PREFIX = 'visitor_state:';
+export const REDIS_VISITOR_ACTIVITY_PREFIX = 'visitor_activity:';
+
+export enum VisitorStatus {
+  CONNECTED = 'connected',
+  DISCONNECTED = 'disconnected',
+}
+
+export enum VisitorEventType {
+  CONNECT = 'visitor_connected',
+  DISCONNECT = 'visitor_disconnected',
+  RECONNECT = 'visitor_reconnected',
+  UPDATE = 'visitor_updated',
+}
+
+export enum VisitorChangeType {
+  CONNECT = 'connect',
+  DISCONNECT = 'disconnect',
+  UPDATE = 'update',
+}

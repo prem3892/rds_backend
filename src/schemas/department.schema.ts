@@ -8,7 +8,7 @@ export type DepartmentDocument = Department & Document;
 export class Department {
   _id: Types.ObjectId;
 
-  @Prop({ required: true, unique: true, index: true, trim: true })
+  @Prop({ required: true, index: true, trim: true })
   name: string;
 
   @Prop({ trim: true })
@@ -25,3 +25,6 @@ export class Department {
 }
 
 export const DepartmentSchema = SchemaFactory.createForClass(Department);
+
+// Create compound unique index: department name should be unique per admin
+DepartmentSchema.index({ name: 1, createdBy: 1 }, { unique: true });

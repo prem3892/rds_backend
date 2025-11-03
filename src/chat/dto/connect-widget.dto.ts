@@ -20,8 +20,9 @@ export class ConnectWidgetDto {
   @IsMongoId()
   customerId?: string;
 
+  @IsOptional()
   @IsString()
-  fingerprint: string;
+  fingerprint?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -30,5 +31,17 @@ export class ConnectWidgetDto {
 
   @IsObject()
   @IsNotEmpty()
-  browserInfo: object;
+  browserInfo: {
+    userAgent?: string;
+    language?: string;
+    platform?: string;
+    screenResolution?: string;
+    timezone?: string;
+    cookieEnabled?: boolean;
+    doNotTrack?: string;
+    plugins?: string[];
+    canvas?: string;
+    webgl?: string;
+    [key: string]: any;
+  };
 }

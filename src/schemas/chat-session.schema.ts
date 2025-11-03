@@ -1,6 +1,18 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { ChatSessionStatus } from 'src/shared/constants/enums';
+import {
+  ChatSessionStatus,
+  ChatMessageSenderType,
+} from 'src/shared/constants/enums';
+import { CustomerDocument } from './customer.schema';
+
+export interface AgentHistory {
+  agentId: Types.ObjectId;
+  joinedAt: Date;
+  leftAt?: Date;
+  isActive: boolean;
+  leftReason?: string; // 'inactivity' when agent is marked inactive due to inactivity
+}
 
 export type ChatSessionDocument = ChatSession & Document;
 
@@ -12,10 +24,21 @@ export class ChatSession {
   widgetId: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'Customer', required: true, index: true })
-  customerId: Types.ObjectId;
+  customerId: Types.ObjectId | CustomerDocument;
 
   @Prop({ type: Types.ObjectId, ref: 'User', index: true, default: null })
-  agentId?: Types.ObjectId; // Agent User ID
+  agentId?: Types.ObjectId; // Current Agent User ID
+
+  @Prop([
+    {
+      agentId: { type: Types.ObjectId, ref: 'User', required: true },
+      joinedAt: { type: Date, required: true },
+      leftAt: { type: Date, required: false },
+      isActive: { type: Boolean, default: true },
+      leftReason: { type: String, required: false },
+    },
+  ])
+  agentHistory: AgentHistory[]; // History of all agents who handled this chat
 
   @Prop({ type: Types.ObjectId, ref: 'Department', required: true })
   departmentId: Types.ObjectId;
@@ -30,6 +53,13 @@ export class ChatSession {
 
   @Prop({ default: Date.now })
   initiatedAt: Date;
+
+  @Prop({
+    type: String,
+    enum: [ChatMessageSenderType.AGENT, ChatMessageSenderType.CUSTOMER],
+    required: true,
+  })
+  initiatedBy: ChatMessageSenderType.AGENT | ChatMessageSenderType.CUSTOMER;
 
   @Prop({ default: null })
   acceptedAt?: Date;
@@ -46,8 +76,8 @@ export class ChatSession {
   @Prop()
   agentLastSeen?: Date;
 
-  @Prop({ required: true, trim: true })
-  initialMessage: string;
+  @Prop({ trim: true })
+  initialMessage?: string;
 
   @Prop({ required: true })
   domain: string;
@@ -57,6 +87,16 @@ export class ChatSession {
 
   @Prop()
   lastPriorityNotificationSentAt?: Date;
+
+  // Virtual field for unread messages count
+  unreadCount?: number;
 }
 
 export const ChatSessionSchema = SchemaFactory.createForClass(ChatSession);
+
+// Virtual field for unread messages count - populated manually in service
+ChatSessionSchema.virtual('unreadCount');
+
+// Ensure virtual fields are included in JSON output
+ChatSessionSchema.set('toJSON', { virtuals: true });
+ChatSessionSchema.set('toObject', { virtuals: true });

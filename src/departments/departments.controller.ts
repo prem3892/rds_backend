@@ -8,6 +8,17 @@ import {
   Put,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiBadRequestResponse,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+} from '@nestjs/swagger';
 import { DepartmentsService } from './departments.service';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
@@ -19,44 +30,101 @@ import { UserRole } from '../shared/constants/enums';
 import { Types } from 'mongoose';
 import { AuthenticatedUser } from 'src/shared/decorators/user.decorator';
 import { JwtPayload } from 'src/shared/interfaces/jwt-payload.interface';
+import { AdminResolverUtil } from '../shared/utils/admin-resolver.util';
+import { AgentsService } from '../agents/agents.service';
+import {
+  ErrorResponseDto,
+  UnauthorizedResponseDto,
+  ForbiddenResponseDto,
+  NotFoundResponseDto,
+  SuccessMessageResponseDto,
+} from '../shared/dto/common-responses.dto';
 
+@ApiTags('Departments')
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN)
+@Roles(UserRole.ADMIN, UserRole.MANAGER)
 @Controller('departments')
 export class DepartmentsController {
-  constructor(private readonly departmentsService: DepartmentsService) {}
+  constructor(
+    private readonly departmentsService: DepartmentsService,
+    private readonly agentsService: AgentsService,
+  ) {}
 
   @Post()
-  create(
+  async create(
     @Body() createDepartmentDto: CreateDepartmentDto,
     @AuthenticatedUser() user: JwtPayload,
   ) {
-    return this.departmentsService.create(
-      createDepartmentDto,
-      new Types.ObjectId(user.sub),
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
     );
+    return this.departmentsService.create(createDepartmentDto, adminId);
   }
 
   @Get()
-  findAll() {
-    return this.departmentsService.findAll();
+  @ApiOperation({
+    summary: 'Get all departments with agents (Admin/Manager only)',
+    description:
+      'Retrieve all departments created by the authenticated admin or manager user, including all agents assigned to each department.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Departments with agents retrieved successfully',
+    // You might want to create a DepartmentResponseDto for proper typing
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication required',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin or Manager role required',
+    type: ForbiddenResponseDto,
+  })
+  async findAll(@AuthenticatedUser() user: JwtPayload) {
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
+    );
+    return this.departmentsService.findAllByAdminWithAgents(adminId);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.departmentsService.findById(id);
+  async findOne(
+    @Param('id') id: string,
+    @AuthenticatedUser() user: JwtPayload,
+  ) {
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
+    );
+    return this.departmentsService.findByIdAndAdmin(id, adminId);
   }
 
   @Put(':id')
-  update(
+  async update(
     @Param('id') id: string,
     @Body() updateDepartmentDto: UpdateDepartmentDto,
+    @AuthenticatedUser() user: JwtPayload,
   ) {
-    return this.departmentsService.update(id, updateDepartmentDto);
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
+    );
+    return this.departmentsService.updateByAdmin(
+      id,
+      updateDepartmentDto,
+      adminId,
+    );
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.departmentsService.remove(id);
+  async remove(@Param('id') id: string, @AuthenticatedUser() user: JwtPayload) {
+    const adminId = await AdminResolverUtil.resolveAdminIdAsObjectId(
+      user,
+      this.agentsService,
+    );
+    return this.departmentsService.removeByAdmin(id, adminId);
   }
 }

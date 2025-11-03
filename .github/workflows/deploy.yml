@@ -1,0 +1,64 @@
+name: CI/CD rds Docker Deploy
+
+on:
+  push:
+    branches:
+      - dev # Trigger on main branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout code
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      # 2. Set up Docker Buildx
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+
+      # 3. Log in to Docker Hub
+      - name: Docker Hub login
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # 4. Build Docker image
+      - name: Build Docker image
+        run: |
+          IMAGE=ghcr.io/lokeshseattle/rds-backend
+          TAG=${GITHUB_SHA::7}
+
+          echo "Building $IMAGE:$TAG and $IMAGE:latest"
+          docker build -t $IMAGE:$TAG -t $IMAGE:latest .
+
+      # 5. Push Docker image to Docker Hub
+      - name: Push Docker image
+        run: |
+          IMAGE=ghcr.io/lokeshseattle/rds-backend
+          TAG=${GITHUB_SHA::7}
+
+          docker push $IMAGE:$TAG
+          docker push $IMAGE:latest
+
+      # 6. SSH to EC2 and pull & restart container
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v0.1.8
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/rds-chat-api
+
+            IMAGE=ghcr.io/lokeshseattle/rds-backend
+            TAG=${GITHUB_SHA::7}   # same short SHA
+
+            echo "Pulling updated image $IMAGE:$TAG..."
+            docker compose pull backend
+
+            echo "Recreating backend container..."
+            docker compose up -d --force-recreate --remove-orphans backend

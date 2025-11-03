@@ -7,12 +7,17 @@ import { DepartmentsModule } from './departments/departments.module';
 import { WidgetsModule } from './widgets/widgets.module';
 import { AgentsModule } from './agents/agents.module';
 import { CustomersModule } from './customers/customers.module';
+import { ContactsModule } from './contacts/contacts.module';
 import { ChatModule } from './chat/chat.module';
 import { AppRedisModule } from './shared/redis/redis.module';
+import { MailerModule } from './shared/mailer/mailer.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import configuration from './config/configuration';
 import { AppointmentsModule } from './appointments/appointments.module';
+import { JobsModule } from './jobs/jobs.module';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 
 @Module({
   imports: [
@@ -30,15 +35,22 @@ import { AppointmentsModule } from './appointments/appointments.module';
       }),
       inject: [ConfigService],
     }),
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'public'), // path to 'public' folder
+      serveRoot: '/public', // accessible at /public/*
+    }),
     AppRedisModule, // Import global AppRedisModule early, after its dependency ConfigModule
+    MailerModule, // Import global MailerModule early, after its dependency ConfigModule
     AuthModule,
     UsersModule,
     DepartmentsModule,
     WidgetsModule,
     AgentsModule,
     CustomersModule,
+    ContactsModule,
     ChatModule,
     AppointmentsModule,
+    JobsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

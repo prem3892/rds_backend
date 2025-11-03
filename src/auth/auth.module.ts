@@ -7,11 +7,13 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './jwt.strategy';
 import { AgentsModule } from 'src/agents/agents.module';
+import { DepartmentsModule } from 'src/departments/departments.module';
 
 @Module({
   imports: [
     forwardRef(() => UsersModule),
     forwardRef(() => AgentsModule), // For creating AgentProfile on registration
+    DepartmentsModule, // For default department assignment
     PassportModule,
     ConfigModule,
     JwtModule.registerAsync({

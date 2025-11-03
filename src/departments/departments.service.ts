@@ -2,18 +2,26 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Department, DepartmentDocument } from 'src/schemas/department.schema';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
+import {
+  AgentProfile,
+  AgentProfileDocument,
+} from 'src/schemas/agent-profile.schema';
 
 @Injectable()
 export class DepartmentsService {
   constructor(
     @InjectModel(Department.name)
     private departmentModel: Model<DepartmentDocument>,
+    @InjectModel(AgentProfile.name)
+    private agentProfileModel: Model<AgentProfileDocument>,
   ) {}
 
   async create(
@@ -46,6 +54,58 @@ export class DepartmentsService {
       .exec();
   }
 
+  async findAllByAdmin(adminId: Types.ObjectId): Promise<DepartmentDocument[]> {
+    return this.departmentModel
+      .find({ createdBy: adminId })
+      .populate('createdBy', 'firstName lastName email')
+      .exec();
+  }
+
+  /**
+   * Find all departments by admin with their associated agents
+   */
+  async findAllByAdminWithAgents(adminId: Types.ObjectId): Promise<any[]> {
+    // Get all departments for the admin
+    const departments = await this.departmentModel
+      .find({ createdBy: adminId })
+      .populate('createdBy', 'firstName lastName email')
+      .lean()
+      .exec();
+
+    // Get all agent profiles for this admin
+    const agentProfiles = await this.agentProfileModel
+      .find({ adminId })
+      .populate('userId', 'firstName lastName email role isEmailVerified')
+      .lean()
+      .exec();
+
+    // Map departments with their agents
+    const departmentsWithAgents = departments.map((department) => {
+      // Find agents that belong to this department
+      const departmentAgents = agentProfiles.filter((profile) => {
+        // Check if this department is in the agent's departmentIds
+        return profile.departmentIds.some(
+          (deptId) => deptId.toString() === department._id.toString(),
+        );
+      });
+
+      return {
+        ...department,
+        agents: departmentAgents.map((profile) => {
+          const user = profile.userId as any; // userId is populated with user data
+          return {
+            _id: user?._id || profile.userId,
+            firstName: user?.firstName || '',
+            lastName: user?.lastName || '',
+            profilePicture: profile.profilePicture || '',
+          };
+        }),
+      };
+    });
+
+    return departmentsWithAgents;
+  }
+
   async findById(id: string | Types.ObjectId): Promise<DepartmentDocument> {
     const department = await this.departmentModel
       .findById(id)
@@ -53,6 +113,22 @@ export class DepartmentsService {
       .exec();
     if (!department) {
       throw new NotFoundException(`Department with ID ${id} not found`);
+    }
+    return department;
+  }
+
+  async findByIdAndAdmin(
+    id: string | Types.ObjectId,
+    adminId: Types.ObjectId,
+  ): Promise<DepartmentDocument> {
+    const department = await this.departmentModel
+      .findOne({ _id: id, createdBy: adminId })
+      .populate('createdBy', 'firstName lastName email')
+      .exec();
+    if (!department) {
+      throw new NotFoundException(
+        `Department with ID ${id} not found or you don't have permission to access it`,
+      );
     }
     return department;
   }
@@ -96,6 +172,45 @@ export class DepartmentsService {
     return updatedDepartment;
   }
 
+  async updateByAdmin(
+    id: string,
+    updateDepartmentDto: UpdateDepartmentDto,
+    adminId: Types.ObjectId,
+  ): Promise<DepartmentDocument> {
+    const department = await this.findByIdAndAdmin(id, adminId); // Ensures department exists and belongs to admin
+
+    if (
+      updateDepartmentDto.name &&
+      updateDepartmentDto.name !== department.name
+    ) {
+      const existingDepartment = await this.departmentModel
+        .findOne({
+          name: updateDepartmentDto.name,
+          _id: { $ne: id },
+          createdBy: adminId,
+        })
+        .exec();
+      if (existingDepartment) {
+        throw new ConflictException(
+          `Department with name "${updateDepartmentDto.name}" already exists.`,
+        );
+      }
+    }
+
+    const updatedDepartment = await this.departmentModel
+      .findOneAndUpdate({ _id: id, createdBy: adminId }, updateDepartmentDto, {
+        new: true,
+      })
+      .populate('createdBy', 'firstName lastName email')
+      .exec();
+    if (!updatedDepartment) {
+      throw new NotFoundException(
+        `Department with ID ${id} not found for update or you don't have permission to update it.`,
+      );
+    }
+    return updatedDepartment;
+  }
+
   async remove(id: string): Promise<DepartmentDocument> {
     // Add logic here to check if department is in use by any widgets or agents before deleting
     // For example, query Widgets and AgentProfiles
@@ -106,5 +221,55 @@ export class DepartmentsService {
       throw new NotFoundException(`Department with ID ${id} not found`);
     }
     return deletedDepartment;
+  }
+
+  async removeByAdmin(
+    id: string,
+    adminId: Types.ObjectId,
+  ): Promise<DepartmentDocument> {
+    // First check if the department exists and belongs to the admin
+    await this.findByIdAndAdmin(id, adminId);
+
+    // Add logic here to check if department is in use by any widgets or agents before deleting
+    // For example, query Widgets and AgentProfiles
+    const deletedDepartment = await this.departmentModel
+      .findOneAndDelete({ _id: id, createdBy: adminId })
+      .exec();
+    if (!deletedDepartment) {
+      throw new NotFoundException(
+        `Department with ID ${id} not found or you don't have permission to delete it`,
+      );
+    }
+    return deletedDepartment;
+  }
+
+  /**
+   * Find or create a default department for an admin.
+   * If admin has existing departments, returns the first (oldest) one.
+   * If no departments exist, creates a "General Support" department.
+   */
+  async findOrCreateDefaultDepartment(
+    adminId: Types.ObjectId,
+  ): Promise<DepartmentDocument> {
+    // First, try to find existing departments for this admin
+    const existingDepartments = await this.departmentModel
+      .find({ createdBy: adminId })
+      .sort({ createdAt: 1 }) // Sort by creation date, oldest first
+      .limit(1)
+      .exec();
+
+    if (existingDepartments.length > 0) {
+      return existingDepartments[0];
+    }
+
+    // No departments exist, create a default one
+    const defaultDepartmentData = {
+      name: 'General Support',
+      description: 'Default department for general support inquiries',
+      createdBy: adminId,
+    };
+
+    const defaultDepartment = new this.departmentModel(defaultDepartmentData);
+    return defaultDepartment.save();
   }
 }

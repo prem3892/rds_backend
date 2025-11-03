@@ -9,6 +9,7 @@ import { WidgetsModule } from '../widgets/widgets.module';
 import { DepartmentsModule } from 'src/departments/departments.module';
 import { ConfigModule } from '@nestjs/config';
 import { AppointmentsModule } from 'src/appointments/appointments.module'; // For appointment booked notice
+import { MailerModule } from '../shared/mailer/mailer.module';
 import {
   ChatSession,
   ChatSessionSchema,
@@ -17,25 +18,33 @@ import {
   ChatMessage,
   ChatMessageSchema,
 } from 'src/schemas/chat-message.schema';
+import { Appointment, AppointmentSchema } from 'src/schemas/appointment.schema';
 import { ChatGateway } from './chat.gateway';
 import { ChatSessionService } from './services/chat-session/chat-session.service';
 import { ChatMessageService } from './services/chat-message/chat-message.service';
 import { ChatNotificationService } from './services/chat-notification/chat-notification.service';
+import { ChatTranscriptService } from './services/chat-transcript/chat-transcript.service';
+import { VisitorStateService } from './services/visitor-state/visitor-state.service';
+import { AgentStatusNotificationService } from './services/agent-status-notification/agent-status-notification.service';
+import { VisitorTrackingController } from './visitor-tracking.controller';
+import { PublicChatController } from './public-chat.controller';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: ChatSession.name, schema: ChatSessionSchema },
       { name: ChatMessage.name, schema: ChatMessageSchema },
+      { name: Appointment.name, schema: AppointmentSchema },
     ]),
     ConfigModule,
     forwardRef(() => AuthModule), // For JWT validation in gateway
     forwardRef(() => UsersModule), // UsersModule might need services from ChatModule indirectly
     forwardRef(() => AgentsModule), // AgentsModule might need ChatSessionService
-    CustomersModule,
-    WidgetsModule,
-    DepartmentsModule,
+    forwardRef(() => CustomersModule),
+    forwardRef(() => WidgetsModule),
+    forwardRef(() => DepartmentsModule),
     forwardRef(() => AppointmentsModule), // For sending appointment booked notices
+    MailerModule,
     // AppRedisModule is Global, so no need to import here explicitly
   ],
   providers: [
@@ -43,12 +52,22 @@ import { ChatNotificationService } from './services/chat-notification/chat-notif
     ChatSessionService,
     ChatMessageService,
     ChatNotificationService,
+    ChatTranscriptService,
+    VisitorStateService,
+    AgentStatusNotificationService,
   ],
-  controllers: [ChatController],
+  controllers: [
+    ChatController,
+    VisitorTrackingController,
+    PublicChatController,
+  ],
   exports: [
     ChatSessionService,
     ChatMessageService,
     ChatNotificationService,
+    ChatTranscriptService,
+    VisitorStateService,
+    AgentStatusNotificationService,
     ChatGateway, // If other modules need to emit via gateway
     MongooseModule,
   ],
