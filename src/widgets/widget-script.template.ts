@@ -712,7 +712,7 @@ export function generateWidgetScript(
               <!-- Message Input - Fixed to bottom -->
               <div style="
                 border-top: 1px solid #e5e7eb;
-                padding: 1rem 0.5rem;
+                padding: 0.6rem 0.5rem;
                 padding-bottom: 0.5rem;
                 flex-shrink: 0;
                 background-color: white;
