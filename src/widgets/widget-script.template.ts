@@ -1307,7 +1307,7 @@ export function generateWidgetScript(
             const messageInput = document.getElementById('message-input');
             if (messageInput) {
               messageInput.style.padding = isCompact ? '6px 44px 6px 10px' : '8px 50px 8px 12px';
-              messageInput.style.fontSize = '14px !important';
+              messageInput.style.fontSize = '16px !important';
             }
 
             const sendBtn = document.getElementById('send-btn');
