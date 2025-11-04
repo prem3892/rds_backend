@@ -744,7 +744,7 @@ export function generateWidgetScript(
                     <div id="attach-btn" role="button" tabindex="0" style="
                       position: absolute;
                       right: 20px;
-                      top: 50%;
+                      top: 58%;
                       transform: translateY(-50%);
                       color: #9ca3af;
                       cursor: pointer;
