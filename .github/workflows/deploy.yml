@@ -11,15 +11,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout repository
+      # 1️⃣ Checkout repository
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      # 2. Set up Docker
+      # 2️⃣ Set up Docker
       - name: Set up Docker
         uses: docker/setup-buildx-action@v3
 
-      # 3. Log in to GHCR (GitHub Container Registry)
+      # 3️⃣ Log in to GitHub Container Registry (GHCR)
       - name: Docker login
         uses: docker/login-action@v2
         with:
@@ -27,7 +27,7 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # 4. Build Docker image
+      # 4️⃣ Build Docker image
       - name: Build Docker image
         run: |
           IMAGE=ghcr.io/lokeshseattle/rds-backend
@@ -43,7 +43,7 @@ jobs:
           echo "Building $IMAGE:$TAG and $IMAGE:$LATEST_TAG"
           docker build -t $IMAGE:$TAG -t $IMAGE:$LATEST_TAG .
 
-      # 5. Push Docker image
+      # 5️⃣ Push Docker image
       - name: Push Docker image
         run: |
           IMAGE=ghcr.io/lokeshseattle/rds-backend
@@ -60,31 +60,44 @@ jobs:
           docker push $IMAGE:$TAG
           docker push $IMAGE:$LATEST_TAG
 
-      # 6. Deploy to the correct EC2 server
-      - name: Deploy on EC2
+      # 6️⃣ Deploy to Production EC2 (main branch)
+      - name: Deploy on EC2 (Production)
+        if: github.ref_name == 'main'
         uses: appleboy/ssh-action@v0.1.8
         with:
-          host: ${{ github.ref_name == 'main' && secrets.EC2_HOST_PROD || secrets.EC2_HOST_DEV }}
+          host: ${{ secrets.EC2_HOST_PROD }}
           username: ubuntu
-          key: ${{ github.ref_name == 'main' && secrets.EC2_SSH_KEY_PROD || secrets.EC2_SSH_KEY_DEV }}
+          key: ${{ secrets.EC2_SSH_KEY_PROD }}
           script: |
             set -e
             cd /home/ubuntu/rds-chat-api
 
             IMAGE=ghcr.io/lokeshseattle/rds-backend
-            BRANCH=${GITHUB_REF_NAME}
-            if [ "$BRANCH" = "main" ]; then
-              IMAGE_TAG="latest"
-            else
-              IMAGE_TAG="latest-${BRANCH}"
-            fi
+            IMAGE_TAG="latest"
 
-            echo "Deploying branch: $BRANCH"
-            echo "Pulling image $IMAGE:$IMAGE_TAG..."
-            IMAGE_TAG=$IMAGE_TAG docker compose pull backend
+            echo "🚀 Deploying PRODUCTION branch (main)"
+            echo "Pulling $IMAGE:$IMAGE_TAG..."
+            docker compose pull backend
+            docker compose up -d --force-recreate --remove-orphans backend
+            docker image prune -af --filter "until=24h"
 
-            echo "Recreating backend container..."
-            IMAGE_TAG=$IMAGE_TAG docker compose up -d --force-recreate --remove-orphans backend
+      # 7️⃣ Deploy to Dev EC2 (dev branch)
+      - name: Deploy on EC2 (Dev)
+        if: github.ref_name == 'dev'
+        uses: appleboy/ssh-action@v0.1.8
+        with:
+          host: ${{ secrets.EC2_HOST_DEV }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY_DEV }}
+          script: |
+            set -e
+            cd /home/ubuntu/rds-chat-api
 
-            echo "🧹 Cleaning up old Docker images..."
+            IMAGE=ghcr.io/lokeshseattle/rds-backend
+            IMAGE_TAG="latest-dev"
+
+            echo "🚀 Deploying DEV branch (dev)"
+            echo "Pulling $IMAGE:$IMAGE_TAG..."
+            docker compose pull backend
+            docker compose up -d --force-recreate --remove-orphans backend
             docker image prune -af --filter "until=24h"
