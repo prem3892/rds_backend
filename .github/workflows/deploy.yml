@@ -98,6 +98,6 @@ jobs:
 
             echo "🚀 Deploying DEV branch (dev)"
             echo "Pulling $IMAGE:$IMAGE_TAG..."
-            docker compose pull backend
-            docker compose up -d --force-recreate --remove-orphans backend
+            IMAGE_TAG=$IMAGE_TAG docker compose pull backend
+            IMAGE_TAG=$IMAGE_TAG docker compose up -d --force-recreate --remove-orphans backend
             docker image prune -af --filter "until=24h"
