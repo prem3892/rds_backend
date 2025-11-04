@@ -3,7 +3,7 @@ name: CI/CD rds Docker Deploy
 on:
   push:
     branches:
-      - dev # Trigger on main branch
+      - main # Trigger on main branch
 
 jobs:
   build-and-deploy:
