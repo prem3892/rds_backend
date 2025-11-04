@@ -737,7 +737,7 @@ export function generateWidgetScript(
                              outline: none;
                              box-sizing: border-box;
                              transition: border-color 0.2s ease, box-shadow 0.2s ease;
-                             font-size: '14px !important';
+                             font-size: 16px !important;
                            "
                            >
                     <input type="file" id="file-input" style="display: none;" accept="image/*,.pdf,.doc,.docx,.txt">
