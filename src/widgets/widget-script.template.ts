@@ -21,6 +21,17 @@ export function generateWidgetScript(
         return;
       }
       
+      // Ensure viewport meta tag exists to prevent iOS auto-zoom
+      let viewportMeta = document.querySelector('meta[name="viewport"]');
+      if (!viewportMeta) {
+        viewportMeta = document.createElement('meta');
+        viewportMeta.name = 'viewport';
+        viewportMeta.content = 'width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover';
+        document.head.insertBefore(viewportMeta, document.head.firstChild);
+      } else {
+        viewportMeta.content = 'width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover';
+      }
+      
       // Add CSS animations and responsive styles
       const style = document.createElement('style');
       style.textContent = \`
