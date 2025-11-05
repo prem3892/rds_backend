@@ -637,6 +637,7 @@ export function generateWidgetScript(
                 gap: 12px;
                 // min-height: 310px;
                 min-height: 38vh;
+                margin-bottom: 8px;
 
                 
               ">
