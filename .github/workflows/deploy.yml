@@ -1,64 +1,103 @@
-name: CI/CD rds Docker Deploy
+name: CI/CD RDS Docker Deploy
 
 on:
   push:
     branches:
-      - main # Trigger on main branch
+      - main
+      - dev
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout code
+      # 1️⃣ Checkout repository
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      # 2. Set up Docker Buildx
+      # 2️⃣ Set up Docker
       - name: Set up Docker
         uses: docker/setup-buildx-action@v3
 
-      # 3. Log in to Docker Hub
-      - name: Docker Hub login
+      # 3️⃣ Log in to GitHub Container Registry (GHCR)
+      - name: Docker login
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # 4. Build Docker image
+      # 4️⃣ Build Docker image
       - name: Build Docker image
         run: |
           IMAGE=ghcr.io/lokeshseattle/rds-backend
+          BRANCH=${GITHUB_REF_NAME}
           TAG=${GITHUB_SHA::7}
 
-          echo "Building $IMAGE:$TAG and $IMAGE:latest"
-          docker build -t $IMAGE:$TAG -t $IMAGE:latest .
+          if [ "$BRANCH" = "main" ]; then
+            LATEST_TAG="latest"
+          else
+            LATEST_TAG="latest-${BRANCH}"
+          fi
 
-      # 5. Push Docker image to Docker Hub
+          echo "Building $IMAGE:$TAG and $IMAGE:$LATEST_TAG"
+          docker build -t $IMAGE:$TAG -t $IMAGE:$LATEST_TAG .
+
+      # 5️⃣ Push Docker image
       - name: Push Docker image
         run: |
           IMAGE=ghcr.io/lokeshseattle/rds-backend
+          BRANCH=${GITHUB_REF_NAME}
           TAG=${GITHUB_SHA::7}
 
-          docker push $IMAGE:$TAG
-          docker push $IMAGE:latest
+          if [ "$BRANCH" = "main" ]; then
+            LATEST_TAG="latest"
+          else
+            LATEST_TAG="latest-${BRANCH}"
+          fi
 
-      # 6. SSH to EC2 and pull & restart container
-      - name: Deploy on EC2
+          echo "Pushing $IMAGE:$TAG and $IMAGE:$LATEST_TAG"
+          docker push $IMAGE:$TAG
+          docker push $IMAGE:$LATEST_TAG
+
+      # 6️⃣ Deploy to Production EC2 (main branch)
+      - name: Deploy on EC2 (Production)
+        if: github.ref_name == 'main'
         uses: appleboy/ssh-action@v0.1.8
         with:
-          host: ${{ secrets.EC2_HOST }}
+          host: ${{ secrets.EC2_HOST_PROD }}
           username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
+          key: ${{ secrets.EC2_SSH_KEY_PROD }}
           script: |
+            set -e
             cd /home/ubuntu/rds-chat-api
 
             IMAGE=ghcr.io/lokeshseattle/rds-backend
-            TAG=${GITHUB_SHA::7}   # same short SHA
+            IMAGE_TAG="latest"
 
-            echo "Pulling updated image $IMAGE:$TAG..."
+            echo "🚀 Deploying PRODUCTION branch (main)"
+            echo "Pulling $IMAGE:$IMAGE_TAG..."
             docker compose pull backend
-
-            echo "Recreating backend container..."
             docker compose up -d --force-recreate --remove-orphans backend
+            docker image prune -af --filter "until=24h"
+
+      # 7️⃣ Deploy to Dev EC2 (dev branch)
+      - name: Deploy on EC2 (Dev)
+        if: github.ref_name == 'dev'
+        uses: appleboy/ssh-action@v0.1.8
+        with:
+          host: ${{ secrets.EC2_HOST_DEV }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY_DEV }}
+          script: |
+            set -e
+            cd /home/ubuntu/rds-chat-api
+
+            IMAGE=ghcr.io/lokeshseattle/rds-backend
+            IMAGE_TAG="latest-dev"
+
+            echo "🚀 Deploying DEV branch (dev)"
+            echo "Pulling $IMAGE:$IMAGE_TAG..."
+            IMAGE_TAG=$IMAGE_TAG docker compose pull backend
+            IMAGE_TAG=$IMAGE_TAG docker compose up -d --force-recreate --remove-orphans backend
+            docker image prune -af --filter "until=24h"

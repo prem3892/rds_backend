@@ -21,6 +21,17 @@ export function generateWidgetScript(
         return;
       }
       
+      // Ensure viewport meta tag exists to prevent iOS auto-zoom
+      let viewportMeta = document.querySelector('meta[name="viewport"]');
+      if (!viewportMeta) {
+        viewportMeta = document.createElement('meta');
+        viewportMeta.name = 'viewport';
+        viewportMeta.content = 'width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover';
+        document.head.insertBefore(viewportMeta, document.head.firstChild);
+      } else {
+        viewportMeta.content = 'width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover';
+      }
+      
       // Add CSS animations and responsive styles
       const style = document.createElement('style');
       style.textContent = \`
@@ -626,6 +637,7 @@ export function generateWidgetScript(
                 gap: 12px;
                 // min-height: 310px;
                 min-height: 38vh;
+                margin-bottom: 8px;
 
                 
               ">
@@ -653,7 +665,7 @@ export function generateWidgetScript(
                 bottom: 55px;
                 left: 5px;
                 right: 16px;
-                padding: 8px 16px;
+                padding: 2px 16px;
                 width: 100%;
                 font-size: 12px;
                 color: #6b7280;
@@ -701,7 +713,7 @@ export function generateWidgetScript(
               <!-- Message Input - Fixed to bottom -->
               <div style="
                 border-top: 1px solid #e5e7eb;
-                padding: 1rem 0.5rem;
+                padding: 0.6rem 0.5rem;
                 padding-bottom: 0.5rem;
                 flex-shrink: 0;
                 background-color: white;
@@ -726,14 +738,14 @@ export function generateWidgetScript(
                              outline: none;
                              box-sizing: border-box;
                              transition: border-color 0.2s ease, box-shadow 0.2s ease;
-                             font-size: '14px !important';
+                             font-size: 16px !important;
                            "
                            >
                     <input type="file" id="file-input" style="display: none;" accept="image/*,.pdf,.doc,.docx,.txt">
                     <div id="attach-btn" role="button" tabindex="0" style="
                       position: absolute;
                       right: 20px;
-                      top: 50%;
+                      top: 58%;
                       transform: translateY(-50%);
                       color: #9ca3af;
                       cursor: pointer;
@@ -1296,7 +1308,7 @@ export function generateWidgetScript(
             const messageInput = document.getElementById('message-input');
             if (messageInput) {
               messageInput.style.padding = isCompact ? '6px 44px 6px 10px' : '8px 50px 8px 12px';
-              messageInput.style.fontSize = '14px !important';
+              messageInput.style.fontSize = '16px !important';
             }
 
             const sendBtn = document.getElementById('send-btn');
