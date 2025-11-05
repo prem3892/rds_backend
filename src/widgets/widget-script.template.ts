@@ -664,7 +664,7 @@ export function generateWidgetScript(
                 bottom: 55px;
                 left: 5px;
                 right: 16px;
-                padding: 8px 16px;
+                padding: 2px 16px;
                 width: 100%;
                 font-size: 12px;
                 color: #6b7280;
