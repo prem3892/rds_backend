@@ -179,14 +179,14 @@ export function generateFailedResultsCsv(
   failedRowNumbers.forEach((rowNumber, index) => {
     const originalRow = originalCsvData[rowNumber - 2]; // -2 because CSV is 1-indexed and we skip header
     const error = errors[index] || 'Unknown error';
-    
+
     const row = [
       rowNumber.toString(),
       `"${(originalRow?.shortCode || originalRow?.title || '').replace(/"/g, '""')}"`,
       `"${(originalRow?.message || originalRow?.content || '').replace(/"/g, '""')}"`,
       `"${error.replace(/"/g, '""')}"`,
     ];
-    
+
     rows.push(row.join(','));
   });
 
@@ -201,7 +201,7 @@ export function saveFailedResultsCsv(
   userId: string,
 ): string {
   const uploadPath = join(process.cwd(), 'uploads', 'failed-results');
-  
+
   // Create upload directory if it doesn't exist
   if (!existsSync(uploadPath)) {
     mkdirSync(uploadPath, { recursive: true });
@@ -212,7 +212,7 @@ export function saveFailedResultsCsv(
   const filePath = join(uploadPath, filename);
 
   writeFileSync(filePath, csvContent, 'utf-8');
-  
+
   return `/uploads/failed-results/${filename}`;
 }
 
@@ -228,7 +228,7 @@ export function getFailedResultsUploadPath(): string {
  */
 export function cleanCsvContent(content: string): string {
   if (!content) return '';
-  
+
   return content
     .trim()
     .replace(/\\n/g, ' ') // Replace literal \n with space

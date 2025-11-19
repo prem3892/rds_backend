@@ -16,8 +16,10 @@ import { MongooseModule } from '@nestjs/mongoose';
 import configuration from './config/configuration';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { JobsModule } from './jobs/jobs.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
+import { MigrationsModule } from './migrations/migrations.module';
 
 @Module({
   imports: [
@@ -51,6 +53,8 @@ import { join } from 'path';
     ChatModule,
     AppointmentsModule,
     JobsModule,
+    AnalyticsModule,
+    MigrationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

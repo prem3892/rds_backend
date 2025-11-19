@@ -314,7 +314,7 @@ export class ChatNotificationService {
       }
 
       // Get customer name for the notification
-      const customer = session.customerId as any;
+      const customer = session.customerId;
       const customerName = customer?.name || customer?.email || 'Customer';
 
       // Prepare notification data (same payload as server:customer_inactive)

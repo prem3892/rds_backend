@@ -10,6 +10,7 @@ import { DepartmentsModule } from 'src/departments/departments.module';
 import { ConfigModule } from '@nestjs/config';
 import { AppointmentsModule } from 'src/appointments/appointments.module'; // For appointment booked notice
 import { MailerModule } from '../shared/mailer/mailer.module';
+import { AnalyticsModule } from 'src/analytics/analytics.module';
 import {
   ChatSession,
   ChatSessionSchema,
@@ -45,6 +46,7 @@ import { PublicChatController } from './public-chat.controller';
     forwardRef(() => DepartmentsModule),
     forwardRef(() => AppointmentsModule), // For sending appointment booked notices
     MailerModule,
+    AnalyticsModule, // For AttributionService
     // AppRedisModule is Global, so no need to import here explicitly
   ],
   providers: [

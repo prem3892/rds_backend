@@ -348,7 +348,7 @@ export class AgentsService {
 
       // Combine and filter by search
       const escapedSearch = search.toLowerCase();
-      let filteredItems = allAgentProfiles
+      const filteredItems = allAgentProfiles
         .map((profile) => {
           const userDetails = allUserMap.get(profile.userId.toString());
           return {

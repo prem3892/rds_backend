@@ -122,7 +122,7 @@ export function IsValidTimeSlot(validationOptions?: ValidationOptions) {
 }
 
 export function NoOverlappingTimeSlots(validationOptions?: ValidationOptions) {
-  return function (object: Object, propertyName: string) {
+  return function (object: object, propertyName: string) {
     registerDecorator({
       target: object.constructor,
       propertyName: propertyName,

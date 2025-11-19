@@ -17,9 +17,14 @@ export class BulkDeleteCannedMessagesDto {
   })
   @IsArray()
   @ArrayMinSize(1, { message: 'At least one message ID is required' })
-  @ArrayMaxSize(100, { message: 'Cannot delete more than 100 messages at once' })
+  @ArrayMaxSize(100, {
+    message: 'Cannot delete more than 100 messages at once',
+  })
   @IsString({ each: true })
-  @IsMongoId({ each: true, message: 'Each message ID must be a valid MongoDB ObjectId' })
+  @IsMongoId({
+    each: true,
+    message: 'Each message ID must be a valid MongoDB ObjectId',
+  })
   messageIds: string[];
 }
 
@@ -60,7 +65,8 @@ export class BulkDeleteCannedMessagesResponseDto {
   deletedMessageIds: string[];
 
   @ApiProperty({
-    description: 'Array of message IDs that were not found or could not be deleted',
+    description:
+      'Array of message IDs that were not found or could not be deleted',
     type: [String],
     example: ['507f1f77bcf86cd799439011', '507f1f77bcf86cd799439012'],
   })

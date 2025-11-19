@@ -82,6 +82,12 @@ export class ChatSession {
   @Prop({ required: true })
   domain: string;
 
+  @Prop()
+  sourceUrl?: string;
+
+  @Prop()
+  trafficSource?: string;
+
   @Prop({ default: 0 })
   priorityNotificationSentCount: number;
 
