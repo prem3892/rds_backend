@@ -37,7 +37,8 @@ export class ImportCannedMessagesResponseDto {
   createdMessageIds: string[];
 
   @ApiProperty({
-    description: 'URL to download Excel file containing failed results (if any failures occurred)',
+    description:
+      'URL to download Excel file containing failed results (if any failures occurred)',
     example: '/uploads/failed-results/failed-canned-messages-1234567890.xlsx',
     required: false,
   })

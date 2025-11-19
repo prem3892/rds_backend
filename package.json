@@ -21,7 +21,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "migrate:admin-agent-profiles": "ts-node -r tsconfig-paths/register src/scripts/migrate-admin-agent-profiles.ts",
     "migrate:canned-message-indexes": "ts-node -r tsconfig-paths/register src/scripts/migrate-canned-message-indexes.ts",
-    "migrate:profile-pictures-to-webp": "ts-node -r tsconfig-paths/register src/scripts/migrate-profile-pictures-to-webp.ts"
+    "migrate:profile-pictures-to-webp": "ts-node -r tsconfig-paths/register src/scripts/migrate-profile-pictures-to-webp.ts",
+    "migrate:backfill-chat-session-source": "npm run build && node dist/migrations/run-backfill-migration.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

@@ -78,7 +78,7 @@ export class CustomersService {
     }
 
     // Try to find by fingerprint and widgetId for anonymous users
-    let customer = await this.findByFingerprintAndWidget(
+    const customer = await this.findByFingerprintAndWidget(
       data.fingerprint,
       data.widgetId,
     );

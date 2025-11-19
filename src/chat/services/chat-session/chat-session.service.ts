@@ -36,6 +36,7 @@ import { DepartmentsService } from 'src/departments/departments.service';
 import { CustomerDocument } from 'src/schemas/customer.schema';
 import { GetChatSessionsQueryDto } from 'src/chat/dto/get-chat-session.dto';
 import { DateFormatterUtil } from 'src/shared/utils/date-formatter.util';
+import { AttributionService } from 'src/shared/services/attribution.service';
 
 @Injectable()
 export class ChatSessionService {
@@ -53,6 +54,7 @@ export class ChatSessionService {
     private readonly customersService: CustomersService,
     private readonly widgetsService: WidgetsService,
     private readonly departmentsService: DepartmentsService,
+    private readonly attributionService: AttributionService,
   ) {}
 
   /**
@@ -163,6 +165,7 @@ export class ChatSessionService {
     dto: InitiateChatDto,
     domain: string,
     customer: CustomerDocument,
+    sourceUrl?: string,
   ): Promise<{ session: ChatSessionDocument; wasNew: boolean }> {
     // Check for existing PENDING_ASSIGNMENT or ACTIVE session for this customer and widget
     const existingSession = await this.chatSessionModel
@@ -238,16 +241,22 @@ export class ChatSessionService {
       );
     }
 
+    const attribution = sourceUrl
+      ? this.attributionService.parseUrl(sourceUrl)
+      : { source: 'organic' };
+
     const newSession = new this.chatSessionModel({
       widgetId: widget._id,
       customerId: customer._id,
       departmentId: department._id,
       initialMessage: dto.initialMessage,
       domain: domain,
+      sourceUrl: sourceUrl || 'unknown_page',
+      trafficSource: attribution.source,
       status: ChatSessionStatus.PENDING_ASSIGNMENT,
       initiatedAt: new Date(),
       initiatedBy: ChatMessageSenderType.CUSTOMER,
-      lastMessageAt: new Date(), // For the initial message
+      lastMessageAt: new Date(),
       customerLastSeen: new Date(),
     });
     const savedSession = await newSession.save();
