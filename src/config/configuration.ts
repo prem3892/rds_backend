@@ -70,7 +70,7 @@ export default () => ({
       process.env.VISITOR_DISCONNECTED_GRACE_PERIOD_MS || '300000',
       10,
     ), // 5 minutes
-VisitorsPerAgent: parseInt(
+    VisitorsPerAgent: parseInt(
       process.env.MAX_VISITORS_PER_AGENT || '1000',
       10,
     ),

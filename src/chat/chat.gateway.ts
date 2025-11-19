@@ -1289,7 +1289,7 @@ export class ChatGateway
 
       // Emit to other agents in the same organization that the chat is taken
       // Exclude ALL of the accepting agent's sockets, not just the triggering one
-      let excludeSocketIds = allAgentSockets;
+      const excludeSocketIds = allAgentSockets;
       const organizationRoom = agentProfile?.adminId
         ? `online_agents:${agentProfile.adminId.toString()}`
         : null;
@@ -1524,7 +1524,7 @@ export class ChatGateway
     this.logger.debug(
       `[handleAgentEndChat] Agent profile ${JSON.stringify(agentProfile)}`,
     );
-    const agentId = (agentProfile.userId as Types.ObjectId).toString();
+    const agentId = agentProfile.userId.toString();
     if (session.agentId?.toString() !== agentId) {
       throw new WsException('You are not the agent for this chat.');
     }
@@ -1982,11 +1982,19 @@ export class ChatGateway
     }
 
     const widget = await this.widgetsService.findById(payload.widgetId); // Ensure widget exists
-    const currentPageUrl = customer.metadata?.currentPageUrl || 'unknown_page'; // Get from customer metadata
+    const currentPageUrl =
+      payload.currentPageUrl ||
+      customer.metadata?.currentPageUrl ||
+      'unknown_page'; // Get from payload or customer metadata
     const domain = new URL(currentPageUrl).hostname;
 
     const { session: chatSession, wasNew } =
-      await this.chatSessionService.initiateChat(payload, domain, customer);
+      await this.chatSessionService.initiateChat(
+        payload,
+        domain,
+        customer,
+        currentPageUrl,
+      );
 
     // const agentName =
     //   await this.chatSessionService.getCurrentAgentNameOfSession(
@@ -2659,7 +2667,7 @@ export class ChatGateway
 
     const appointmentData: CreateAppointmentDto = {
       ...payload,
-      agentId: (agent.userId as Types.ObjectId).toString(),
+      agentId: agent.userId.toString(),
       customerId: customer._id.toString(),
       appointmentTime: appointmentTime,
       notes: payload.notes ?? '',
@@ -2688,7 +2696,7 @@ export class ChatGateway
 
     const systemMessage = await this.chatMessageService.createMessage({
       chatSessionId: new Types.ObjectId(payload.chatSessionId),
-      senderId: agent.userId as Types.ObjectId, // System action by agent
+      senderId: agent.userId, // System action by agent
       senderType: ChatMessageSenderType.SYSTEM,
       messageType: ChatMessageType.APPOINTMENT_BOOKED_NOTICE,
       content: {
