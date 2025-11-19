@@ -138,26 +138,28 @@ export class AnalyticsService {
       });
     }
 
-    const attributedChats = chatSessions.map((session) => {
-      const customer = session.customerId as any;
-      const currentPageUrl =
-        (session as any).sourceUrl ||
-        customer?.metadata?.currentPageUrl ||
-        'unknown_page';
-      const attribution = (session as any).trafficSource
-        ? {
-            source: (session as any).trafficSource,
-            domain: (session as any).domain,
-          }
-        : this.attributionService.parseUrl(currentPageUrl);
-      const appointment = appointmentMap.get(session._id.toString());
+    const attributedChats = chatSessions
+      .map((session) => {
+        const customer = session.customerId as any;
+        const currentPageUrl =
+          (session as any).sourceUrl ||
+          customer?.metadata?.currentPageUrl ||
+          'unknown_page';
+        const attribution = (session as any).trafficSource
+          ? {
+              source: (session as any).trafficSource,
+              domain: (session as any).domain,
+            }
+          : this.attributionService.parseUrl(currentPageUrl);
+        const appointment = appointmentMap.get(session._id.toString());
 
-      return {
-        ...session,
-        attribution,
-        appointment,
-      };
-    });
+        return {
+          ...session,
+          attribution,
+          appointment,
+        };
+      })
+      .filter((chat) => !!chat.agentId);
 
     if (filters.conversionOnly) {
       return this.buildConversionOnlyResponse(
