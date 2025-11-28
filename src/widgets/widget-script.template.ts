@@ -276,6 +276,39 @@ export function generateWidgetScript(
           });
           
           return div;
+        },
+        
+        // Detect if user came from Google Ads or Meta Ads (paid traffic only)
+        isFromAdSource() {
+          const params = new URLSearchParams(window.location.search);
+
+          console.log('AdSource Check ', window.location.search)
+          
+          // Google Ads indicators
+          if (params.has('gclid')) {
+            return true;
+          }
+          
+          if (params.has('gad_source') && params.get('gad_source') === '1') {
+            return true;
+          }
+          
+          const utmSource = params.get('utm_source')?.toLowerCase() || '';
+          if (utmSource === 'adwords' || utmSource === 'gads' || utmSource === 'google') {
+            return true;
+          }
+          
+          // Meta/Facebook Ads - only if fbclid + utm_source indicates paid traffic
+          if (params.has('fbclid')) {
+            // Only count as paid if utm_source confirms it's from paid Meta campaign
+            if (utmSource === 'facebook' || utmSource === 'meta' || utmSource === 'instagram') {
+              return true;
+            }
+            // If fbclid exists but no utm_source, it's likely organic traffic from Facebook page
+            return false;
+          }
+          
+          return false;
         }
       };
     
@@ -1228,11 +1261,16 @@ export function generateWidgetScript(
           // Listen for appointment booked notification
           this.socket.on('server:appointment_booked_notification', (data) => {
             console.log('Appointment booked notification received:', data);
-            // Push event to dataLayer for Google Analytics/Tag Manager
-            window.dataLayer = window.dataLayer || [];
-            window.dataLayer.push({
-              event: 'convoia_chats_book_event'
-            });
+            // Only push event if user came from Google Ads or Meta Ads
+            if (utils.isFromAdSource()) {
+              // Push event to dataLayer for Google Analytics/Tag Manager
+              window.dataLayer = window.dataLayer || [];
+              window.dataLayer.push({
+                event: 'convoia_chats_book_event'
+              });
+            } else {
+              console.log('Not pushing event to dataLayer because user did not come from ad source.');
+            }
           });
         }
     
