@@ -38,7 +38,7 @@ export function createProfilePictureUploadInterceptor() {
           );
           callback(null, filename);
         } catch (error) {
-          callback(error as any, '');
+          callback(error, '');
         }
       },
     }),
@@ -77,7 +77,7 @@ export function createChatImageUploadInterceptor() {
 
           callback(null, uploadPath);
         } catch (error) {
-          callback(error as any, '');
+          callback(error, '');
         }
       },
       filename: (req, file, callback) => {
@@ -87,7 +87,7 @@ export function createChatImageUploadInterceptor() {
           const filename = generateChatImageFilename('temp', file.originalname);
           callback(null, filename);
         } catch (error) {
-          callback(error as any, '');
+          callback(error, '');
         }
       },
     }),
@@ -162,7 +162,7 @@ function validateCsvFile(file: any): void {
     'text/plain',
     'application/vnd.ms-excel',
   ];
-  
+
   if (!allowedMimeTypes.includes(file.mimetype)) {
     throw new BadRequestException(
       'Invalid file type. Only CSV files are allowed.',
@@ -174,7 +174,7 @@ function validateCsvFile(file: any): void {
   const fileExtension = file.originalname
     .toLowerCase()
     .substring(file.originalname.lastIndexOf('.'));
-  
+
   if (!allowedExtensions.includes(fileExtension)) {
     throw new BadRequestException(
       'Invalid file extension. Only .csv files are allowed.',
@@ -248,7 +248,7 @@ function validateExcelFile(file: any): void {
     'application/x-excel',
     'application/x-msexcel',
   ];
-  
+
   if (!allowedMimeTypes.includes(file.mimetype)) {
     throw new BadRequestException(
       'Invalid file type. Only Excel files (.xlsx, .xls) are allowed.',
@@ -260,7 +260,7 @@ function validateExcelFile(file: any): void {
   const fileExtension = file.originalname
     .toLowerCase()
     .substring(file.originalname.lastIndexOf('.'));
-  
+
   if (!allowedExtensions.includes(fileExtension)) {
     throw new BadRequestException(
       'Invalid file extension. Only .xlsx and .xls files are allowed.',

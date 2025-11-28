@@ -38,4 +38,9 @@ export class InitiateChatDto {
   @IsOptional()
   @IsBoolean()
   isAutoMessage?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  currentPageUrl?: string;
 }
